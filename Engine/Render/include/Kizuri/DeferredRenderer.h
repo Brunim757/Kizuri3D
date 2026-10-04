@@ -90,6 +90,7 @@ public:
   void SetBloom(float strength);
   void SetFsr(float scale, float sharpness);
   void SetSsao(bool on, float intensity, float radius);
+  void SetSsr(bool on);
   void SetFog(bool on, float density, const float color[3]);
   bool Resize(int w, int h);
   void SetViewOffset(float x, float y);
@@ -190,6 +191,13 @@ private:
   bool fogOn;
   float fogDensity;
   float fogColor[3];
+  RHIPixelShader ssrPS;
+  RHIConstBuffer ssrCB;
+  RHIRenderTarget ssrA;
+  int ssrW;
+  int ssrH;
+  bool ssrOn;
+  bool ssrValid;
   RHIInputLayout layout;
   RHISampler sampler;
   RHISampler geoSampler;

@@ -56,6 +56,7 @@ struct EditorApp {
   bool viewSsao;
   float viewSsaoIntensity;
   float viewSsaoRadius;
+  bool viewSsr;
   bool viewFog;
   float viewFogDensity;
   float viewFogColor[3];

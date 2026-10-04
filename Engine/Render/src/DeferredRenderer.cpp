@@ -50,6 +50,12 @@ struct MatConstants {
   float albedo[4];
   float params[4];
 };
+struct SsrConstants {
+  float viewProj[16];
+  float camPos[4];
+  float params[4];
+  float screen[4];
+};
 }
 DeferredRenderer::DeferredRenderer()
   : rhi(nullptr)
@@ -123,6 +129,13 @@ DeferredRenderer::DeferredRenderer()
   , ssaoValid(false)
   , fogOn(true)
   , fogDensity(0.002f)
+  , ssrPS(0)
+  , ssrCB(0)
+  , ssrA(0)
+  , ssrW(1)
+  , ssrH(1)
+  , ssrOn(true)
+  , ssrValid(false)
   , layout(0)
   , sampler(0)
   , geoSampler(0)
@@ -206,6 +219,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   std::string fsrRcasPath = dir + "/FsrRcasPS.hlsl";
   std::string ssaoPath = dir + "/SsaoPS.hlsl";
   std::string ssaoBlurPath = dir + "/SsaoBlurPS.hlsl";
+  std::string ssrPath = dir + "/SsrPS.hlsl";
   geoVS = rhi->CreateVertexShaderFromFile(geoVSPath.c_str(), "main");
   geoPS = rhi->CreatePixelShaderFromFile(geoPSPath.c_str(), "main");
   lightVS = rhi->CreateVertexShaderFromFile(lightVSPath.c_str(), "main");
@@ -235,6 +249,10 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (ssaoPS == 0 || ssaoBlurPS == 0) {
     return false;
   }
+  ssrPS = rhi->CreatePixelShaderFromFile(ssrPath.c_str(), "main");
+  if (ssrPS == 0) {
+    return false;
+  }
   layout = rhi->CreateInputLayoutPNUT(geoVS);
   if (layout == 0) {
     return false;
@@ -248,9 +266,15 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   float bloomInit[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
   uint32_t fsrInit[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
   float ssaoInit[24] = { 0.0f };
+  SsrConstants sc;
+  std::memset(&sc, 0, sizeof(sc));
   geoCB = rhi->CreateConstantBuffer(sizeof(GeoConstants), &gc);
   lightCB = rhi->CreateConstantBuffer(sizeof(LightConstants), &lc);
   matCB = rhi->CreateConstantBuffer(sizeof(MatConstants), &mc);
+  ssrCB = rhi->CreateConstantBuffer(sizeof(SsrConstants), &sc);
+  if (ssrCB == 0) {
+    return false;
+  }
   bloomCB = rhi->CreateConstantBuffer(sizeof(bloomInit), &bloomInit);
   fsrCB = rhi->CreateConstantBuffer(sizeof(fsrInit), &fsrInit);
   ssaoCB = rhi->CreateConstantBuffer(sizeof(ssaoInit), &ssaoInit);
@@ -390,6 +414,10 @@ void DeferredRenderer::Shutdown() {
     rhi->DestroyConstantBuffer(ssaoCB);
     ssaoCB = 0;
   }
+  if (ssrCB != 0) {
+    rhi->DestroyConstantBuffer(ssrCB);
+    ssrCB = 0;
+  }
   rhi = nullptr;
   ready = false;
 }
@@ -526,6 +554,9 @@ void DeferredRenderer::SetSsao(bool on, float intensity, float radius) {  ssaoOn
   if (ssaoRadius > 2.0f) {
     ssaoRadius = 2.0f;
   }
+}
+void DeferredRenderer::SetSsr(bool on) {
+  ssrOn = on;
 }
 void DeferredRenderer::SetFog(bool on, float density, const float color[3]) {
   fogOn = on;
@@ -894,6 +925,7 @@ void DeferredRenderer::BeginObjects(const float view[16], const float proj[16]) 
   decalDraws.clear();
   shadowMapsValid = false;
   ssaoValid = false;
+  ssrValid = false;
   RHIRenderTarget mrts[4] = { gAlbedo, gNormalRough, gMetallic, gPosition };
   rhi->SetRenderTargets(4, mrts, gDepth);
   rhi->ClearRenderTarget(gAlbedo, 0.02f, 0.02f, 0.03f, 1.0f);
@@ -1120,6 +1152,46 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       }
       ssaoVP[cc * 4 + rr] = s;
     }
+  }
+  if (toTexture && ssrOn && ssrA != 0 && ssrPS != 0) {
+    SsrConstants sc;
+    std::memcpy(sc.viewProj, ssaoVP, sizeof(sc.viewProj));
+    sc.camPos[0] = camPos[0];
+    sc.camPos[1] = camPos[1];
+    sc.camPos[2] = camPos[2];
+    sc.camPos[3] = 1.0f;
+    sc.params[0] = 24.0f;
+    sc.params[1] = 30.0f;
+    sc.params[2] = 0.6f;
+    sc.params[3] = 1.0f;
+    sc.screen[0] = static_cast<float>(w);
+    sc.screen[1] = static_cast<float>(h);
+    sc.screen[2] = 0.0f;
+    sc.screen[3] = 0.0f;
+    rhi->UpdateConstantBuffer(ssrCB, &sc, sizeof(sc));
+    rhi->SetPixelConstantBuffer(0, ssrCB);
+    rhi->SetPixelSampler(0, sampler);
+    rhi->SetRenderTargets(1, &ssrA, 0);
+    RHIViewport svp;
+    svp.x = 0.0f;
+    svp.y = 0.0f;
+    svp.w = static_cast<float>(ssrW);
+    svp.h = static_cast<float>(ssrH);
+    svp.minD = 0.0f;
+    svp.maxD = 1.0f;
+    rhi->SetViewport(svp);
+    rhi->SetVertexShader(lightVS);
+    rhi->SetPixelShader(ssrPS);
+    rhi->SetPixelTexture(0, gPosition);
+    rhi->SetPixelTexture(1, gNormalRough);
+    rhi->SetPixelTexture(2, gAlbedo);
+    rhi->DrawFullscreenTriangle();
+    ssrValid = true;
+    rhi->SetPixelTexture(0, 0);
+    rhi->SetPixelTexture(1, 0);
+    rhi->SetPixelTexture(2, 0);
+  } else if (ssrA != 0) {
+    rhi->ClearRenderTarget(ssrA, 0.0f, 0.0f, 0.0f, 0.0f);
   }
   if (toTexture && ssaoOn && ssaoA != 0 && ssaoB != 0) {
     float sq[24] = { 0.0f };
@@ -1404,6 +1476,9 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   if (ssaoValid) {
     rhi->SetPixelTexture(6, ssaoA);
   }
+  if (ssrValid) {
+    rhi->SetPixelTexture(7, ssrA);
+  }
   rhi->DrawFullscreenTriangle();
   rhi->SetPixelTexture(0, 0);
   rhi->SetPixelTexture(1, 0);
@@ -1412,6 +1487,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture(4, 0);
   rhi->SetPixelTexture(5, 0);
   rhi->SetPixelTexture(6, 0);
+  rhi->SetPixelTexture(7, 0);
   if (toTexture) {
     float bp[4] = { 0.8f, 0.0f, 0.0f, 0.0f };
     rhi->UpdateConstantBuffer(bloomCB, &bp, sizeof(bp));
@@ -1536,7 +1612,10 @@ bool DeferredRenderer::CreateTargets() {
   }
   ssaoA = rhi->CreateRenderTarget(ssaoW, ssaoH, RHIFormat::RGBA8_UNORM);
   ssaoB = rhi->CreateRenderTarget(ssaoW, ssaoH, RHIFormat::RGBA8_UNORM);
-  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0;
+  ssrW = w;
+  ssrH = h;
+  ssrA = rhi->CreateRenderTarget(ssrW, ssrH, RHIFormat::RGBA8_UNORM);
+  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0;
 }
 void DeferredRenderer::DestroyTargets() {
   if (rhi == nullptr) {
@@ -1593,6 +1672,10 @@ void DeferredRenderer::DestroyTargets() {
   if (ssaoB != 0) {
     rhi->DestroyRenderTarget(ssaoB);
     ssaoB = 0;
+  }
+  if (ssrA != 0) {
+    rhi->DestroyRenderTarget(ssrA);
+    ssrA = 0;
   }
 }
 }

@@ -38,6 +38,7 @@ cbuffer LightCB : register(b0)
     float4 FogColor;
 };
 Texture2D SSAOTX : register(t6);
+Texture2D SsrTX : register(t7);
 Texture2D ShadowAtlas : register(t4);
 TextureCube PointCube : register(t5);
 SamplerState ShadowSampler : register(s1);
@@ -439,9 +440,11 @@ float4 main(PSIn pin) : SV_Target
     float3 amb = albedo * hemi * 0.5 * ao;
     float3 R = reflect(-V, N);
     float3 env = SkyGradient(R, normalize(SkySun.xyz), SkyColor.rgb, sint2);
+    float4 ssr = SsrTX.Sample(LinearSampler, pin.uv);
+    float3 specAmb = lerp(env, ssr.rgb, clamp(ssr.a, 0.0, 1.0));
     float3 F0e = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);
     float3 fres = F0e + (1.0 - F0e) * pow(1.0 - saturate(dot(N, V)), 5.0);
-    col += env * fres * (1.0 - roughness) * ao;
+    col += specAmb * fres * (1.0 - roughness) * ao;
     if (FogInfo.x > 0.5) {
         float3 toFrag = wpos - CamPos.xyz;
         float fragDist = length(toFrag);

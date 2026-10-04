@@ -465,6 +465,21 @@ bool TestDeferredNull() {  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API
   renderer.DrawDecal(dworld, dinv, dsize, 1.0f, 0);
   rhi->DestroyTexture(t0);
   renderer.EndObjectsToTexture(cam);
+  renderer.SetSsr(true);
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  renderer.SetSsr(false);
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  if (!renderer.Resize(320, 200)) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  renderer.SetSsr(true);
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
   renderer.BeginObjects(view, proj);
   renderer.EndObjectsToBackbuffer(cam);
   renderer.Shutdown();
@@ -3081,7 +3096,7 @@ bool TestShaderCompile() {
     const char* file;
     const char* profile;
   };
-  Entry entries[14] = {
+  Entry entries[15] = {
     { "GeometryVS.hlsl", "vs_5_0" },
     { "GeometryPS.hlsl", "ps_5_0" },
     { "LightingVS.hlsl", "vs_5_0" },
@@ -3095,10 +3110,11 @@ bool TestShaderCompile() {
     { "SsaoPS.hlsl", "ps_5_0" },
     { "SsaoBlurPS.hlsl", "ps_5_0" },
     { "DecalVS.hlsl", "vs_5_0" },
-    { "DecalPS.hlsl", "ps_5_0" }
+    { "DecalPS.hlsl", "ps_5_0" },
+    { "SsrPS.hlsl", "ps_5_0" }
   };
   const char* dirs[4] = { "Shaders", "../Shaders", "../../Shaders", "build/bin/Release/Shaders" };
-  for (int e = 0; e < 14; ++e) {
+  for (int e = 0; e < 15; ++e) {
     bool found = false;
     for (int d = 0; d < 4; ++d) {
       std::string path = std::string(dirs[d]) + "/" + entries[e].file;

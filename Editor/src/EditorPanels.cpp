@@ -89,6 +89,7 @@ void EditorApp::RenderScene() {
   renderer.SetGrade(viewExposure, viewACES);
   renderer.SetBloom(viewBloom);
   renderer.SetSsao(viewSsao, viewSsaoIntensity, viewSsaoRadius);
+  renderer.SetSsr(viewSsr);
   renderer.SetFog(viewFog, viewFogDensity, viewFogColor);
   std::vector<EntityId> lightIds = scene.All();
   for (size_t i = 0; i < lightIds.size(); ++i) {
@@ -718,6 +719,8 @@ void EditorApp::DrawSettings() {
       ImGui::Checkbox("SSAO", &viewSsao);
       ImGui::SliderFloat("SSAO Intensity", &viewSsaoIntensity, 0.0f, 2.0f);
       ImGui::SliderFloat("SSAO Radius", &viewSsaoRadius, 0.1f, 2.0f);
+      ImGui::Separator();
+      ImGui::Checkbox("SSR", &viewSsr);
       ImGui::Separator();
       ImGui::Checkbox("Fog", &viewFog);
       ImGui::SliderFloat("Fog Density", &viewFogDensity, 0.0f, 0.05f);
