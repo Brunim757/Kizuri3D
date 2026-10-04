@@ -4,9 +4,13 @@
 #include <stdint.h>
 namespace Kizuri {
 struct DeferredMaterial {
-  float albedo[3];
-  float roughness;
-  float metallic;
+  float albedo[3] = { 1.0f, 1.0f, 1.0f };
+  float roughness = 0.5f;
+  float metallic = 0.0f;
+  RHITexture albedoTex = 0;
+  RHITexture normalTex = 0;
+  RHITexture ormTex = 0;
+  uint32_t texFlags = 0;
 };
 struct DeferredLight {
   float direction[3];
@@ -174,6 +178,10 @@ private:
   float fogColor[3];
   RHIInputLayout layout;
   RHISampler sampler;
+  RHISampler geoSampler;
+  RHITexture neutralAlbedo;
+  RHITexture neutralNormal;
+  RHITexture neutralOrm;
   uint32_t indexCount;
   float viewX;
   float viewY;

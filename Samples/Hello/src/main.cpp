@@ -421,6 +421,42 @@ bool TestDeferredNull() {  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API
   renderer.BeginObjects(view, proj);
   renderer.DrawObject(ident);
   renderer.DrawObject(ident);
+  Kizuri::RHITexture t0 = rhi->CreateTexture2D(4, 4, 1, Kizuri::RHITextureFormat::RGBA8_UNORM);
+  if (t0 == 0) {
+    renderer.EndObjectsToTexture(cam);
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.EndObjectsToTexture(cam);
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  Kizuri::DeferredMaterial tmat;
+  tmat.albedo[0] = 1.0f;
+  tmat.albedo[1] = 1.0f;
+  tmat.albedo[2] = 1.0f;
+  tmat.roughness = 0.5f;
+  tmat.metallic = 0.0f;
+  tmat.albedoTex = t0;
+  tmat.normalTex = t0;
+  tmat.ormTex = 0;
+  tmat.texFlags = 3;
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 0, &tmat);
+  renderer.DrawObjectEx(ident, 0, tib, 0, 3, &tmat);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, nullptr);
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  rhi->DestroyTexture(t0);
   renderer.EndObjectsToTexture(cam);
   renderer.BeginObjects(view, proj);
   renderer.EndObjectsToBackbuffer(cam);

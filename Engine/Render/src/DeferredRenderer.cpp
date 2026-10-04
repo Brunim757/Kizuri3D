@@ -120,6 +120,10 @@ DeferredRenderer::DeferredRenderer()
   , fogDensity(0.002f)
   , layout(0)
   , sampler(0)
+  , geoSampler(0)
+  , neutralAlbedo(0)
+  , neutralNormal(0)
+  , neutralOrm(0)
   , indexCount(0)
   , viewX(0.0f)
   , viewY(0.0f)
@@ -133,6 +137,10 @@ DeferredRenderer::DeferredRenderer()
   material.albedo[2] = 0.15f;
   material.roughness = 0.5f;
   material.metallic = 0.0f;
+  material.albedoTex = 0;
+  material.normalTex = 0;
+  material.ormTex = 0;
+  material.texFlags = 0;
   light.direction[0] = 0.4f;
   light.direction[1] = -1.0f;
   light.direction[2] = 0.3f;
@@ -244,6 +252,22 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (sampler == 0) {
     return false;
   }
+  geoSampler = rhi->CreateSamplerLinear();
+  if (geoSampler == 0) {
+    return false;
+  }
+  unsigned char whitePx[4] = { 255, 255, 255, 255 };
+  unsigned char nrmPx[4] = { 128, 128, 255, 255 };
+  unsigned char ormPx[4] = { 255, 128, 0, 255 };
+  neutralAlbedo = rhi->CreateTexture2D(1, 1, 1, RHITextureFormat::RGBA8_UNORM);
+  neutralNormal = rhi->CreateTexture2D(1, 1, 1, RHITextureFormat::RGBA8_UNORM);
+  neutralOrm = rhi->CreateTexture2D(1, 1, 1, RHITextureFormat::RGBA8_UNORM);
+  if (neutralAlbedo == 0 || neutralNormal == 0 || neutralOrm == 0) {
+    return false;
+  }
+  if (!rhi->UpdateTextureMip(neutralAlbedo, 0, 1, 1, 4, whitePx, 4) || !rhi->UpdateTextureMip(neutralNormal, 0, 1, 1, 4, nrmPx, 4) || !rhi->UpdateTextureMip(neutralOrm, 0, 1, 1, 4, ormPx, 4)) {
+    return false;
+  }
   shadowAtlas = rhi->CreateRenderTarget(ShadowAtlasSize, ShadowAtlasSize, RHIFormat::R32_DEPTH);
   shadowCube = rhi->CreateShadowCube(ShadowCubeSize);
   shadowSampler = rhi->CreateSamplerShadow();
@@ -259,6 +283,19 @@ void DeferredRenderer::Shutdown() {
     return;
   }
   DestroyTargets();
+  if (neutralAlbedo != 0) {
+    rhi->DestroyTexture(neutralAlbedo);
+    neutralAlbedo = 0;
+  }
+  if (neutralNormal != 0) {
+    rhi->DestroyTexture(neutralNormal);
+    neutralNormal = 0;
+  }
+  if (neutralOrm != 0) {
+    rhi->DestroyTexture(neutralOrm);
+    neutralOrm = 0;
+  }
+  geoSampler = 0;
   if (shadowAtlas != 0) {
     rhi->DestroyRenderTarget(shadowAtlas);
     shadowAtlas = 0;
@@ -769,7 +806,7 @@ void DeferredRenderer::SetFsr(float scale, float sharpness) {
     if (h < 1) {
       h = 1;
     }
-    DestroyTargets();
+  DestroyTargets();
     CreateTargets();
   }
 }
@@ -886,29 +923,26 @@ void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuff
   std::memcpy(gc.view, lastView, sizeof(gc.view));
   std::memcpy(gc.proj, lastProj, sizeof(gc.proj));
   rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
-  if (mat != nullptr) {
-    MatConstants mc;
-    mc.albedo[0] = mat->albedo[0];
-    mc.albedo[1] = mat->albedo[1];
-    mc.albedo[2] = mat->albedo[2];
-    mc.albedo[3] = 1.0f;
-    mc.params[0] = mat->roughness;
-    mc.params[1] = mat->metallic;
-    mc.params[2] = 0.0f;
-    mc.params[3] = 0.0f;
-    rhi->UpdateConstantBuffer(matCB, &mc, sizeof(mc));
-  } else {
-    MatConstants mc;
-    mc.albedo[0] = material.albedo[0];
-    mc.albedo[1] = material.albedo[1];
-    mc.albedo[2] = material.albedo[2];
-    mc.albedo[3] = 1.0f;
-    mc.params[0] = material.roughness;
-    mc.params[1] = material.metallic;
-    mc.params[2] = 0.0f;
-    mc.params[3] = 0.0f;
-    rhi->UpdateConstantBuffer(matCB, &mc, sizeof(mc));
-  }
+  const DeferredMaterial& use = (mat != nullptr) ? *mat : material;
+  MatConstants mc;
+  mc.albedo[0] = use.albedo[0];
+  mc.albedo[1] = use.albedo[1];
+  mc.albedo[2] = use.albedo[2];
+  mc.albedo[3] = 1.0f;
+  mc.params[0] = use.roughness;
+  mc.params[1] = use.metallic;
+  mc.params[2] = static_cast<float>(use.texFlags);
+  mc.params[3] = 0.0f;
+  rhi->UpdateConstantBuffer(matCB, &mc, sizeof(mc));
+  RHITexture alb = (use.texFlags & 1u) != 0 && use.albedoTex != 0 ? use.albedoTex : neutralAlbedo;
+  RHITexture nrm = (use.texFlags & 2u) != 0 && use.normalTex != 0 ? use.normalTex : neutralNormal;
+  RHITexture orm = (use.texFlags & 4u) != 0 && use.ormTex != 0 ? use.ormTex : neutralOrm;
+  rhi->SetPixelTexture2D(0, alb);
+  rhi->SetPixelTexture2D(1, nrm);
+  rhi->SetPixelTexture2D(2, orm);
+  rhi->SetPixelSampler(0, geoSampler);
+  rhi->SetPixelSampler(1, geoSampler);
+  rhi->SetPixelSampler(2, geoSampler);
   rhi->SetVertexBuffer(vb, 0);
   rhi->SetIndexBuffer(ib);
   rhi->DrawIndexed(count, start, 0);

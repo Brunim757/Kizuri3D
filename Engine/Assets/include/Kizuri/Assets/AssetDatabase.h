@@ -156,6 +156,7 @@ public:
   bool DeleteTextureFile(const std::string& guid, bool force, std::vector<std::string>& blockedBy);
   std::map<std::string, size_t> ComputeTexRefCounts() const;
   static int SelectMipLevel(float dist, int mipCount);
+  void RequestTexture(const std::string& guid, float dist);
   void SetGpuRHI(IRHI* rhi);
   bool EnsureMeshGpu(const std::string& guid, size_t maxBytes);
   void DropMeshGpu(MeshRecord& record);

@@ -212,6 +212,15 @@ void EditorApp::PumpAssets() {
     u.pos[1] = e->transform.position[1];
     u.pos[2] = e->transform.position[2];
     uses.push_back(u);
+    if (e->hasMaterial) {
+      float dx = u.pos[0] - camPos[0];
+      float dy = u.pos[1] - camPos[1];
+      float dz = u.pos[2] - camPos[2];
+      float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+      assets.RequestTexture(e->material.albedoTex, dist);
+      assets.RequestTexture(e->material.normalTex, dist);
+      assets.RequestTexture(e->material.ormTex, dist);
+    }
   }
   assets.UpdateStreaming(camPos, uses);
   assets.DrainUploads(rhi, 262144);

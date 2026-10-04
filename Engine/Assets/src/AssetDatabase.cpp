@@ -1074,36 +1074,45 @@ void AssetDatabase::UpdateStreaming(const float cameraPos[3], const std::vector<
     float dz = uses[u].pos[2] - cameraPos[2];
     float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
     for (size_t m = 0; m < mr->second.data.materials.size(); ++m) {
-      const std::string& tg = mr->second.data.materials[m].albedoTexGuid;
-      if (tg.empty()) {
-        continue;
-      }
-      auto tr = texRecords.find(tg);
-      if (tr == texRecords.end() || !tr->second.loaded) {
-        continue;
-      }
-      int want = SelectMipLevel(dist, static_cast<int>(tr->second.data.mips.size()));
-      if (want > tr->second.selectedLevels) {
-        tr->second.selectedLevels = want;
-        for (int mip = tr->second.residentLevels; mip < want; ++mip) {
-          bool queued = false;
-          for (size_t q = 0; q < uploadQueue.size(); ++q) {
-            if (uploadQueue[q].guid == tg && uploadQueue[q].mip == mip) {
-              queued = true;
-              break;
-            }
-          }
-          if (!queued) {
-            TexUpload up;
-            up.guid = tg;
-            up.mip = mip;
-            uploadQueue.push_back(up);
-          }
-        }
+      const MeshMaterialData& mm = mr->second.data.materials[m];
+      const std::string* slots[3] = { &mm.albedoTexGuid, &mm.normalTexGuid, &mm.ormTexGuid };
+      for (int s = 0; s < 3; ++s) {
+        RequestTexture(*slots[s], dist);
       }
     }
   }
 }
+void AssetDatabase::RequestTexture(const std::string& guid, float dist) {
+  if (guid.empty()) {
+    return;
+  }
+  auto tr = texRecords.find(guid);
+  if (tr == texRecords.end() || !tr->second.loaded) {
+    return;
+  }
+  if (dist < 0.0f) {
+    dist = 0.0f;
+  }
+  int want = SelectMipLevel(dist, static_cast<int>(tr->second.data.mips.size()));
+  if (want <= tr->second.selectedLevels) {
+    return;
+  }
+  tr->second.selectedLevels = want;
+  for (int mip = tr->second.residentLevels; mip < want; ++mip) {
+    bool queued = false;
+    for (size_t q = 0; q < uploadQueue.size(); ++q) {
+      if (uploadQueue[q].guid == guid && uploadQueue[q].mip == mip) {
+        queued = true;
+        break;
+      }
+    }
+    if (!queued) {
+      TexUpload up;
+      up.guid = guid;
+      up.mip = mip;
+      uploadQueue.push_back(up);
+    }
+  }
 size_t AssetDatabase::DrainUploads(IRHI* rhi, size_t maxBytes) {
   if (rhi == nullptr || maxBytes == 0) {
     return 0;

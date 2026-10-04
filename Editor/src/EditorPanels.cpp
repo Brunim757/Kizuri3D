@@ -14,6 +14,21 @@
 #include <cmath>
 #include <filesystem>
 namespace Kizuri {
+uint32_t ResolveMaterialSlot(AssetDatabase& assets, const std::string& guid, uint32_t bit, RHITexture& out) {
+  out = 0;
+  if (guid.empty()) {
+    return 0;
+  }
+  const TextureRecord* tr = assets.GetTexByGuid(guid);
+  if (tr == nullptr || !tr->loaded || tr->gpu == 0) {
+    return 0;
+  }
+  if (tr->selectedLevels <= 0 || tr->residentLevels < tr->selectedLevels) {
+    return 0;
+  }
+  out = tr->gpu;
+  return bit;
+}
 static Transform s_clipboard;
 static bool s_hasClipboard = false;
 void EditorApp::RenderScene() {
@@ -160,13 +175,30 @@ void EditorApp::RenderScene() {
             const MeshPartData& part = rec->data.parts[p];
             const DeferredMaterial* useMat = nullptr;
             DeferredMaterial partMat;
-            if (part.material < rec->data.materials.size()) {
+            if (e->hasMaterial) {
+              partMat.albedo[0] = e->material.albedo[0];
+              partMat.albedo[1] = e->material.albedo[1];
+              partMat.albedo[2] = e->material.albedo[2];
+              partMat.roughness = e->material.roughness;
+              partMat.metallic = e->material.metallic;
+              uint32_t flags = 0;
+              flags |= ResolveMaterialSlot(assets, e->material.albedoTex, 1u, partMat.albedoTex);
+              flags |= ResolveMaterialSlot(assets, e->material.normalTex, 2u, partMat.normalTex);
+              flags |= ResolveMaterialSlot(assets, e->material.ormTex, 4u, partMat.ormTex);
+              partMat.texFlags = flags;
+              useMat = &partMat;
+            } else if (part.material < rec->data.materials.size()) {
               const MeshMaterialData& mm = rec->data.materials[part.material];
               partMat.albedo[0] = mm.albedo[0];
               partMat.albedo[1] = mm.albedo[1];
               partMat.albedo[2] = mm.albedo[2];
               partMat.roughness = mm.roughness;
               partMat.metallic = mm.metallic;
+              uint32_t flags = 0;
+              flags |= ResolveMaterialSlot(assets, mm.albedoTexGuid, 1u, partMat.albedoTex);
+              flags |= ResolveMaterialSlot(assets, mm.normalTexGuid, 2u, partMat.normalTex);
+              flags |= ResolveMaterialSlot(assets, mm.ormTexGuid, 4u, partMat.ormTex);
+              partMat.texFlags = flags;
               useMat = &partMat;
             }
             renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, part.indexOffset, part.indexCount, useMat);
