@@ -18,16 +18,23 @@ struct VSOut
     float3 wpos : TEXCOORD0;
     float2 uv : TEXCOORD1;
     float4 wtan : TEXCOORD2;
+    float3 vts : TEXCOORD3;
 };
 VSOut main(VSIn vin)
 {
     VSOut vout;
     float4 wp = mul(float4(vin.pos, 1.0), World);
     vout.wpos = wp.xyz;
-    vout.wnrm = normalize(mul(vin.nrm, (float3x3)World));
+    float3x3 wrot = (float3x3)World;
+    vout.wnrm = normalize(mul(vin.nrm, wrot));
     float4 vp = mul(wp, View);
     vout.pos = mul(vp, Proj);
     vout.uv = vin.uv;
-    vout.wtan = float4(normalize(mul(vin.tan.xyz, (float3x3)World)), vin.tan.w);
+    float3 wt = normalize(mul(vin.tan.xyz, wrot));
+    vout.wtan = float4(wt, vin.tan.w);
+    float3 wb = cross(vout.wnrm, wt) * vin.tan.w;
+    float3 camW = -mul(View[3].xyz, transpose((float3x3)View));
+    float3 toCam = camW - wp.xyz;
+    vout.vts = float3(dot(toCam, wt), dot(toCam, wb), dot(toCam, vout.wnrm));
     return vout;
 }

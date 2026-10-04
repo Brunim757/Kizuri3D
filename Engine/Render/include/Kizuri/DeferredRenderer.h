@@ -10,6 +10,7 @@ struct DeferredMaterial {
   RHITexture albedoTex = 0;
   RHITexture normalTex = 0;
   RHITexture ormTex = 0;
+  RHITexture heightTex = 0;
   uint32_t texFlags = 0;
 };
 struct DeferredLight {

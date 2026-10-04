@@ -18,6 +18,7 @@ table MaterialSlot {
   albedoTexGuid:string;
   normalTexGuid:string;
   ormTexGuid:string;
+  heightTexGuid:string;
 }
 struct MeshPart {
   indexOffset:uint;

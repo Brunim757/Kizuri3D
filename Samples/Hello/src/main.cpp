@@ -449,7 +449,8 @@ bool TestDeferredNull() {  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API
   tmat.albedoTex = t0;
   tmat.normalTex = t0;
   tmat.ormTex = 0;
-  tmat.texFlags = 3;
+  tmat.heightTex = t0;
+  tmat.texFlags = 11;
   renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat);
   renderer.DrawObjectEx(ident, tvb, tib, 0, 0, &tmat);
   renderer.DrawObjectEx(ident, 0, tib, 0, 3, &tmat);
@@ -1438,6 +1439,7 @@ bool TestMeshCodec() {
   mat.roughness = 0.9f;
   mat.normalTexGuid = "normal-guid-1";
   mat.ormTexGuid = "orm-guid-1";
+  mat.heightTexGuid = "height-guid-1";
   data.materials.push_back(mat);
   Kizuri::MeshPartData part;
   part.indexOffset = 0;
@@ -1472,6 +1474,9 @@ bool TestMeshCodec() {
     return false;
   }
   if (back.materials[0].normalTexGuid != "normal-guid-1" || back.materials[0].ormTexGuid != "orm-guid-1") {
+    return false;
+  }
+  if (back.materials[0].heightTexGuid != "height-guid-1") {
     return false;
   }
   if (back.parts.size() != 1 || back.parts[0].indexCount != 3) {
@@ -2622,6 +2627,7 @@ bool TestMaterialRoundTrip() {
   scene.Get(m)->material.albedoTex = "albedo-guid-1";
   scene.Get(m)->material.normalTex = "normal-guid-2";
   scene.Get(m)->material.ormTex = "orm-guid-3";
+  scene.Get(m)->material.heightTex = "height-guid-4";
   Kizuri::EntityId p = scene.CreateEntity("Plain");
   (void)p;
   const char* path = "test_material_tmp.kzscene";
@@ -2658,6 +2664,9 @@ bool TestMaterialRoundTrip() {
   if (rm->material.albedoTex != "albedo-guid-1" || rm->material.normalTex != "normal-guid-2" || rm->material.ormTex != "orm-guid-3") {
     return false;
   }
+  if (rm->material.heightTex != "height-guid-4") {
+    return false;
+  }
   if (rp->hasMaterial) {
     return false;
   }
@@ -2682,6 +2691,7 @@ bool TestMaterialUndo() {
   Kizuri::MaterialData v2 = v;
   v2.roughness = 0.1f;
   v2.normalTex = "tex-n";
+  v2.heightTex = "tex-h";
   edits.PushMaterial(a, v2);
   if (edits.Pending() != 2) {
     return false;
@@ -2690,6 +2700,9 @@ bool TestMaterialUndo() {
     return false;
   }
   if (scene.Get(a)->material.roughness != 0.1f || scene.Get(a)->material.normalTex != "tex-n") {
+    return false;
+  }
+  if (scene.Get(a)->material.heightTex != "tex-h") {
     return false;
   }
   if (!undo.Undo(scene) || scene.Get(a)->material.roughness != 0.5f || !scene.Get(a)->material.albedoTex.empty()) {
@@ -2852,6 +2865,40 @@ bool TestDecalUndo() {
     return false;
   }
   if (!undo.Undo(scene) || !scene.Get(a)->hasDecal || scene.Get(a)->decal.size[0] != 3.0f) {
+    return false;
+  }
+  return true;
+}
+bool TestMaterialLegacy() {
+  const char* path = "test_material_legacy_tmp.kzscene";
+  {
+    FILE* fp = std::fopen(path, "wb");
+    if (fp == nullptr) {
+      return false;
+    }
+    std::fputs("KZSCENE 1\n", fp);
+    std::fputs("ENTITY \"Old\" -1\n", fp);
+    std::fputs("MATERIAL 1 1 1 0 0.5 \"a\" \"b\" \"c\"\n", fp);
+    std::fclose(fp);
+  }
+  Kizuri::Scene back;
+  bool ok = Kizuri::LoadSceneFromFile(back, path, nullptr);
+  std::remove(path);
+  if (!ok) {
+    return false;
+  }
+  std::vector<Kizuri::EntityId> all = back.All();
+  if (all.size() != 1) {
+    return false;
+  }
+  const Kizuri::Entity* e = back.Get(all[0]);
+  if (e == nullptr || !e->hasMaterial) {
+    return false;
+  }
+  if (e->material.albedoTex != "a" || e->material.normalTex != "b" || e->material.ormTex != "c") {
+    return false;
+  }
+  if (!e->material.heightTex.empty()) {
     return false;
   }
   return true;
@@ -3888,6 +3935,7 @@ int main() {
   failures += Check("LightUndo", TestLightUndo());
   failures += Check("MaterialDefaults", TestMaterialDefaults());
   failures += Check("MaterialRoundTrip", TestMaterialRoundTrip());
+  failures += Check("MaterialLegacy", TestMaterialLegacy());
   failures += Check("MaterialUndo", TestMaterialUndo());
   failures += Check("InvertMatrix4", TestInvertMatrix4());
   failures += Check("DecalDefaults", TestDecalDefaults());

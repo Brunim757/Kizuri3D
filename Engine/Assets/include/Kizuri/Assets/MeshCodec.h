@@ -11,6 +11,7 @@ struct MeshMaterialData {
   std::string albedoTexGuid;
   std::string normalTexGuid;
   std::string ormTexGuid;
+  std::string heightTexGuid;
 };
 struct MeshPartData {
   uint32_t indexOffset;

@@ -45,6 +45,7 @@ struct MaterialData {
   std::string albedoTex;
   std::string normalTex;
   std::string ormTex;
+  std::string heightTex;
 };
 struct DecalData {
   float size[3];

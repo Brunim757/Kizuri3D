@@ -39,7 +39,7 @@ void EditQueue::PushDecal(EntityId target, const DecalData& value) {
   decalEdits.push_back(e);
 }
 bool MaterialEqual(const MaterialData& a, const MaterialData& b) {
-  return a.albedo[0] == b.albedo[0] && a.albedo[1] == b.albedo[1] && a.albedo[2] == b.albedo[2] && a.metallic == b.metallic && a.roughness == b.roughness && a.albedoTex == b.albedoTex && a.normalTex == b.normalTex && a.ormTex == b.ormTex;
+  return a.albedo[0] == b.albedo[0] && a.albedo[1] == b.albedo[1] && a.albedo[2] == b.albedo[2] && a.metallic == b.metallic && a.roughness == b.roughness && a.albedoTex == b.albedoTex && a.normalTex == b.normalTex && a.ormTex == b.ormTex && a.heightTex == b.heightTex;
 }
 bool DecalEqual(const DecalData& a, const DecalData& b) {
   return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.life == b.life && a.texGuid == b.texGuid;

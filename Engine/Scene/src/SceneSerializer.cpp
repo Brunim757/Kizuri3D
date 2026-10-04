@@ -155,7 +155,7 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
     }
     if (e->hasMaterial) {
       const MaterialData& m = e->material;
-      std::fprintf(fp, "MATERIAL %.9g %.9g %.9g %.9g %.9g \"%s\" \"%s\" \"%s\"\n", m.albedo[0], m.albedo[1], m.albedo[2], m.metallic, m.roughness, EscapeName(m.albedoTex).c_str(), EscapeName(m.normalTex).c_str(), EscapeName(m.ormTex).c_str());
+      std::fprintf(fp, "MATERIAL %.9g %.9g %.9g %.9g %.9g \"%s\" \"%s\" \"%s\" \"%s\"\n", m.albedo[0], m.albedo[1], m.albedo[2], m.metallic, m.roughness, EscapeName(m.albedoTex).c_str(), EscapeName(m.normalTex).c_str(), EscapeName(m.ormTex).c_str(), EscapeName(m.heightTex).c_str());
     }
     if (e->hasDecal) {
       const DecalData& d = e->decal;
@@ -344,6 +344,10 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
           break;
         }
         current->material.ormTex = slot;
+        std::string height;
+        if (ParseQuoted(s, pos, height)) {
+          current->material.heightTex = height;
+        }
         current->hasMaterial = true;
         continue;
       }

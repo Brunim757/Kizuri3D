@@ -161,6 +161,7 @@ DeferredRenderer::DeferredRenderer()
   material.albedoTex = 0;
   material.normalTex = 0;
   material.ormTex = 0;
+  material.heightTex = 0;
   material.texFlags = 0;
   light.direction[0] = 0.4f;
   light.direction[1] = -1.0f;
@@ -1033,12 +1034,15 @@ void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuff
   RHITexture alb = (use.texFlags & 1u) != 0 && use.albedoTex != 0 ? use.albedoTex : neutralAlbedo;
   RHITexture nrm = (use.texFlags & 2u) != 0 && use.normalTex != 0 ? use.normalTex : neutralNormal;
   RHITexture orm = (use.texFlags & 4u) != 0 && use.ormTex != 0 ? use.ormTex : neutralOrm;
+  RHITexture hgt = (use.texFlags & 8u) != 0 && use.heightTex != 0 ? use.heightTex : 0;
   rhi->SetPixelTexture2D(0, alb);
   rhi->SetPixelTexture2D(1, nrm);
   rhi->SetPixelTexture2D(2, orm);
+  rhi->SetPixelTexture2D(3, hgt);
   rhi->SetPixelSampler(0, geoSampler);
   rhi->SetPixelSampler(1, geoSampler);
   rhi->SetPixelSampler(2, geoSampler);
+  rhi->SetPixelSampler(3, geoSampler);
   rhi->SetVertexBuffer(vb, 0);
   rhi->SetIndexBuffer(ib);
   rhi->DrawIndexed(count, start, 0);

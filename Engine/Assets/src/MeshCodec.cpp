@@ -95,7 +95,8 @@ bool AppendMeshFlatBuffer(const MeshAssetData& data, size_t vertexCount, flatbuf
     auto fbTex = builder.CreateString(m.albedoTexGuid);
     auto fbNrm = builder.CreateString(m.normalTexGuid);
     auto fbOrm = builder.CreateString(m.ormTexGuid);
-    fbMats.push_back(KizuriAssets::CreateMaterialSlot(builder, fbName, m.albedo[0], m.albedo[1], m.albedo[2], m.metallic, m.roughness, fbTex, fbNrm, fbOrm));
+    auto fbHgt = builder.CreateString(m.heightTexGuid);
+    fbMats.push_back(KizuriAssets::CreateMaterialSlot(builder, fbName, m.albedo[0], m.albedo[1], m.albedo[2], m.metallic, m.roughness, fbTex, fbNrm, fbOrm, fbHgt));
   }
   auto fbMatsVec = builder.CreateVector(fbMats);
   std::vector<KizuriAssets::MeshPart> fbParts;
@@ -231,6 +232,7 @@ bool DecodeMeshMemory(const void* bytes, size_t size, MeshAssetData& out) {
       md.albedoTexGuid = m->albedoTexGuid() != nullptr ? m->albedoTexGuid()->str() : "";
       md.normalTexGuid = m->normalTexGuid() != nullptr ? m->normalTexGuid()->str() : "";
       md.ormTexGuid = m->ormTexGuid() != nullptr ? m->ormTexGuid()->str() : "";
+      md.heightTexGuid = m->heightTexGuid() != nullptr ? m->heightTexGuid()->str() : "";
       out.materials.push_back(md);
     }
   }

@@ -187,6 +187,7 @@ void EditorApp::RenderScene() {
               flags |= ResolveMaterialSlot(assets, e->material.albedoTex, 1u, partMat.albedoTex);
               flags |= ResolveMaterialSlot(assets, e->material.normalTex, 2u, partMat.normalTex);
               flags |= ResolveMaterialSlot(assets, e->material.ormTex, 4u, partMat.ormTex);
+              flags |= ResolveMaterialSlot(assets, e->material.heightTex, 8u, partMat.heightTex);
               partMat.texFlags = flags;
               useMat = &partMat;
             } else if (part.material < rec->data.materials.size()) {
@@ -200,6 +201,7 @@ void EditorApp::RenderScene() {
               flags |= ResolveMaterialSlot(assets, mm.albedoTexGuid, 1u, partMat.albedoTex);
               flags |= ResolveMaterialSlot(assets, mm.normalTexGuid, 2u, partMat.normalTex);
               flags |= ResolveMaterialSlot(assets, mm.ormTexGuid, 4u, partMat.ormTex);
+              flags |= ResolveMaterialSlot(assets, mm.heightTexGuid, 8u, partMat.heightTex);
               partMat.texFlags = flags;
               useMat = &partMat;
             }
@@ -1149,6 +1151,7 @@ void EditorApp::DrawMaterialSection(Entity* e) {
   DrawMaterialSlot(e, "Albedo", 0);
   DrawMaterialSlot(e, "Normal", 1);
   DrawMaterialSlot(e, "ORM", 2);
+  DrawMaterialSlot(e, "Height", 3);
 }
 void EditorApp::DrawDecalSection(Entity* e) {
   if (e == nullptr || !e->hasDecal) {
@@ -1195,7 +1198,7 @@ void EditorApp::DrawDecalSection(Entity* e) {
   }
 }
 void EditorApp::DrawMaterialSlot(Entity* e, const char* label, int slot) {
-  if (e == nullptr || label == nullptr || slot < 0 || slot > 2) {
+  if (e == nullptr || label == nullptr || slot < 0 || slot > 3) {
     return;
   }
   const std::string* cur = &e->material.albedoTex;
@@ -1203,6 +1206,8 @@ void EditorApp::DrawMaterialSlot(Entity* e, const char* label, int slot) {
     cur = &e->material.normalTex;
   } else if (slot == 2) {
     cur = &e->material.ormTex;
+  } else if (slot == 3) {
+    cur = &e->material.heightTex;
   }
   ImGui::Text("%s:", label);
   ImGui::SameLine();
@@ -1224,7 +1229,7 @@ void EditorApp::DrawMaterialSlot(Entity* e, const char* label, int slot) {
       if (assets.GetTexByGuid(guid) == nullptr) {
         Announce(LogLevel::Warning, "Dropped texture not found");
       } else if (guid != *cur) {
-        if (slot != 0 && !assets.EnsureTextureKind(guid, slot == 1 ? TexKind::Normal : TexKind::Orm)) {
+        if ((slot == 1 || slot == 2) && !assets.EnsureTextureKind(guid, slot == 1 ? TexKind::Normal : TexKind::Orm)) {
           Announce(LogLevel::Warning, "Texture has no source; assigned without conversion");
         }
         MaterialData after = e->material;
@@ -1232,6 +1237,8 @@ void EditorApp::DrawMaterialSlot(Entity* e, const char* label, int slot) {
           after.normalTex = guid;
         } else if (slot == 2) {
           after.ormTex = guid;
+        } else if (slot == 3) {
+          after.heightTex = guid;
         } else {
           after.albedoTex = guid;
         }
@@ -1252,6 +1259,8 @@ void EditorApp::DrawMaterialSlot(Entity* e, const char* label, int slot) {
         after.normalTex.clear();
       } else if (slot == 2) {
         after.ormTex.clear();
+      } else if (slot == 3) {
+        after.heightTex.clear();
       } else {
         after.albedoTex.clear();
       }

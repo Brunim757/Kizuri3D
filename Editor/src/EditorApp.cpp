@@ -224,6 +224,7 @@ void EditorApp::PumpAssets() {
       assets.RequestTexture(e->material.albedoTex, dist);
       assets.RequestTexture(e->material.normalTex, dist);
       assets.RequestTexture(e->material.ormTex, dist);
+      assets.RequestTexture(e->material.heightTex, dist);
     }
     if (e->hasDecal) {
       assets.RequestTexture(e->decal.texGuid, dist);

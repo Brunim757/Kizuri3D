@@ -6,6 +6,7 @@ cbuffer MatCB : register(b0)
 Texture2D AlbedoTex : register(t0);
 Texture2D NormalTex : register(t1);
 Texture2D OrmTex : register(t2);
+Texture2D HeightTex : register(t3);
 SamplerState GeoSamp : register(s0);
 struct PSIn
 {
@@ -14,6 +15,7 @@ struct PSIn
     float3 wpos : TEXCOORD0;
     float2 uv : TEXCOORD1;
     float4 wtan : TEXCOORD2;
+    float3 vts : TEXCOORD3;
 };
 struct PSOut
 {
@@ -26,9 +28,37 @@ PSOut main(PSIn pin)
 {
     PSOut pout;
     uint flags = (uint) Params.z;
+    float2 pov = pin.uv;
+    if ((flags & 8u) != 0u) {
+        float3 vts = normalize(pin.vts);
+        float2 marchDir = -vts.xy / max(vts.z, 0.05) * 0.05;
+        float bestD = 0.0;
+        float prevD = 0.0;
+        for (int pi = 0; pi < 8; ++pi) {
+            float pd = (float) (pi + 1) / 8.0;
+            float ph = HeightTex.Sample(GeoSamp, pin.uv + marchDir * pd).r;
+            if (ph < pd) {
+                float d0 = prevD;
+                float d1 = pd;
+                for (int pj = 0; pj < 4; ++pj) {
+                    float dm = (d0 + d1) * 0.5;
+                    float hm = HeightTex.Sample(GeoSamp, pin.uv + marchDir * dm).r;
+                    if (hm < dm) {
+                        d1 = dm;
+                    } else {
+                        d0 = dm;
+                    }
+                }
+                bestD = (d0 + d1) * 0.5;
+                break;
+            }
+            prevD = pd;
+        }
+        pov = pin.uv + marchDir * bestD;
+    }
     float3 alb = Albedo.rgb;
     if ((flags & 1u) != 0u) {
-        alb *= AlbedoTex.Sample(GeoSamp, pin.uv).rgb;
+        alb *= AlbedoTex.Sample(GeoSamp, pov).rgb;
     }
     float3 n = normalize(pin.wnrm);
     float rough = Params.x;
@@ -37,12 +67,12 @@ PSOut main(PSIn pin)
     if ((flags & 2u) != 0u) {
         float3 t = normalize(pin.wtan.xyz);
         float3 b = cross(n, t) * pin.wtan.w;
-        float2 nxy = NormalTex.Sample(GeoSamp, pin.uv).rg * 2.0 - 1.0;
+        float2 nxy = NormalTex.Sample(GeoSamp, pov).rg * 2.0 - 1.0;
         float nz = sqrt(saturate(1.0 - dot(nxy, nxy)));
         n = normalize(t * nxy.x + b * nxy.y + n * nz);
     }
     if ((flags & 4u) != 0u) {
-        float3 orm = OrmTex.Sample(GeoSamp, pin.uv).rgb;
+        float3 orm = OrmTex.Sample(GeoSamp, pov).rgb;
         occ = orm.r;
         rough = orm.g;
         metal = orm.b;

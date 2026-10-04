@@ -38,6 +38,7 @@ void MakeDefaultMaterial(MaterialData& m) {
   m.albedoTex.clear();
   m.normalTex.clear();
   m.ormTex.clear();
+  m.heightTex.clear();
 }
 void MakeDefaultDecal(DecalData& d) {
   d.size[0] = 1.0f;
