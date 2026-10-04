@@ -99,6 +99,7 @@ void MakeIdentityTransform(Transform& t);
 void MakeDefaultLight(LightData& l);
 void MakeDefaultMaterial(MaterialData& m);
 void MakeDefaultDecal(DecalData& d);
+void EntityForward(const Transform& t, float dir[3]);
 void ComposeMatrix(const Transform& t, float m[16]);
 bool InvertMatrix4(const float m[16], float invOut[16]);
 }
