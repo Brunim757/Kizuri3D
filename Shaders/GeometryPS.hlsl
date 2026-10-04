@@ -36,13 +36,13 @@ PSOut main(PSIn pin)
         float prevD = 0.0;
         for (int pi = 0; pi < 8; ++pi) {
             float pd = (float) (pi + 1) / 8.0;
-            float ph = HeightTex.Sample(GeoSamp, pin.uv + marchDir * pd).r;
+            float ph = HeightTex.SampleLevel(GeoSamp, pin.uv + marchDir * pd, 0).r;
             if (ph < pd) {
                 float d0 = prevD;
                 float d1 = pd;
                 for (int pj = 0; pj < 4; ++pj) {
                     float dm = (d0 + d1) * 0.5;
-                    float hm = HeightTex.Sample(GeoSamp, pin.uv + marchDir * dm).r;
+                    float hm = HeightTex.SampleLevel(GeoSamp, pin.uv + marchDir * dm, 0).r;
                     if (hm < dm) {
                         d1 = dm;
                     } else {
