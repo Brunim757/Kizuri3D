@@ -85,7 +85,8 @@ float GaSchlickGGX(float cosLi, float cosLo, float roughness)
 float3 ShadeOne(float3 N, float3 V, float3 L, float3 lightColor, float3 albedo, float roughness, float metallic)
 {
     float3 H = normalize(L + V);
-    float cosLi = saturate(dot(N, L));
+    float rawLi = dot(N, L);
+    float cosLi = saturate(rawLi);
     float cosLo = saturate(dot(N, V));
     float cosLh = saturate(dot(N, H));
     float vh = saturate(dot(V, H));
@@ -96,7 +97,9 @@ float3 ShadeOne(float3 N, float3 V, float3 L, float3 lightColor, float3 albedo, 
     float3 spec = (F * D * G) / max(4.0 * cosLi * cosLo, 1e-5);
     float3 kd = (1.0 - F) * (1.0 - metallic);
     float3 diff = kd * albedo;
-    return (diff + spec) * lightColor * cosLi;
+    float wrapLi = saturate((rawLi + 0.5) / 1.5);
+    wrapLi *= wrapLi;
+    return diff * lightColor * wrapLi + spec * lightColor * cosLi;
 }
 float BlockerSearch2D(float2 uv, float recvDist, float nearZ, float farZ, float searchUV)
 {
