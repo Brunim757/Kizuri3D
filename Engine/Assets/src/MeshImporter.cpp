@@ -5,7 +5,7 @@
 #include "Kizuri/Log.h"
 #include <cgltf.h>
 #include <stb_image.h>
-#include <cmath>
+#include <math.h>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
