@@ -313,10 +313,6 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
               ImportEmbeddedTexture(prim.material->pbr_metallic_roughness.base_color_texture.texture, glbPath, hash, texCounter, false, md.albedoTexGuid);
               ImportEmbeddedTexture(prim.material->normal_texture.texture, glbPath, hash, texCounter, true, md.normalTexGuid);
             }
-                  }
-                }
-              }
-            }
             matIndex = static_cast<uint32_t>(out.materials.size());
             out.materials.push_back(md);
           }
