@@ -434,12 +434,10 @@ float4 main(PSIn pin) : SV_Target
         ao = SSAOTX.Sample(LinearSampler, pin.uv).r;
     }
     col *= ao;
-    float3 skyRef = SkyColor.rgb;
-    float3 gndRef = SkyColor.rgb * 0.25;
-    float3 hemi = lerp(gndRef, skyRef, N.y * 0.5 + 0.5);
-    float3 amb = albedo * hemi * ao;
-    float3 R = reflect(-V, N);
     float sint2 = max(SkySun.w, 1e-3);
+    float3 hemi = SkyGradient(N, normalize(SkySun.xyz), SkyColor.rgb, sint2);
+    float3 amb = albedo * hemi * 0.5 * ao;
+    float3 R = reflect(-V, N);
     float3 env = SkyGradient(R, normalize(SkySun.xyz), SkyColor.rgb, sint2);
     float3 F0e = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);
     float3 fres = F0e + (1.0 - F0e) * pow(1.0 - saturate(dot(N, V)), 5.0);
