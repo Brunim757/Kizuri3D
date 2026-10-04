@@ -191,8 +191,8 @@ void EditorApp::RenderScene() {
     }
     bool anyDrawn = false;
     for (int li = 0; li < drawCount; ++li) {
-      bool drawn = false;
-      const MeshRecord* rec = assets.GetByGuid(drawGuids[li]);      if (rec != nullptr && rec->loaded && assets.EnsureMeshGpu(drawGuids[li], 4194304)) {
+      const MeshRecord* rec = assets.GetByGuid(drawGuids[li]);
+      if (rec != nullptr && rec->loaded && assets.EnsureMeshGpu(drawGuids[li], 4194304)) {
         rec = assets.GetByGuid(drawGuids[li]);
         if (rec != nullptr && rec->gpuReady) {
           if (rec->data.parts.empty()) {
@@ -233,9 +233,9 @@ void EditorApp::RenderScene() {
             renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, part.indexOffset, part.indexCount, useMat, drawFades[li]);
           }
         }
-        drawn = true;
         anyDrawn = true;
       }
+    }
     }
     if (!anyDrawn && defaultVB != 0) {
       const MeshRecord* baserec = assets.GetByGuid(e->meshGuid);
