@@ -101,9 +101,10 @@ float3 ShadeOne(float3 N, float3 V, float3 L, float3 lightColor, float3 albedo, 
     float3 diff = kd * albedo;
     float wrapLi = saturate((rawLi + 0.5) / 1.5);
     wrapLi *= wrapLi;
-    float backlit = pow(saturate(dot(V, -L)), 3.0) * (1.0 - metallic);
-    float3 sss = albedo * backlit * 0.15;
-    return diff * lightColor * wrapLi + spec * lightColor * cosLi + sss * lightColor;
+    float3 Lt = -(L + N * 0.5);
+    float trans = pow(saturate(dot(V, -normalize(Lt))), 4.0) * (1.0 - metallic);
+    float3 sssCol = albedo * trans;
+    return diff * lightColor * wrapLi + spec * lightColor * cosLi + sssCol * lightColor;
 }
 float BlockerSearch2D(float2 uv, float recvDist, float nearZ, float farZ, float searchUV)
 {
