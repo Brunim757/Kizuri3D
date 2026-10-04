@@ -1306,6 +1306,55 @@ bool TestGuid() {
   }
   return true;
 }
+bool TestTangentGen() {
+  std::vector<float> pos = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0 };
+  std::vector<float> nrm = { 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1 };
+  std::vector<float> uv = { 0, 0, 1, 0, 1, 1, 0, 1 };
+  std::vector<uint32_t> idx = { 0, 1, 2, 0, 2, 3 };
+  std::vector<float> tan;
+  if (!Kizuri::GenerateTangents(pos, nrm, uv, idx, tan) || tan.size() != 16) {
+    return false;
+  }
+  for (size_t i = 0; i < 4; ++i) {
+    if (std::fabs(tan[i * 4 + 0] - 1.0f) > 1e-4f || std::fabs(tan[i * 4 + 1]) > 1e-4f || std::fabs(tan[i * 4 + 2]) > 1e-4f || tan[i * 4 + 3] != 1.0f) {
+      return false;
+    }
+  }
+  std::vector<float> uvMirror = { 0, 0, 1, 0, 1, 1, 0, 1 };
+  for (size_t i = 0; i < 4; ++i) {
+    uvMirror[i * 2 + 0] = 1.0f - uvMirror[i * 2 + 0];
+  }
+  std::vector<float> tanM;
+  if (!Kizuri::GenerateTangents(pos, nrm, uvMirror, idx, tanM) || tanM.size() != 16) {
+    return false;
+  }
+  for (size_t i = 0; i < 4; ++i) {
+    if (std::fabs(tanM[i * 4 + 0] + 1.0f) > 1e-4f || tanM[i * 4 + 3] != -1.0f) {
+      return false;
+    }
+  }
+  std::vector<float> bad;
+  if (Kizuri::GenerateTangents(pos, nrm, uv, std::vector<uint32_t>{ 0, 1 }, bad)) {
+    return false;
+  }
+  if (Kizuri::GenerateTangents(pos, nrm, std::vector<float>{ 0, 0 }, idx, bad)) {
+    return false;
+  }
+  if (Kizuri::GenerateTangents(pos, nrm, uv, std::vector<uint32_t>{ 0, 1, 99 }, bad)) {
+    return false;
+  }
+  Kizuri::MeshAssetData data;
+  data.guid = "01234567-89ab-cdef-0123-456789abcd";
+  data.positions = pos;
+  data.normals = nrm;
+  data.uvs = uv;
+  data.indices = idx;
+  std::vector<unsigned char> bytes;
+  if (Kizuri::EncodeMeshMemory(data, bytes)) {
+    return false;
+  }
+  return true;
+}
 bool TestMeshCodec() {
   Kizuri::MeshAssetData data;
   data.guid = "01234567-89ab-cdef-0123-456789abcdef";
@@ -1313,6 +1362,15 @@ bool TestMeshCodec() {
   data.normals = { 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f };
   data.uvs = { 0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 1.0f };
   data.indices = { 0, 1, 2 };
+  if (!Kizuri::GenerateTangents(data.positions, data.normals, data.uvs, data.indices, data.tangents)) {
+    return false;
+  }
+  if (data.tangents.size() != 12) {
+    return false;
+  }
+  if (std::fabs(data.tangents[0] - 1.0f) > 1e-4f || std::fabs(data.tangents[1]) > 1e-4f || std::fabs(data.tangents[2]) > 1e-4f || data.tangents[3] != 1.0f) {
+    return false;
+  }
   Kizuri::MeshMaterialData mat;
   mat.name = "Mat1";
   mat.albedo[0] = 0.2f;
@@ -1320,6 +1378,8 @@ bool TestMeshCodec() {
   mat.albedo[2] = 0.6f;
   mat.metallic = 0.1f;
   mat.roughness = 0.9f;
+  mat.normalTexGuid = "normal-guid-1";
+  mat.ormTexGuid = "orm-guid-1";
   data.materials.push_back(mat);
   Kizuri::MeshPartData part;
   part.indexOffset = 0;
@@ -1347,7 +1407,13 @@ bool TestMeshCodec() {
   if (back.guid != data.guid || back.positions != data.positions || back.normals != data.normals || back.uvs != data.uvs || back.indices != data.indices) {
     return false;
   }
+  if (back.tangents != data.tangents) {
+    return false;
+  }
   if (back.materials.size() != 1 || back.materials[0].name != "Mat1" || back.materials[0].albedo[2] != 0.6f) {
+    return false;
+  }
+  if (back.materials[0].normalTexGuid != "normal-guid-1" || back.materials[0].ormTexGuid != "orm-guid-1") {
     return false;
   }
   if (back.parts.size() != 1 || back.parts[0].indexCount != 3) {
@@ -1404,6 +1470,9 @@ bool TestMeshImport() {
     return false;
   }
   if (data.guid.empty()) {
+    return false;
+  }
+  if (data.tangents.size() != data.positions.size() / 3 * 4) {
     return false;
   }
   Kizuri::MeshAssetData keep;
@@ -3061,6 +3130,10 @@ bool TestMeshStaging() {
     big.indices.push_back(i + 1);
     big.indices.push_back(i + 2);
   }
+  if (!Kizuri::GenerateTangents(big.positions, big.normals, big.uvs, big.indices, big.tangents)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
   Kizuri::MeshPartData part;
   part.indexOffset = 0;
   part.indexCount = static_cast<uint32_t>(big.indices.size());
@@ -3083,6 +3156,10 @@ bool TestMeshStaging() {
   small.normals = { 0, 0, 1, 0, 0, 1, 0, 0, 1 };
   small.uvs = { 0, 0, 1, 0, 0, 1 };
   small.indices = { 0, 1, 2 };
+  if (!Kizuri::GenerateTangents(small.positions, small.normals, small.uvs, small.indices, small.tangents)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
   part.indexCount = 3;
   small.parts.push_back(part);
   small.aabbMin[0] = 0.0f;
@@ -3193,6 +3270,7 @@ int main() {
   failures += Check("Autosave-Offer", TestAutosaveOffer());
   failures += Check("Notifications", TestNotifications());
   failures += Check("Guid", TestGuid());
+  failures += Check("TangentGen", TestTangentGen());
   failures += Check("MeshCodec", TestMeshCodec());
   failures += Check("MeshImport", TestMeshImport());
   failures += Check("AssetDatabase", TestAssetDatabase());

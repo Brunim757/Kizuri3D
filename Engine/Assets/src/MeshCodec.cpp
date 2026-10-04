@@ -81,6 +81,11 @@ bool AppendMeshFlatBuffer(const MeshAssetData& data, size_t vertexCount, flatbuf
   auto fbIdx = builder.CreateVector(idx);
   idx.clear();
   idx.shrink_to_fit();
+  std::vector<unsigned char> tans(vertexCount * 16);
+  std::memcpy(tans.data(), data.tangents.data(), tans.size());
+  auto fbTans = builder.CreateVector(tans);
+  tans.clear();
+  tans.shrink_to_fit();
   auto fbGuid = builder.CreateString(data.guid);
   auto fbSourcePath = builder.CreateString(data.sourcePath);
   std::vector<flatbuffers::Offset<KizuriAssets::MaterialSlot>> fbMats;
@@ -88,7 +93,9 @@ bool AppendMeshFlatBuffer(const MeshAssetData& data, size_t vertexCount, flatbuf
     const MeshMaterialData& m = data.materials[i];
     auto fbName = builder.CreateString(m.name);
     auto fbTex = builder.CreateString(m.albedoTexGuid);
-    fbMats.push_back(KizuriAssets::CreateMaterialSlot(builder, fbName, m.albedo[0], m.albedo[1], m.albedo[2], m.metallic, m.roughness, fbTex));
+    auto fbNrm = builder.CreateString(m.normalTexGuid);
+    auto fbOrm = builder.CreateString(m.ormTexGuid);
+    fbMats.push_back(KizuriAssets::CreateMaterialSlot(builder, fbName, m.albedo[0], m.albedo[1], m.albedo[2], m.metallic, m.roughness, fbTex, fbNrm, fbOrm));
   }
   auto fbMatsVec = builder.CreateVector(fbMats);
   std::vector<KizuriAssets::MeshPart> fbParts;
@@ -100,7 +107,7 @@ bool AppendMeshFlatBuffer(const MeshAssetData& data, size_t vertexCount, flatbuf
   KizuriAssets::Vec3 bmin(data.aabbMin[0], data.aabbMin[1], data.aabbMin[2]);
   KizuriAssets::Vec3 bmax(data.aabbMax[0], data.aabbMax[1], data.aabbMax[2]);
   KizuriAssets::AABB bounds(bmin, bmax);
-  auto mesh = KizuriAssets::CreateMeshAsset(builder, fbGuid, fbVerts, static_cast<uint32_t>(vertexCount), 32, fbIdx, static_cast<uint32_t>(data.indices.size()), &bounds, fbMatsVec, fbPartsVec, data.hasSource, fbSourcePath, data.sourceHash, static_cast<int64_t>(data.sourceTimestamp));
+  auto mesh = KizuriAssets::CreateMeshAsset(builder, fbGuid, fbVerts, static_cast<uint32_t>(vertexCount), 32, fbTans, fbIdx, static_cast<uint32_t>(data.indices.size()), &bounds, fbMatsVec, fbPartsVec, data.hasSource, fbSourcePath, data.sourceHash, static_cast<int64_t>(data.sourceTimestamp));
   builder.Finish(mesh);
   return true;
 }
@@ -109,7 +116,7 @@ bool ValidateMeshData(const MeshAssetData& data, size_t& vertexCount) {
     return false;
   }
   vertexCount = data.positions.size() / 3;
-  if (data.normals.size() != data.positions.size() || data.uvs.size() != vertexCount * 2) {
+  if (data.normals.size() != data.positions.size() || data.uvs.size() != vertexCount * 2 || data.tangents.size() != vertexCount * 4) {
     return false;
   }
   return true;
@@ -182,6 +189,7 @@ bool DecodeMeshMemory(const void* bytes, size_t size, MeshAssetData& out) {
   out.positions.resize(vertexCount * 3);
   out.normals.resize(vertexCount * 3);
   out.uvs.resize(vertexCount * 2);
+  out.tangents.resize(vertexCount * 4);
   const float* vdata = reinterpret_cast<const float*>(mesh->vertexData()->data());
   for (size_t i = 0; i < vertexCount; ++i) {
     out.positions[i * 3 + 0] = vdata[i * 8 + 0];
@@ -196,6 +204,12 @@ bool DecodeMeshMemory(const void* bytes, size_t size, MeshAssetData& out) {
   size_t indexCount = mesh->indexCount();
   out.indices.resize(indexCount);
   std::memcpy(out.indices.data(), mesh->indexData()->data(), indexCount * 4);
+  if (mesh->tangentData() != nullptr && mesh->tangentData()->size() == vertexCount * 16) {
+    std::memcpy(out.tangents.data(), mesh->tangentData()->data(), vertexCount * 16);
+  } else if (!GenerateTangents(out.positions, out.normals, out.uvs, out.indices, out.tangents)) {
+    out = MeshAssetData();
+    return false;
+  }
   if (mesh->bounds() != nullptr) {
     out.aabbMin[0] = mesh->bounds()->min().x();
     out.aabbMin[1] = mesh->bounds()->min().y();
@@ -215,6 +229,8 @@ bool DecodeMeshMemory(const void* bytes, size_t size, MeshAssetData& out) {
       md.metallic = m->metallic();
       md.roughness = m->roughness();
       md.albedoTexGuid = m->albedoTexGuid() != nullptr ? m->albedoTexGuid()->str() : "";
+      md.normalTexGuid = m->normalTexGuid() != nullptr ? m->normalTexGuid()->str() : "";
+      md.ormTexGuid = m->ormTexGuid() != nullptr ? m->ormTexGuid()->str() : "";
       out.materials.push_back(md);
     }
   }

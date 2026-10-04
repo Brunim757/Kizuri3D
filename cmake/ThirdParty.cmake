@@ -121,6 +121,10 @@ add_library(kizuri_cgltf STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/cgltf_impl.cpp
 )
 target_include_directories(kizuri_cgltf PUBLIC ${cgltf_SOURCE_DIR})
+add_library(kizuri_mikktspace STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mikktspace/mikktspace.c
+)
+target_include_directories(kizuri_mikktspace PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mikktspace)
 add_library(kizuri_stb STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/stb_impl.cpp
 )

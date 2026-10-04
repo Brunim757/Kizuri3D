@@ -3,6 +3,7 @@
 #include "EditorApp.h"
 #include "Kizuri/Input.h"
 #include "Kizuri/SceneSerializer.h"
+#include "Kizuri/Assets/MeshCodec.h"
 #include "FileDialog.h"
 #include <windows.h>
 #include <imgui.h>
@@ -129,7 +130,7 @@ void EditorApp::UploadDefaultCube() {
     return;
   }
   std::vector<float> interleaved;
-  interleaved.reserve(vertexCount * 8);
+  interleaved.reserve(vertexCount * 12);
   for (size_t i = 0; i < vertexCount; ++i) {
     interleaved.push_back(cubeMesh.positions[i * 3 + 0]);
     interleaved.push_back(cubeMesh.positions[i * 3 + 1]);
@@ -139,8 +140,19 @@ void EditorApp::UploadDefaultCube() {
     interleaved.push_back(cubeMesh.normals[i * 3 + 2]);
     interleaved.push_back(cubeMesh.uvs[i * 2 + 0]);
     interleaved.push_back(cubeMesh.uvs[i * 2 + 1]);
+    if (cubeMesh.tangents.size() == vertexCount * 4) {
+      interleaved.push_back(cubeMesh.tangents[i * 4 + 0]);
+      interleaved.push_back(cubeMesh.tangents[i * 4 + 1]);
+      interleaved.push_back(cubeMesh.tangents[i * 4 + 2]);
+      interleaved.push_back(cubeMesh.tangents[i * 4 + 3]);
+    } else {
+      interleaved.push_back(1.0f);
+      interleaved.push_back(0.0f);
+      interleaved.push_back(0.0f);
+      interleaved.push_back(1.0f);
+    }
   }
-  defaultVB = rhi->CreateBuffer(static_cast<uint64_t>(interleaved.size() * sizeof(float)), 32, false, interleaved.data());
+  defaultVB = rhi->CreateBuffer(static_cast<uint64_t>(interleaved.size() * sizeof(float)), 48, false, interleaved.data());
   defaultIB = rhi->CreateBuffer(static_cast<uint64_t>(cubeMesh.indices.size() * 4), 4, true, cubeMesh.indices.data());
   if (defaultVB == 0 || defaultIB == 0) {
     if (defaultVB != 0) {
@@ -297,6 +309,9 @@ bool EditorApp::Initialize() {
   ImGui_ImplDX11_Init(static_cast<ID3D11Device*>(rhi->GetNativeDevice()), static_cast<ID3D11DeviceContext*>(rhi->GetNativeContext()));
   std::string cubePath = FindAsset("cube.gltf");
   if (LoadStaticMeshFromGltf(cubePath.c_str(), cubeMesh)) {
+    if (!Kizuri::GenerateTangents(cubeMesh.positions, cubeMesh.normals, cubeMesh.uvs, cubeMesh.indices, cubeMesh.tangents)) {
+      Announce(LogLevel::Error, std::string("Cube tangents failed: ") + cubePath);
+    }
     cubeReady = true;
     log.Add(LogLevel::Info, std::string("Mesh loaded: ") + cubePath);
   } else {
@@ -308,7 +323,8 @@ bool EditorApp::Initialize() {
     return false;
   }
   if (cubeReady) {
-    renderer.SetMesh(cubeMesh.positions.data(), cubeMesh.normals.data(), cubeMesh.uvs.data(), cubeMesh.positions.size() / 3, cubeMesh.indices.data(), cubeMesh.indices.size());
+    const float* cubeTan = cubeMesh.tangents.size() == cubeMesh.positions.size() / 3 * 4 ? cubeMesh.tangents.data() : nullptr;
+    renderer.SetMesh(cubeMesh.positions.data(), cubeMesh.normals.data(), cubeMesh.uvs.data(), cubeMesh.positions.size() / 3, cubeMesh.indices.data(), cubeMesh.indices.size(), cubeTan);
   }
   DeferredMaterial mat;
   mat.albedo[0] = 0.75f;

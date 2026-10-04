@@ -206,6 +206,14 @@ public:
     shaders[id] = 1;
     return id;
   }
+  RHIInputLayout CreateInputLayoutPNUT(RHIVertexShader vs) override {
+    if (vs == 0) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    shaders[id] = 1;
+    return id;
+  }
   void SetInputLayout(RHIInputLayout layout) override {
     if (curLayout == layout) {
       Note(true);
@@ -291,6 +299,11 @@ public:
   void SetPixelTexture(uint32_t slot, RHIRenderTarget rt) override {
     (void)slot;
     (void)rt;
+    Note(false);
+  }
+  void SetPixelTexture2D(uint32_t slot, RHITexture tex) override {
+    (void)slot;
+    (void)tex;
     Note(false);
   }
   RHISampler CreateSamplerLinear() override {

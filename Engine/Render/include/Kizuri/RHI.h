@@ -97,6 +97,7 @@ public:
   virtual void SetVertexShader(RHIVertexShader vs) = 0;
   virtual void SetPixelShader(RHIPixelShader ps) = 0;
   virtual RHIInputLayout CreateInputLayoutPNU(RHIVertexShader vs) = 0;
+  virtual RHIInputLayout CreateInputLayoutPNUT(RHIVertexShader vs) = 0;
   virtual void SetInputLayout(RHIInputLayout layout) = 0;
   virtual void SetViewport(const RHIViewport& vp) = 0;
   virtual void SetTopology(RHITopology topo) = 0;
@@ -111,6 +112,7 @@ public:
   virtual void* GetRenderTargetSRV(RHIRenderTarget rt) const = 0;
   virtual void BindBackbuffer() = 0;
   virtual void SetPixelTexture(uint32_t slot, RHIRenderTarget rt) = 0;
+  virtual void SetPixelTexture2D(uint32_t slot, RHITexture tex) = 0;
   virtual RHISampler CreateSamplerLinear() = 0;
   virtual void SetPixelSampler(uint32_t slot, RHISampler sampler) = 0;
   virtual RHIRenderTarget CreateShadowCube(int size) = 0;

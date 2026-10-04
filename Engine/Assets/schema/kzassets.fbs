@@ -16,6 +16,8 @@ table MaterialSlot {
   metallic:float;
   roughness:float;
   albedoTexGuid:string;
+  normalTexGuid:string;
+  ormTexGuid:string;
 }
 struct MeshPart {
   indexOffset:uint;
@@ -27,6 +29,7 @@ table MeshAsset {
   vertexData:[ubyte];
   vertexCount:uint;
   vertexStride:uint;
+  tangentData:[ubyte];
   indexData:[ubyte];
   indexCount:uint;
   bounds:AABB;

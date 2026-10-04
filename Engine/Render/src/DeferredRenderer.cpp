@@ -215,7 +215,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (ssaoPS == 0 || ssaoBlurPS == 0) {
     return false;
   }
-  layout = rhi->CreateInputLayoutPNU(geoVS);
+  layout = rhi->CreateInputLayoutPNUT(geoVS);
   if (layout == 0) {
     return false;
   }
@@ -304,7 +304,7 @@ void DeferredRenderer::Shutdown() {
   rhi = nullptr;
   ready = false;
 }
-bool DeferredRenderer::SetMesh(const float* positions, const float* normals, const float* uvs, size_t vertexCount, const uint32_t* indices, size_t idxCount) {
+bool DeferredRenderer::SetMesh(const float* positions, const float* normals, const float* uvs, size_t vertexCount, const uint32_t* indices, size_t idxCount, const float* tangents) {
   if (rhi == nullptr || positions == nullptr || normals == nullptr || indices == nullptr) {
     return false;
   }
@@ -312,14 +312,17 @@ bool DeferredRenderer::SetMesh(const float* positions, const float* normals, con
     return false;
   }
   std::vector<float> interleaved;
-  interleaved.reserve(vertexCount * 8);
+  interleaved.reserve(vertexCount * 12);
   for (size_t i = 0; i < vertexCount; ++i) {
     interleaved.push_back(positions[i * 3 + 0]);
     interleaved.push_back(positions[i * 3 + 1]);
     interleaved.push_back(positions[i * 3 + 2]);
-    interleaved.push_back(normals[i * 3 + 0]);
-    interleaved.push_back(normals[i * 3 + 1]);
-    interleaved.push_back(normals[i * 3 + 2]);
+    float nx = normals[i * 3 + 0];
+    float ny = normals[i * 3 + 1];
+    float nz = normals[i * 3 + 2];
+    interleaved.push_back(nx);
+    interleaved.push_back(ny);
+    interleaved.push_back(nz);
     float u = 0.0f;
     float v = 0.0f;
     if (uvs != nullptr) {
@@ -328,10 +331,28 @@ bool DeferredRenderer::SetMesh(const float* positions, const float* normals, con
     }
     interleaved.push_back(u);
     interleaved.push_back(v);
+    float tx = 1.0f;
+    float ty = 0.0f;
+    float tz = 0.0f;
+    float tw = 1.0f;
+    if (tangents != nullptr) {
+      tx = tangents[i * 4 + 0];
+      ty = tangents[i * 4 + 1];
+      tz = tangents[i * 4 + 2];
+      tw = tangents[i * 4 + 3];
+    }
+    float d = tx * nx + ty * ny + tz * nz;
+    tx -= d * nx;
+    ty -= d * ny;
+    tz -= d * nz;
+    interleaved.push_back(tx);
+    interleaved.push_back(ty);
+    interleaved.push_back(tz);
+    interleaved.push_back(tw);
   }
   uint64_t vbSize = static_cast<uint64_t>(interleaved.size() * sizeof(float));
   uint64_t ibSize = static_cast<uint64_t>(idxCount * sizeof(uint32_t));
-  RHIBuffer nvb = rhi->CreateBuffer(vbSize, 32, false, interleaved.data());
+  RHIBuffer nvb = rhi->CreateBuffer(vbSize, 48, false, interleaved.data());
   RHIBuffer nib = rhi->CreateBuffer(ibSize, 4, true, indices);
   if (nvb == 0 || nib == 0) {
     return false;

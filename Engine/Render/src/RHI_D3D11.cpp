@@ -522,6 +522,48 @@ public:
     layouts[id] = layout;
     return id;
   }
+  RHIInputLayout CreateInputLayoutPNUT(RHIVertexShader vs) override {
+    auto it = vsBlobs.find(vs);
+    if (it == vsBlobs.end()) {
+      return 0;
+    }
+    D3D11_INPUT_ELEMENT_DESC desc[4];
+    desc[0].SemanticName = "POSITION";
+    desc[0].SemanticIndex = 0;
+    desc[0].Format = DXGI_FORMAT_R32G32B32_FLOAT;
+    desc[0].InputSlot = 0;
+    desc[0].AlignedByteOffset = 0;
+    desc[0].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+    desc[0].InstanceDataStepRate = 0;
+    desc[1].SemanticName = "NORMAL";
+    desc[1].SemanticIndex = 0;
+    desc[1].Format = DXGI_FORMAT_R32G32B32_FLOAT;
+    desc[1].InputSlot = 0;
+    desc[1].AlignedByteOffset = 12;
+    desc[1].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+    desc[1].InstanceDataStepRate = 0;
+    desc[2].SemanticName = "TEXCOORD";
+    desc[2].SemanticIndex = 0;
+    desc[2].Format = DXGI_FORMAT_R32G32_FLOAT;
+    desc[2].InputSlot = 0;
+    desc[2].AlignedByteOffset = 24;
+    desc[2].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+    desc[2].InstanceDataStepRate = 0;
+    desc[3].SemanticName = "TANGENT";
+    desc[3].SemanticIndex = 0;
+    desc[3].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc[3].InputSlot = 0;
+    desc[3].AlignedByteOffset = 32;
+    desc[3].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+    desc[3].InstanceDataStepRate = 0;
+    ComPtr<ID3D11InputLayout> layout;
+    if (FAILED(device->CreateInputLayout(desc, 4, it->second->GetBufferPointer(), it->second->GetBufferSize(), layout.GetAddressOf()))) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    layouts[id] = layout;
+    return id;
+  }
   void SetInputLayout(RHIInputLayout layout) override {
     if (curLayout == layout) {
       Note(true);
@@ -842,6 +884,16 @@ public:
       auto cit = cubes.find(rt);
       if (cit != cubes.end()) {
         srv = cit->second.srv.Get();
+      }
+    }
+    context->PSSetShaderResources(slot, 1, &srv);
+  }
+  void SetPixelTexture2D(uint32_t slot, RHITexture tex) override {
+    ID3D11ShaderResourceView* srv = nullptr;
+    if (tex != 0) {
+      auto it = textures.find(tex);
+      if (it != textures.end()) {
+        srv = it->second.srv.Get();
       }
     }
     context->PSSetShaderResources(slot, 1, &srv);

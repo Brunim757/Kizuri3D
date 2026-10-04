@@ -9,6 +9,8 @@ struct MeshMaterialData {
   float metallic;
   float roughness;
   std::string albedoTexGuid;
+  std::string normalTexGuid;
+  std::string ormTexGuid;
 };
 struct MeshPartData {
   uint32_t indexOffset;
@@ -20,6 +22,7 @@ struct MeshAssetData {
   std::vector<float> positions;
   std::vector<float> normals;
   std::vector<float> uvs;
+  std::vector<float> tangents;
   std::vector<uint32_t> indices;
   std::vector<MeshMaterialData> materials;
   std::vector<MeshPartData> parts;
@@ -35,4 +38,6 @@ bool DecodeMeshFile(const std::string& path, MeshAssetData& out);
 bool EncodeMeshMemory(const MeshAssetData& data, std::vector<unsigned char>& out);
 bool DecodeMeshMemory(const void* bytes, size_t size, MeshAssetData& out);
 void ComputeAABB(const std::vector<float>& positions, float outMin[3], float outMax[3]);
+bool GenerateTangents(const std::vector<float>& positions, const std::vector<float>& normals, const std::vector<float>& uvs, const std::vector<uint32_t>& indices, std::vector<float>& tangentsOut);
+void OrthogonalizeTangents(const std::vector<float>& normals, std::vector<float>& tangents);
 }

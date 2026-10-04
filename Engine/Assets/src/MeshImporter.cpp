@@ -123,6 +123,21 @@ bool ReadVec2(const cgltf_accessor* acc, size_t idx, float* v) {
   v[1] = f[1];
   return true;
 }
+bool ReadVec4(const cgltf_accessor* acc, size_t idx, float* v) {
+  if (acc == nullptr || acc->type != cgltf_type_vec4 || acc->component_type != cgltf_component_type_r_32f) {
+    return false;
+  }
+  if (idx >= acc->count || acc->buffer_view == nullptr || acc->buffer_view->buffer == nullptr) {
+    return false;
+  }
+  const unsigned char* base = static_cast<const unsigned char*>(acc->buffer_view->buffer->data);
+  const float* f = reinterpret_cast<const float*>(base + acc->buffer_view->offset + acc->offset + idx * acc->stride);
+  v[0] = f[0];
+  v[1] = f[1];
+  v[2] = f[2];
+  v[3] = f[3];
+  return true;
+}
 bool ReadIndex(const cgltf_accessor* acc, size_t idx, uint32_t& v) {
   if (acc == nullptr || acc->type != cgltf_type_scalar || acc->buffer_view == nullptr || acc->buffer_view->buffer == nullptr) {
     return false;
@@ -142,6 +157,36 @@ bool ReadIndex(const cgltf_accessor* acc, size_t idx, uint32_t& v) {
   }
   return false;
 }
+bool ImportEmbeddedTexture(const cgltf_texture* ctex, const std::string& glbPath, uint64_t hash, int& texCounter, bool asNormal, std::string& guidOut) {
+  guidOut.clear();
+  if (ctex == nullptr || ctex->image == nullptr) {
+    return false;
+  }
+  std::vector<unsigned char> imgBytes;
+  std::string imgName;
+  if (!ResolveGltfImage(ctex->image, glbPath, imgBytes, imgName)) {
+    return false;
+  }
+  std::filesystem::path glbFile(glbPath);
+  std::string texName = glbFile.stem().string() + "_tex" + std::to_string(texCounter++) + ".kztex";
+  std::string texOut = (glbFile.parent_path() / texName).string();
+  std::string keepTex;
+  TextureAssetData probe;
+  if (DecodeTextureFile(texOut, probe) && !probe.guid.empty()) {
+    keepTex = probe.guid;
+  }
+  TextureAssetData tdata;
+  if (!ImportTextureMemory(imgBytes.data(), imgBytes.size(), keepTex, tdata, imgName, asNormal, glbPath, hash)) {
+    return false;
+  }
+  imgBytes.clear();
+  imgBytes.shrink_to_fit();
+  if (!EncodeTextureFile(tdata, texOut)) {
+    return false;
+  }
+  guidOut = tdata.guid;
+  return true;
+}
 }
 bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, MeshAssetData& out, LogStore* log) {
   out = MeshAssetData();
@@ -160,6 +205,7 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
   }
   bool ok = false;
   int texCounter = 0;
+  bool allTangent = true;
   if (cgltf_load_buffers(&options, data, glbPath.c_str()) == cgltf_result_success && data->meshes_count > 0) {
     ok = true;
     for (size_t mi = 0; mi < data->meshes_count && ok; ++mi) {
@@ -172,6 +218,7 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
         const cgltf_accessor* posAcc = nullptr;
         const cgltf_accessor* nrmAcc = nullptr;
         const cgltf_accessor* uvAcc = nullptr;
+        const cgltf_accessor* tanAcc = nullptr;
         for (size_t ai = 0; ai < prim.attributes_count; ++ai) {
           if (std::strcmp(prim.attributes[ai].name, "POSITION") == 0) {
             posAcc = prim.attributes[ai].data;
@@ -179,6 +226,8 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
             nrmAcc = prim.attributes[ai].data;
           } else if (std::strcmp(prim.attributes[ai].name, "TEXCOORD_0") == 0) {
             uvAcc = prim.attributes[ai].data;
+          } else if (std::strcmp(prim.attributes[ai].name, "TANGENT") == 0) {
+            tanAcc = prim.attributes[ai].data;
           }
         }
         if (posAcc == nullptr || posAcc->count == 0) {
@@ -188,6 +237,7 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
         out.positions.reserve(out.positions.size() + posAcc->count * 3);
         out.normals.reserve(out.normals.size() + posAcc->count * 3);
         out.uvs.reserve(out.uvs.size() + posAcc->count * 2);
+        out.tangents.reserve(out.tangents.size() + posAcc->count * 4);
         if (prim.indices != nullptr) {
           out.indices.reserve(out.indices.size() + prim.indices->count);
         } else {
@@ -197,6 +247,7 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
           float p[3] = { 0, 0, 0 };
           float n[3] = { 0, 1, 0 };
           float uv[2] = { 0, 0 };
+          float tg[4] = { 0, 0, 0, 1 };
           if (!ReadVec3(posAcc, vi, p)) {
             ok = false;
             break;
@@ -209,6 +260,14 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
             ok = false;
             break;
           }
+          if (tanAcc != nullptr) {
+            if (!ReadVec4(tanAcc, vi, tg)) {
+              ok = false;
+              break;
+            }
+          } else {
+            allTangent = false;
+          }
           out.positions.push_back(p[0]);
           out.positions.push_back(p[1]);
           out.positions.push_back(p[2]);
@@ -217,6 +276,10 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
           out.normals.push_back(n[2]);
           out.uvs.push_back(uv[0]);
           out.uvs.push_back(uv[1]);
+          out.tangents.push_back(tg[0]);
+          out.tangents.push_back(tg[1]);
+          out.tangents.push_back(tg[2]);
+          out.tangents.push_back(tg[3]);
         }
         if (!ok) {
           break;
@@ -247,26 +310,9 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
               md.albedo[2] = prim.material->pbr_metallic_roughness.base_color_factor[2];
               md.metallic = prim.material->pbr_metallic_roughness.metallic_factor;
               md.roughness = prim.material->pbr_metallic_roughness.roughness_factor;
-              const cgltf_texture* ctex = prim.material->pbr_metallic_roughness.base_color_texture.texture;
-              if (ctex != nullptr && ctex->image != nullptr) {
-                std::vector<unsigned char> imgBytes;
-                std::string imgName;
-                if (ResolveGltfImage(ctex->image, glbPath, imgBytes, imgName)) {
-                  std::filesystem::path glbFile(glbPath);
-                  std::string texName = glbFile.stem().string() + "_tex" + std::to_string(texCounter++) + ".kztex";
-                  std::string texOut = (glbFile.parent_path() / texName).string();
-                  std::string keepTex;
-                  TextureAssetData probe;
-                  if (DecodeTextureFile(texOut, probe) && !probe.guid.empty()) {
-                    keepTex = probe.guid;
-                  }
-                  TextureAssetData tdata;
-                  if (ImportTextureMemory(imgBytes.data(), imgBytes.size(), keepTex, tdata, imgName, false, glbPath, hash)) {
-                    imgBytes.clear();
-                    imgBytes.shrink_to_fit();
-                    if (EncodeTextureFile(tdata, texOut)) {
-                      md.albedoTexGuid = tdata.guid;
-                    }
+              ImportEmbeddedTexture(prim.material->pbr_metallic_roughness.base_color_texture.texture, glbPath, hash, texCounter, false, md.albedoTexGuid);
+              ImportEmbeddedTexture(prim.material->normal_texture.texture, glbPath, hash, texCounter, true, md.normalTexGuid);
+            }
                   }
                 }
               }
@@ -313,6 +359,10 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
   }
   cgltf_free(data);
   if (!ok || out.positions.empty() || out.indices.empty() || out.parts.empty()) {
+    out = MeshAssetData();
+    return false;
+  }
+  if (!allTangent && !GenerateTangents(out.positions, out.normals, out.uvs, out.indices, out.tangents)) {
     out = MeshAssetData();
     return false;
   }
