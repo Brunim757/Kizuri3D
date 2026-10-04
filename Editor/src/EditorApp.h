@@ -58,6 +58,14 @@ struct EditorApp {
   float viewSsaoRadius;
   bool viewSsr;
   bool viewContact;
+  bool viewDof;
+  float viewFocusDist;
+  float viewFocusRange;
+  bool viewMotion;
+  float viewMotionScale;
+  float viewCa;
+  float viewVig;
+  float viewGrain;
   bool viewFog;
   float viewFogDensity;
   float viewFogColor[3];

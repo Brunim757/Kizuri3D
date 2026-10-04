@@ -91,6 +91,9 @@ void EditorApp::RenderScene() {
   renderer.SetSsao(viewSsao, viewSsaoIntensity, viewSsaoRadius);
   renderer.SetSsr(viewSsr);
   renderer.SetContact(viewContact);
+  renderer.SetDof(viewDof, viewFocusDist, viewFocusRange);
+  renderer.SetMotionBlur(viewMotion, viewMotionScale);
+  renderer.SetFilm(viewCa, viewVig, viewGrain);
   renderer.SetFog(viewFog, viewFogDensity, viewFogColor);
   std::vector<EntityId> lightIds = scene.All();
   for (size_t i = 0; i < lightIds.size(); ++i) {
@@ -725,6 +728,15 @@ void EditorApp::DrawSettings() {
       ImGui::Separator();
       ImGui::Checkbox("SSR", &viewSsr);
       ImGui::Checkbox("Contact Shadows", &viewContact);
+      ImGui::Separator();
+      ImGui::Checkbox("DoF", &viewDof);
+      ImGui::SliderFloat("Focus Dist", &viewFocusDist, 1.0f, 100.0f);
+      ImGui::SliderFloat("Focus Range", &viewFocusRange, 0.5f, 60.0f);
+      ImGui::Checkbox("Motion Blur", &viewMotion);
+      ImGui::SliderFloat("Motion Scale", &viewMotionScale, 0.0f, 4.0f);
+      ImGui::SliderFloat("Chromatic Aberration", &viewCa, 0.0f, 2.0f);
+      ImGui::SliderFloat("Vignette", &viewVig, 0.0f, 1.0f);
+      ImGui::SliderFloat("Film Grain", &viewGrain, 0.0f, 0.25f);
       ImGui::Separator();
       ImGui::Checkbox("Fog", &viewFog);
       ImGui::SliderFloat("Fog Density", &viewFogDensity, 0.0f, 0.05f);
