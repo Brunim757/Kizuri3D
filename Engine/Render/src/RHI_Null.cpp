@@ -311,6 +311,11 @@ public:
     shaders[id] = 1;
     return id;
   }
+  RHISampler CreateSamplerWrap() override {
+    uint64_t id = nextId++;
+    shaders[id] = 1;
+    return id;
+  }
   void SetPixelSampler(uint32_t slot, RHISampler sampler) override {
     (void)slot;
     (void)sampler;

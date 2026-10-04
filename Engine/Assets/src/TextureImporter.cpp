@@ -39,11 +39,20 @@ bool ImportTextureMemory(const void* bytes, size_t size, const std::string& keep
   if (pixels == nullptr || w <= 0 || h <= 0) {
     return false;
   }
+  bool ok = CompressTexturePixels(pixels, w, h, keepGuid, out, nameHint, kind, sourcePath, sourceHash);
+  stbi_image_free(pixels);
+  return ok;
+}
+bool CompressTexturePixels(const unsigned char* rgba, int w, int h, const std::string& keepGuid, TextureAssetData& out, const std::string& nameHint, TexKind kind, const std::string& sourcePath, uint64_t sourceHash) {
+  out = TextureAssetData();
+  if (rgba == nullptr || w <= 0 || h <= 0) {
+    return false;
+  }
   bool normal = kind == TexKind::Normal || (kind == TexKind::Auto && NameHintsNormal(nameHint));
   bool orm = kind == TexKind::Orm || (kind == TexKind::Auto && !normal && NameHintsOrm(nameHint));
   bool hasAlpha = false;
   for (int i = 0; i < w * h; ++i) {
-    if (pixels[i * 4 + 3] < 255) {
+    if (rgba[i * 4 + 3] < 255) {
       hasAlpha = true;
       break;
     }
@@ -51,11 +60,9 @@ bool ImportTextureMemory(const void* bytes, size_t size, const std::string& keep
   bool srgb = !normal && !orm;
   DirectX::ScratchImage src;
   if (FAILED(src.Initialize2D(DXGI_FORMAT_R8G8B8A8_UNORM, w, h, 1, 1))) {
-    stbi_image_free(pixels);
     return false;
   }
-  std::memcpy(src.GetPixels(), pixels, static_cast<size_t>(w) * static_cast<size_t>(h) * 4);
-  stbi_image_free(pixels);
+  std::memcpy(src.GetPixels(), rgba, static_cast<size_t>(w) * static_cast<size_t>(h) * 4);
   DirectX::ScratchImage mipChain;
   DirectX::TEX_FILTER_FLAGS filter = static_cast<DirectX::TEX_FILTER_FLAGS>(DirectX::TEX_FILTER_DEFAULT | DirectX::TEX_FILTER_FORCE_NON_WIC);
   if (srgb) {

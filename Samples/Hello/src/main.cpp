@@ -2029,7 +2029,7 @@ bool TestEnsureTextureKind() {
     fs::remove_all(dir, ec);
     return false;
   }
-  if (!db.EnsureTextureKind(guid, 1)) {
+  if (!db.EnsureTextureKind(guid, Kizuri::TexKind::Normal)) {
     fs::remove_all(dir, ec);
     return false;
   }
@@ -2038,11 +2038,11 @@ bool TestEnsureTextureKind() {
     fs::remove_all(dir, ec);
     return false;
   }
-  if (!db.EnsureTextureKind(guid, 1)) {
+  if (!db.EnsureTextureKind(guid, Kizuri::TexKind::Normal)) {
     fs::remove_all(dir, ec);
     return false;
   }
-  if (!db.EnsureTextureKind(guid, 2)) {
+  if (!db.EnsureTextureKind(guid, Kizuri::TexKind::Orm)) {
     fs::remove_all(dir, ec);
     return false;
   }
@@ -2051,7 +2051,7 @@ bool TestEnsureTextureKind() {
     fs::remove_all(dir, ec);
     return false;
   }
-  if (db.EnsureTextureKind(guid, 0) || db.EnsureTextureKind(guid, 3)) {
+  if (db.EnsureTextureKind(guid, Kizuri::TexKind::Auto) || db.EnsureTextureKind(guid, Kizuri::TexKind::Color)) {
     fs::remove_all(dir, ec);
     return false;
   }
@@ -2304,6 +2304,154 @@ bool TestTexStreaming() {
     return false;
   }
   Kizuri::DestroyRHI(rhi);
+  fs::remove_all(dir, ec);
+  return true;
+}
+bool TestGltfMaterialIndex() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kzgltfmat_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  float tri[9] = { -1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+  {
+    FILE* fp = std::fopen((dir / "tri.bin").string().c_str(), "wb");
+    std::fwrite(tri, 1, sizeof(tri), fp);
+    std::fclose(fp);
+  }
+  std::string gltf = "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"material\":0},{\"attributes\":{\"POSITION\":0},\"material\":1}]}],\"materials\":[{\"name\":\"Dup\",\"pbrMetallicRoughness\":{\"baseColorFactor\":[1,0,0,1]}},{\"name\":\"Dup\",\"pbrMetallicRoughness\":{\"baseColorFactor\":[0,0,1,1]}}],\"buffers\":[{\"uri\":\"tri.bin\",\"byteLength\":36}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"}]}";
+  {
+    FILE* fp = std::fopen((dir / "dup.gltf").string().c_str(), "wb");
+    std::fwrite(gltf.c_str(), 1, gltf.size(), fp);
+    std::fclose(fp);
+  }
+  Kizuri::MeshAssetData data;
+  if (!Kizuri::ImportGltfMesh((dir / "dup.gltf").string(), "", data, nullptr)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.materials.size() != 2) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.materials[0].albedo[0] != 1.0f || data.materials[0].albedo[2] != 0.0f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.materials[1].albedo[2] != 1.0f || data.materials[1].albedo[0] != 0.0f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.parts.size() != 2 || data.parts[0].material != 0 || data.parts[1].material != 1) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  fs::remove_all(dir, ec);
+  return true;
+}
+bool TestGltfNodeTransform() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kzgltfnode_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  float tri[9] = { 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 2.0f, 0.0f, 1.0f, 3.0f };
+  {
+    FILE* fp = std::fopen((dir / "tri.bin").string().c_str(), "wb");
+    std::fwrite(tri, 1, sizeof(tri), fp);
+    std::fclose(fp);
+  }
+  std::string gltf = "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0,1]}],\"nodes\":[{\"mesh\":0,\"translation\":[5,0,0]},{\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"indices\":1}]}],\"buffers\":[{\"uri\":\"tri.bin\",\"byteLength\":42}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":6}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"},{\"bufferView\":1,\"componentType\":5123,\"count\":3,\"type\":\"SCALAR\"}]}";
+  {
+    FILE* fp = std::fopen((dir / "moved.gltf").string().c_str(), "wb");
+    std::fwrite(gltf.c_str(), 1, gltf.size(), fp);
+    std::fclose(fp);
+  }
+  uint16_t idx[3] = { 0, 1, 2 };
+  {
+    FILE* fp = std::fopen((dir / "tri.bin").string().c_str(), "ab");
+    std::fwrite(idx, 1, sizeof(idx), fp);
+    std::fclose(fp);
+  }
+  Kizuri::MeshAssetData data;
+  if (!Kizuri::ImportGltfMesh((dir / "moved.gltf").string(), "", data, nullptr)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.positions.size() != 18 || data.indices.size() != 6) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.positions[0] != 5.0f || data.positions[2] != -1.0f || data.positions[5] != -2.0f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.positions[9] != 0.0f || data.positions[11] != -1.0f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.indices[0] != 0 || data.indices[1] != 2 || data.indices[2] != 1) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.normals[1] != 1.0f || data.normals[2] != 0.0f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  fs::remove_all(dir, ec);
+  return true;
+}
+bool TestGltfOrm() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kzgltform_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  WriteTestBMP((dir / "oc.bmp").string(), 4, 4, false);
+  WriteTestBMP((dir / "mr.bmp").string(), 4, 4, false);
+  float tri[9] = { -1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+  {
+    FILE* fp = std::fopen((dir / "tri.bin").string().c_str(), "wb");
+    std::fwrite(tri, 1, sizeof(tri), fp);
+    std::fclose(fp);
+  }
+  std::string gltf = "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"material\":0}]}],\"materials\":[{\"name\":\"M\",\"pbrMetallicRoughness\":{\"metallicFactor\":0.5,\"roughnessFactor\":0.25,\"metallicRoughnessTexture\":{\"index\":1}},\"occlusionTexture\":{\"index\":0}}],\"textures\":[{\"source\":0},{\"source\":1}],\"images\":[{\"uri\":\"oc.bmp\"},{\"uri\":\"mr.bmp\"}],\"buffers\":[{\"uri\":\"tri.bin\",\"byteLength\":36}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"}]}";
+  {
+    FILE* fp = std::fopen((dir / "orm.gltf").string().c_str(), "wb");
+    std::fwrite(gltf.c_str(), 1, gltf.size(), fp);
+    std::fclose(fp);
+  }
+  Kizuri::MeshAssetData data;
+  if (!Kizuri::ImportGltfMesh((dir / "orm.gltf").string(), "", data, nullptr)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.materials.empty() || data.materials[0].ormTexGuid.empty()) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (!data.materials[0].albedoTexGuid.empty() || !data.materials[0].normalTexGuid.empty()) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  std::string ormFile = (dir / "orm_tex0.kztex").string();
+  if (!fs::exists(ormFile, ec)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  Kizuri::TextureAssetData ormTex;
+  if (!Kizuri::DecodeTextureFile(ormFile, ormTex) || ormTex.guid != data.materials[0].ormTexGuid) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (ormTex.format != Kizuri::TexFormat::Bc1 || ormTex.srgb) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (ormTex.width != 4 || ormTex.height != 4) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
   fs::remove_all(dir, ec);
   return true;
 }
@@ -3552,6 +3700,9 @@ int main() {
   failures += Check("RHITextures", TestRHITextures());
   failures += Check("TexStreaming", TestTexStreaming());
   failures += Check("GltfTextured", TestGltfTextured());
+  failures += Check("GltfMaterialIndex", TestGltfMaterialIndex());
+  failures += Check("GltfNodeTransform", TestGltfNodeTransform());
+  failures += Check("GltfOrm", TestGltfOrm());
   failures += Check("RHIBuffers", TestRHIBuffers());
   failures += Check("MeshStaging", TestMeshStaging());
   failures += Check("SetMeshGuid", TestSetMeshGuid());

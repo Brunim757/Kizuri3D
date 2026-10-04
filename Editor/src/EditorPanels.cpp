@@ -1107,7 +1107,7 @@ void EditorApp::DrawMaterialSlot(Entity* e, const char* label, int slot) {
       if (assets.GetTexByGuid(guid) == nullptr) {
         Announce(LogLevel::Warning, "Dropped texture not found");
       } else if (guid != *cur) {
-        if (slot != 0 && !assets.EnsureTextureKind(guid, slot)) {
+        if (slot != 0 && !assets.EnsureTextureKind(guid, slot == 1 ? TexKind::Normal : TexKind::Orm)) {
           Announce(LogLevel::Warning, "Texture has no source; assigned without conversion");
         }
         MaterialData after = e->material;

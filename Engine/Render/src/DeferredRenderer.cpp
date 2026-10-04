@@ -252,7 +252,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (sampler == 0) {
     return false;
   }
-  geoSampler = rhi->CreateSamplerLinear();
+  geoSampler = rhi->CreateSamplerWrap();
   if (geoSampler == 0) {
     return false;
   }

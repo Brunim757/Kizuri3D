@@ -114,6 +114,7 @@ public:
   virtual void SetPixelTexture(uint32_t slot, RHIRenderTarget rt) = 0;
   virtual void SetPixelTexture2D(uint32_t slot, RHITexture tex) = 0;
   virtual RHISampler CreateSamplerLinear() = 0;
+  virtual RHISampler CreateSamplerWrap() = 0;
   virtual void SetPixelSampler(uint32_t slot, RHISampler sampler) = 0;
   virtual RHIRenderTarget CreateShadowCube(int size) = 0;
   virtual void SetShadowCubeFace(RHIRenderTarget cube, int face) = 0;

@@ -1114,8 +1114,8 @@ void AssetDatabase::RequestTexture(const std::string& guid, float dist) {
     }
   }
 }
-bool AssetDatabase::EnsureTextureKind(const std::string& guid, int kind) {
-  if (guid.empty() || (kind != 1 && kind != 2)) {
+bool AssetDatabase::EnsureTextureKind(const std::string& guid, TexKind kind) {
+  if (guid.empty() || (kind != TexKind::Normal && kind != TexKind::Orm)) {
     return false;
   }
   auto tr = texRecords.find(guid);
@@ -1123,7 +1123,7 @@ bool AssetDatabase::EnsureTextureKind(const std::string& guid, int kind) {
     return true;
   }
   TextureRecord& rec = tr->second;
-  bool wantNormal = kind == 1;
+  bool wantNormal = kind == TexKind::Normal;
   bool kindOk = false;
   if (wantNormal) {
     kindOk = rec.data.format == TexFormat::Bc5;
@@ -1137,8 +1137,7 @@ bool AssetDatabase::EnsureTextureKind(const std::string& guid, int kind) {
     return false;
   }
   TextureAssetData fixed;
-  TexKind tk = wantNormal ? TexKind::Normal : TexKind::Orm;
-  if (!ImportTextureFileAs(rec.sourcePath, rec.guid, fixed, tk)) {
+  if (!ImportTextureFileAs(rec.sourcePath, rec.guid, fixed, kind)) {
     return false;
   }
   if (!EncodeTextureFile(fixed, rec.texPath)) {

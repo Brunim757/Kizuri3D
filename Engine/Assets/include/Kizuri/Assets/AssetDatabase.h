@@ -1,6 +1,7 @@
 #pragma once
 #include "Kizuri/Assets/MeshCodec.h"
 #include "Kizuri/Assets/TexCodec.h"
+#include "Kizuri/Assets/TextureImporter.h"
 #include "Kizuri/JobSystem.h"
 #include "Kizuri/RHI.h"
 #include <TaskScheduler.h>
@@ -157,7 +158,7 @@ public:
   std::map<std::string, size_t> ComputeTexRefCounts() const;
   static int SelectMipLevel(float dist, int mipCount);
   void RequestTexture(const std::string& guid, float dist);
-  bool EnsureTextureKind(const std::string& guid, int kind);
+  bool EnsureTextureKind(const std::string& guid, TexKind kind);
   void SetGpuRHI(IRHI* rhi);
   bool EnsureMeshGpu(const std::string& guid, size_t maxBytes);
   void DropMeshGpu(MeshRecord& record);
