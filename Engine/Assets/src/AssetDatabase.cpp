@@ -1114,6 +1114,44 @@ void AssetDatabase::RequestTexture(const std::string& guid, float dist) {
     }
   }
 }
+bool AssetDatabase::EnsureTextureKind(const std::string& guid, int kind) {
+  if (guid.empty() || (kind != 1 && kind != 2)) {
+    return false;
+  }
+  auto tr = texRecords.find(guid);
+  if (tr == texRecords.end() || !tr->second.loaded) {
+    return true;
+  }
+  TextureRecord& rec = tr->second;
+  bool wantNormal = kind == 1;
+  bool kindOk = false;
+  if (wantNormal) {
+    kindOk = rec.data.format == TexFormat::Bc5;
+  } else if (!rec.data.srgb) {
+    kindOk = rec.data.format == TexFormat::Bc1 || rec.data.format == TexFormat::Bc3;
+  }
+  if (kindOk) {
+    return true;
+  }
+  if (!rec.hasSource || rec.sourcePath.empty()) {
+    return false;
+  }
+  TextureAssetData fixed;
+  TexKind tk = wantNormal ? TexKind::Normal : TexKind::Orm;
+  if (!ImportTextureFileAs(rec.sourcePath, rec.guid, fixed, tk)) {
+    return false;
+  }
+  if (!EncodeTextureFile(fixed, rec.texPath)) {
+    return false;
+  }
+  DropTexGpu(rec);
+  rec.data = fixed;
+  rec.loaded = true;
+  rec.state = TextureAssetState::Ready;
+  rec.residentLevels = 0;
+  rec.selectedLevels = 0;
+  return true;
+}
 size_t AssetDatabase::DrainUploads(IRHI* rhi, size_t maxBytes) {
   if (rhi == nullptr || maxBytes == 0) {
     return 0;

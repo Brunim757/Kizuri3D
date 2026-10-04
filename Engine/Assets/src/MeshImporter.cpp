@@ -157,7 +157,7 @@ bool ReadIndex(const cgltf_accessor* acc, size_t idx, uint32_t& v) {
   }
   return false;
 }
-bool ImportEmbeddedTexture(const cgltf_texture* ctex, const std::string& glbPath, uint64_t hash, int& texCounter, bool asNormal, std::string& guidOut) {
+bool ImportEmbeddedTexture(const cgltf_texture* ctex, const std::string& glbPath, uint64_t hash, int& texCounter, TexKind kind, std::string& guidOut) {
   guidOut.clear();
   if (ctex == nullptr || ctex->image == nullptr) {
     return false;
@@ -176,7 +176,7 @@ bool ImportEmbeddedTexture(const cgltf_texture* ctex, const std::string& glbPath
     keepTex = probe.guid;
   }
   TextureAssetData tdata;
-  if (!ImportTextureMemory(imgBytes.data(), imgBytes.size(), keepTex, tdata, imgName, asNormal, glbPath, hash)) {
+  if (!ImportTextureMemory(imgBytes.data(), imgBytes.size(), keepTex, tdata, imgName, kind, glbPath, hash)) {
     return false;
   }
   imgBytes.clear();
@@ -310,8 +310,8 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
               md.albedo[2] = prim.material->pbr_metallic_roughness.base_color_factor[2];
               md.metallic = prim.material->pbr_metallic_roughness.metallic_factor;
               md.roughness = prim.material->pbr_metallic_roughness.roughness_factor;
-              ImportEmbeddedTexture(prim.material->pbr_metallic_roughness.base_color_texture.texture, glbPath, hash, texCounter, false, md.albedoTexGuid);
-              ImportEmbeddedTexture(prim.material->normal_texture.texture, glbPath, hash, texCounter, true, md.normalTexGuid);
+              ImportEmbeddedTexture(prim.material->pbr_metallic_roughness.base_color_texture.texture, glbPath, hash, texCounter, TexKind::Auto, md.albedoTexGuid);
+              ImportEmbeddedTexture(prim.material->normal_texture.texture, glbPath, hash, texCounter, TexKind::Normal, md.normalTexGuid);
             }
             matIndex = static_cast<uint32_t>(out.materials.size());
             out.materials.push_back(md);

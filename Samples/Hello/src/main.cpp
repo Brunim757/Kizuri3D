@@ -2232,13 +2232,14 @@ bool TestGltfTextured() {
   fs::remove_all(dir, ec);
   fs::create_directories(dir, ec);
   WriteTestBMP((dir / "t.bmp").string(), 4, 4, false);
+  WriteTestBMP((dir / "t_nrm.bmp").string(), 4, 4, false);
   float tri[9] = { -1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f };
   {
     FILE* fp = std::fopen((dir / "tri.bin").string().c_str(), "wb");
     std::fwrite(tri, 1, sizeof(tri), fp);
     std::fclose(fp);
   }
-  std::string gltf = "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"material\":0}]}],\"materials\":[{\"name\":\"M\",\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":0}}}],\"textures\":[{\"source\":0}],\"images\":[{\"uri\":\"t.bmp\"}],\"buffers\":[{\"uri\":\"tri.bin\",\"byteLength\":36}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"}]}";
+  std::string gltf = "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"material\":0}]}],\"materials\":[{\"name\":\"M\",\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":0}},\"normalTexture\":{\"index\":1}}],\"textures\":[{\"source\":0},{\"source\":1}],\"images\":[{\"uri\":\"t.bmp\"},{\"uri\":\"t_nrm.bmp\"}],\"buffers\":[{\"uri\":\"tri.bin\",\"byteLength\":36}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"}]}";
   {
     FILE* fp = std::fopen((dir / "tri.gltf").string().c_str(), "wb");
     std::fwrite(gltf.c_str(), 1, gltf.size(), fp);
@@ -2264,6 +2265,24 @@ bool TestGltfTextured() {
   }
   Kizuri::TextureAssetData tex;
   if (!Kizuri::DecodeTextureFile(texFile, tex) || tex.guid != data.materials[0].albedoTexGuid) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.materials[0].normalTexGuid.empty()) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  std::string nrmFile = (dir / "tri_tex1.kztex").string();
+  if (!fs::exists(nrmFile, ec)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  Kizuri::TextureAssetData nrmTex;
+  if (!Kizuri::DecodeTextureFile(nrmFile, nrmTex) || nrmTex.guid != data.materials[0].normalTexGuid) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (nrmTex.format != Kizuri::TexFormat::Bc5 || nrmTex.srgb) {
     fs::remove_all(dir, ec);
     return false;
   }
@@ -3446,6 +3465,10 @@ int main() {
   failures += Check("TexImportOpaque", TestTexImportOpaque());
   failures += Check("TexImportAlpha", TestTexImportAlpha());
   failures += Check("TexImportNormal", TestTexImportNormal());
+  failures += Check("TexImportOrm", TestTexImportOrm());
+  failures += Check("EnsureTextureKind", TestEnsureTextureKind());
+  failures += Check("TexImportOrm", TestTexImportOrm());
+  failures += Check("EnsureTextureKind", TestEnsureTextureKind());
   failures += Check("RHITextures", TestRHITextures());
   failures += Check("TexStreaming", TestTexStreaming());
   failures += Check("GltfTextured", TestGltfTextured());

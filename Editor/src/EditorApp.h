@@ -119,6 +119,8 @@ struct EditorApp {
   void DrawAssetBrowser();
   void DrawSettings();
   void DrawMeshSection(Entity* e);
+  void DrawMaterialSection(Entity* e);
+  void DrawMaterialSlot(Entity* e, const char* label, int slot);
   void DrawLightGizmo();
   std::string ResolveAssetsDir();
   std::vector<RefUse> SceneMeshRefs();

@@ -919,7 +919,31 @@ void EditorApp::DrawInspector() {
       edits.PushLight(e->id, light);
     }
   }
-  if (!e->hasMesh || !e->hasLight) {
+  if (e->hasMaterial) {
+    ImGui::Separator();
+    ImGui::Text("Material");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Remove##material")) {
+      std::unique_ptr<Command> cmd(new RemoveMaterialCmd(e->id));
+      undo.Execute(std::move(cmd), scene);
+    }
+    MaterialData mat = e->material;
+    bool matChanged = false;
+    if (ImGui::ColorEdit3("Albedo", mat.albedo)) {
+      matChanged = true;
+    }
+    if (ImGui::DragFloat("Metallic", &mat.metallic, 0.01f, 0.0f, 1.0f)) {
+      matChanged = true;
+    }
+    if (ImGui::DragFloat("Roughness", &mat.roughness, 0.01f, 0.0f, 1.0f)) {
+      matChanged = true;
+    }
+    if (matChanged) {
+      edits.PushMaterial(e->id, mat);
+    }
+    DrawMaterialSection(e);
+  }
+  if (!e->hasMesh || !e->hasLight || !e->hasMaterial) {
     ImGui::Separator();
     if (ImGui::Button("Add Component")) {
       ImGui::OpenPopup("AddComponent");
@@ -931,6 +955,10 @@ void EditorApp::DrawInspector() {
       }
       if (!e->hasLight && ImGui::MenuItem("Light")) {
         std::unique_ptr<Command> cmd(new AddLightCmd(e->id));
+        undo.Execute(std::move(cmd), scene);
+      }
+      if (!e->hasMaterial && ImGui::MenuItem("Material")) {
+        std::unique_ptr<Command> cmd(new AddMaterialCmd(e->id));
         undo.Execute(std::move(cmd), scene);
       }
       ImGui::EndPopup();
@@ -1037,6 +1065,80 @@ void EditorApp::DrawMeshSection(Entity* e) {
   if (ImGui::Button("Clear Mesh")) {
     if (!e->meshGuid.empty()) {
       std::unique_ptr<Command> cmd(new SetMeshGuidCmd(e->id, e->meshGuid, ""));
+      undo.Execute(std::move(cmd), scene);
+    }
+  }
+}
+void EditorApp::DrawMaterialSection(Entity* e) {
+  if (e == nullptr || !e->hasMaterial) {
+    return;
+  }
+  DrawMaterialSlot(e, "Albedo", 0);
+  DrawMaterialSlot(e, "Normal", 1);
+  DrawMaterialSlot(e, "ORM", 2);
+}
+void EditorApp::DrawMaterialSlot(Entity* e, const char* label, int slot) {
+  if (e == nullptr || label == nullptr || slot < 0 || slot > 2) {
+    return;
+  }
+  const std::string* cur = &e->material.albedoTex;
+  if (slot == 1) {
+    cur = &e->material.normalTex;
+  } else if (slot == 2) {
+    cur = &e->material.ormTex;
+  }
+  ImGui::Text("%s:", label);
+  ImGui::SameLine();
+  if (cur->empty()) {
+    ImGui::TextDisabled("(none)");
+  } else {
+    const TextureRecord* tr = assets.GetTexByGuid(*cur);
+    if (tr == nullptr) {
+      ImGui::TextDisabled("(missing)");
+    } else {
+      std::filesystem::path tp(tr->texPath);
+      ImGui::Text("%s", tp.filename().string().c_str());
+    }
+  }
+  if (ImGui::BeginDragDropTarget()) {
+    const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("KZ_TEX");
+    if (payload != nullptr && payload->Data != nullptr && payload->DataSize > 0) {
+      std::string guid(static_cast<const char*>(payload->Data));
+      if (assets.GetTexByGuid(guid) == nullptr) {
+        Announce(LogLevel::Warning, "Dropped texture not found");
+      } else if (guid != *cur) {
+        if (slot != 0 && !assets.EnsureTextureKind(guid, slot)) {
+          Announce(LogLevel::Warning, "Texture has no source; assigned without conversion");
+        }
+        MaterialData after = e->material;
+        if (slot == 1) {
+          after.normalTex = guid;
+        } else if (slot == 2) {
+          after.ormTex = guid;
+        } else {
+          after.albedoTex = guid;
+        }
+        std::unique_ptr<Command> cmd(new SetMaterialCmd(e->id, e->material, after));
+        if (undo.Execute(std::move(cmd), scene)) {
+          log.Add(LogLevel::Info, "Material texture assigned");
+        }
+      }
+    }
+    ImGui::EndDragDropTarget();
+  }
+  ImGui::SameLine();
+  std::string clearLabel = std::string("Clear##") + label;
+  if (ImGui::SmallButton(clearLabel.c_str())) {
+    if (!cur->empty()) {
+      MaterialData after = e->material;
+      if (slot == 1) {
+        after.normalTex.clear();
+      } else if (slot == 2) {
+        after.ormTex.clear();
+      } else {
+        after.albedoTex.clear();
+      }
+      std::unique_ptr<Command> cmd(new SetMaterialCmd(e->id, e->material, after));
       undo.Execute(std::move(cmd), scene);
     }
   }
@@ -1185,6 +1287,11 @@ void EditorApp::DrawAssetBrowser() {
     }
     ImGui::SameLine();
     ImGui::Text("gpu:%d/%llu", rec->residentLevels, (unsigned long long)rec->data.mips.size());
+    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+      ImGui::SetDragDropPayload("KZ_TEX", rec->guid.c_str(), rec->guid.size() + 1);
+      ImGui::Text("%s", tp.filename().string().c_str());
+      ImGui::EndDragDropSource();
+    }
     if (ImGui::BeginPopupContextItem("TexCtx")) {
       bool canReimport = rec->hasSource;
       if (ImGui::MenuItem("Reimport", nullptr, false, canReimport)) {

@@ -16,8 +16,18 @@ bool NameHintsNormal(const std::string& name) {
   }
   return lower.find("normal") != std::string::npos || lower.find("_nrm") != std::string::npos || lower.find("_nor") != std::string::npos || lower.find("normalmap") != std::string::npos;
 }
+bool NameHintsOrm(const std::string& name) {
+  std::string lower = name;
+  for (size_t i = 0; i < lower.size(); ++i) {
+    lower[i] = static_cast<char>(tolower(lower[i]));
+  }
+  if (lower.find("_orm") != std::string::npos || lower.find("_arm") != std::string::npos || lower.find("_ao") != std::string::npos) {
+    return true;
+  }
+  return lower.find("_rough") != std::string::npos && lower.find("_metal") != std::string::npos;
 }
-bool ImportTextureMemory(const void* bytes, size_t size, const std::string& keepGuid, TextureAssetData& out, const std::string& nameHint, bool asNormal, const std::string& sourcePath, uint64_t sourceHash) {
+}
+bool ImportTextureMemory(const void* bytes, size_t size, const std::string& keepGuid, TextureAssetData& out, const std::string& nameHint, TexKind kind, const std::string& sourcePath, uint64_t sourceHash) {
   out = TextureAssetData();
   if (bytes == nullptr || size == 0) {
     return false;
@@ -29,7 +39,8 @@ bool ImportTextureMemory(const void* bytes, size_t size, const std::string& keep
   if (pixels == nullptr || w <= 0 || h <= 0) {
     return false;
   }
-  bool normal = asNormal || NameHintsNormal(nameHint);
+  bool normal = kind == TexKind::Normal || (kind == TexKind::Auto && NameHintsNormal(nameHint));
+  bool orm = kind == TexKind::Orm || (kind == TexKind::Auto && !normal && NameHintsOrm(nameHint));
   bool hasAlpha = false;
   for (int i = 0; i < w * h; ++i) {
     if (pixels[i * 4 + 3] < 255) {
@@ -37,7 +48,7 @@ bool ImportTextureMemory(const void* bytes, size_t size, const std::string& keep
       break;
     }
   }
-  bool srgb = !normal;
+  bool srgb = !normal && !orm;
   DirectX::ScratchImage src;
   if (FAILED(src.Initialize2D(DXGI_FORMAT_R8G8B8A8_UNORM, w, h, 1, 1))) {
     stbi_image_free(pixels);
@@ -58,6 +69,9 @@ bool ImportTextureMemory(const void* bytes, size_t size, const std::string& keep
   if (normal) {
     destFormat = DXGI_FORMAT_BC5_UNORM;
     outFormat = TexFormat::Bc5;
+  } else if (orm) {
+    destFormat = hasAlpha ? DXGI_FORMAT_BC3_UNORM : DXGI_FORMAT_BC1_UNORM;
+    outFormat = hasAlpha ? TexFormat::Bc3 : TexFormat::Bc1;
   } else if (hasAlpha) {
     destFormat = srgb ? DXGI_FORMAT_BC3_UNORM_SRGB : DXGI_FORMAT_BC3_UNORM;
     outFormat = TexFormat::Bc3;
@@ -124,6 +138,32 @@ bool ImportTextureFile(const std::string& path, const std::string& keepGuid, Tex
   }
   uint64_t hash = Fnv1a64(bytes.data(), bytes.size());
   std::filesystem::path p(path);
-  return ImportTextureMemory(bytes.data(), bytes.size(), keepGuid, out, p.filename().string(), false, path, hash);
+  return ImportTextureMemory(bytes.data(), bytes.size(), keepGuid, out, p.filename().string(), TexKind::Auto, path, hash);
+}
+bool ImportTextureFileAs(const std::string& path, const std::string& keepGuid, TextureAssetData& out, TexKind kind) {
+  out = TextureAssetData();
+  if (path.empty()) {
+    return false;
+  }
+  FILE* fp = std::fopen(path.c_str(), "rb");
+  if (fp == nullptr) {
+    return false;
+  }
+  std::fseek(fp, 0, SEEK_END);
+  long sz = std::ftell(fp);
+  std::fseek(fp, 0, SEEK_SET);
+  if (sz <= 0) {
+    std::fclose(fp);
+    return false;
+  }
+  std::vector<unsigned char> bytes(static_cast<size_t>(sz));
+  size_t n = std::fread(bytes.data(), 1, bytes.size(), fp);
+  std::fclose(fp);
+  if (n != bytes.size()) {
+    return false;
+  }
+  uint64_t hash = Fnv1a64(bytes.data(), bytes.size());
+  std::filesystem::path p(path);
+  return ImportTextureMemory(bytes.data(), bytes.size(), keepGuid, out, p.filename().string(), kind, path, hash);
 }
 }
