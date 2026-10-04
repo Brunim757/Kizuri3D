@@ -27,6 +27,22 @@ bool NameHintsOrm(const std::string& name) {
   return lower.find("_rough") != std::string::npos && lower.find("_metal") != std::string::npos;
 }
 }
+bool DecodeTextureRgba(const void* bytes, size_t size, std::vector<unsigned char>& rgba, int& w, int& h) {
+  rgba.clear();
+  w = 0;
+  h = 0;
+  if (bytes == nullptr || size == 0 || size > static_cast<size_t>(2147483647)) {
+    return false;
+  }
+  int comp = 0;
+  unsigned char* px = stbi_load_from_memory(static_cast<const stbi_uc*>(bytes), static_cast<int>(size), &w, &h, &comp, 4);
+  if (px == nullptr || w <= 0 || h <= 0) {
+    return false;
+  }
+  rgba.assign(px, px + static_cast<size_t>(w) * static_cast<size_t>(h) * 4);
+  stbi_image_free(px);
+  return true;
+}
 bool ImportTextureMemory(const void* bytes, size_t size, const std::string& keepGuid, TextureAssetData& out, const std::string& nameHint, TexKind kind, const std::string& sourcePath, uint64_t sourceHash) {
   out = TextureAssetData();
   if (bytes == nullptr || size == 0) {

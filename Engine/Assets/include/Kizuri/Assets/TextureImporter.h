@@ -1,6 +1,7 @@
 #pragma once
 #include "Kizuri/Assets/TexCodec.h"
 #include <string>
+#include <vector>
 namespace Kizuri {
 enum class TexKind {
   Auto = 0,
@@ -8,6 +9,7 @@ enum class TexKind {
   Normal = 2,
   Orm = 3
 };
+bool DecodeTextureRgba(const void* bytes, size_t size, std::vector<unsigned char>& rgba, int& w, int& h);
 bool ImportTextureFile(const std::string& path, const std::string& keepGuid, TextureAssetData& out);
 bool ImportTextureFileAs(const std::string& path, const std::string& keepGuid, TextureAssetData& out, TexKind kind);
 bool ImportTextureMemory(const void* bytes, size_t size, const std::string& keepGuid, TextureAssetData& out, const std::string& nameHint, TexKind kind, const std::string& sourcePath, uint64_t sourceHash);

@@ -4,8 +4,6 @@
 #include "Kizuri/Assets/TextureImporter.h"
 #include "Kizuri/Log.h"
 #include <cgltf.h>
-#include <stb_image.h>
-#include <math.h>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -201,14 +199,7 @@ bool DecodeGltfImageRgba(const cgltf_texture* ctex, const std::string& glbPath, 
   if (!ResolveGltfImage(ctex->image, glbPath, bytes, imgName)) {
     return false;
   }
-  int comp = 0;
-  unsigned char* px = stbi_load_from_memory(bytes.data(), static_cast<int>(bytes.size()), &w, &h, &comp, 4);
-  if (px == nullptr || w <= 0 || h <= 0) {
-    return false;
-  }
-  rgba.assign(px, px + static_cast<size_t>(w) * static_cast<size_t>(h) * 4);
-  stbi_image_free(px);
-  return true;
+  return DecodeTextureRgba(bytes.data(), bytes.size(), rgba, w, h);
 }
 bool ImportOrmTextures(const cgltf_material* mat, const std::string& glbPath, uint64_t hash, int& texCounter, const MeshMaterialData& md, std::string& guidOut) {
   guidOut.clear();
@@ -306,6 +297,16 @@ bool ImportOrmTextures(const cgltf_material* mat, const std::string& glbPath, ui
   }
   guidOut = tdata.guid;
   return true;
+}
+float NewtonSqrt(float x) {
+  if (x <= 0.0f) {
+    return 0.0f;
+  }
+  float r = x < 1.0f ? 1.0f : x;
+  for (int i = 0; i < 6; ++i) {
+    r = 0.5f * (r + x / r);
+  }
+  return r;
 }
 void InvertNormalMatrix(const float m[16], float nm[9]) {
   float r[9] = { m[0], m[4], m[8], m[1], m[5], m[9], m[2], m[6], m[10] };
@@ -450,7 +451,7 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
           float wn0 = nm[0] * n[0] + nm[1] * n[1] + nm[2] * n[2];
           float wn1 = nm[3] * n[0] + nm[4] * n[1] + nm[5] * n[2];
           float wn2 = nm[6] * n[0] + nm[7] * n[1] + nm[8] * n[2];
-          float nl = sqrtf(wn0 * wn0 + wn1 * wn1 + wn2 * wn2);
+          float nl = NewtonSqrt(wn0 * wn0 + wn1 * wn1 + wn2 * wn2);
           if (nl > 1e-12f) {
             wn0 /= nl;
             wn1 /= nl;
