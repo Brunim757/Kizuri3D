@@ -1272,6 +1272,11 @@ void EditorApp::DrawAssetBrowser() {
       selectedAssetGuid = rec->guid;
       selectedAssetIsTex = true;
     }
+    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+      ImGui::SetDragDropPayload("KZ_TEX", rec->guid.c_str(), rec->guid.size() + 1);
+      ImGui::Text("%s", tp.filename().string().c_str());
+      ImGui::EndDragDropSource();
+    }
     if (rec->state == TextureAssetState::Outdated) {
       ImGui::SameLine();
       ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "[OUTDATED]");
@@ -1287,11 +1292,6 @@ void EditorApp::DrawAssetBrowser() {
     }
     ImGui::SameLine();
     ImGui::Text("gpu:%d/%llu", rec->residentLevels, (unsigned long long)rec->data.mips.size());
-    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-      ImGui::SetDragDropPayload("KZ_TEX", rec->guid.c_str(), rec->guid.size() + 1);
-      ImGui::Text("%s", tp.filename().string().c_str());
-      ImGui::EndDragDropSource();
-    }
     if (ImGui::BeginPopupContextItem("TexCtx")) {
       bool canReimport = rec->hasSource;
       if (ImGui::MenuItem("Reimport", nullptr, false, canReimport)) {
