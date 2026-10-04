@@ -1659,6 +1659,10 @@ bool TestAssetDatabase() {
   orphan.normals = { 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f };
   orphan.uvs = { 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f };
   orphan.indices = { 0, 1, 2 };
+  if (!Kizuri::GenerateTangents(orphan.positions, orphan.normals, orphan.uvs, orphan.indices, orphan.tangents)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
   Kizuri::MeshPartData opart;
   opart.indexOffset = 0;
   opart.indexCount = 3;
@@ -2092,6 +2096,10 @@ bool TestTexStreaming() {
   mesh.normals = { 0, 0, 1, 0, 0, 1, 0, 0, 1 };
   mesh.uvs = { 0, 0, 1, 0, 0, 1 };
   mesh.indices = { 0, 1, 2 };
+  if (!Kizuri::GenerateTangents(mesh.positions, mesh.normals, mesh.uvs, mesh.indices, mesh.tangents)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
   Kizuri::MeshMaterialData mat;
   mat.name = "M";
   mat.albedo[0] = 1.0f;
@@ -3011,6 +3019,10 @@ bool TestDbTextures() {
   mesh.normals = { 0, 0, 1, 0, 0, 1, 0, 0, 1 };
   mesh.uvs = { 0, 0, 1, 0, 0, 1 };
   mesh.indices = { 0, 1, 2 };
+  if (!Kizuri::GenerateTangents(mesh.positions, mesh.normals, mesh.uvs, mesh.indices, mesh.tangents)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
   Kizuri::MeshMaterialData mat;
   mat.name = "M";
   mat.albedo[0] = 1.0f;
