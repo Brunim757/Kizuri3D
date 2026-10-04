@@ -1976,6 +1976,88 @@ bool TestTexImportNormal() {
   fs::remove_all(dir, ec);
   return true;
 }
+bool TestTexImportOrm() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kztexorm_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  std::string orm = (dir / "wall_orm.bmp").string();
+  WriteTestBMP(orm, 8, 8, false);
+  Kizuri::TextureAssetData to;
+  if (!Kizuri::ImportTextureFile(orm, "", to)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (to.format != Kizuri::TexFormat::Bc1 || to.srgb) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  std::string arm = (dir / "floor_arm.bmp").string();
+  WriteTestBMP(arm, 8, 8, false);
+  Kizuri::TextureAssetData ta;
+  if (!Kizuri::ImportTextureFile(arm, "", ta)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (ta.format != Kizuri::TexFormat::Bc1 || ta.srgb) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  fs::remove_all(dir, ec);
+  return true;
+}
+bool TestEnsureTextureKind() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kztexkind_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  std::string plain = (dir / "plain.bmp").string();
+  WriteTestBMP(plain, 8, 8, false);
+  Kizuri::AssetDatabase db;
+  db.SetAssetsDir(dir.string());
+  db.Scan();
+  db.DrainBlocking();
+  if (db.AllTexGuids().size() != 1) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  std::string guid = db.AllTexGuids()[0];
+  const Kizuri::TextureRecord* before = db.GetTexByGuid(guid);
+  if (before == nullptr || before->data.format != Kizuri::TexFormat::Bc1 || !before->data.srgb) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (!db.EnsureTextureKind(guid, 1)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  const Kizuri::TextureRecord* asNormal = db.GetTexByGuid(guid);
+  if (asNormal == nullptr || asNormal->data.format != Kizuri::TexFormat::Bc5 || asNormal->guid != guid) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (!db.EnsureTextureKind(guid, 1)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (!db.EnsureTextureKind(guid, 2)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  const Kizuri::TextureRecord* asOrm = db.GetTexByGuid(guid);
+  if (asOrm == nullptr || asOrm->data.format != Kizuri::TexFormat::Bc1 || asOrm->data.srgb) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (db.EnsureTextureKind(guid, 0) || db.EnsureTextureKind(guid, 3)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  fs::remove_all(dir, ec);
+  return true;
+}
 bool TestTexImport() {
   namespace fs = std::filesystem;
   fs::path dir = fs::temp_directory_path() / "kzteximport_test";
@@ -3465,8 +3547,6 @@ int main() {
   failures += Check("TexImportOpaque", TestTexImportOpaque());
   failures += Check("TexImportAlpha", TestTexImportAlpha());
   failures += Check("TexImportNormal", TestTexImportNormal());
-  failures += Check("TexImportOrm", TestTexImportOrm());
-  failures += Check("EnsureTextureKind", TestEnsureTextureKind());
   failures += Check("TexImportOrm", TestTexImportOrm());
   failures += Check("EnsureTextureKind", TestEnsureTextureKind());
   failures += Check("RHITextures", TestRHITextures());
