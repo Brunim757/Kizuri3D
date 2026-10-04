@@ -169,13 +169,35 @@ void EditorApp::RenderScene() {
     if (!e->hasMesh || e->meshGuid.empty()) {
       continue;
     }
-    const MeshRecord* rec = assets.GetByGuid(e->meshGuid);
-    if (rec != nullptr && rec->loaded && assets.EnsureMeshGpu(e->meshGuid, 4194304)) {
-      rec = assets.GetByGuid(e->meshGuid);
-      if (rec != nullptr && rec->gpuReady) {
-        if (rec->data.parts.empty()) {
-          renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, 0, rec->gpuCount, nullptr);
-        } else {
+    std::string drawGuids[2];
+    float drawFades[2] = { 0.0f, 0.0f };
+    int drawCount = 1;
+    drawGuids[0] = e->meshGuid;
+    drawGuids[1] = "";
+    if (e->hasLod && !e->lod.farGuid.empty() && e->lod.farGuid != e->meshGuid && e->lod.farDist > e->lod.nearDist) {
+      float ldx = e->transform.position[0] - cpos[0];
+      float ldy = e->transform.position[1] - cpos[1];
+      float ldz = e->transform.position[2] - cpos[2];
+      float ldist = sqrtf(ldx * ldx + ldy * ldy + ldz * ldz);
+      float lt = (ldist - e->lod.nearDist) / (e->lod.farDist - e->lod.nearDist);
+      if (lt >= 1.0f) {
+        drawGuids[0] = e->lod.farGuid;
+      } else if (lt > 0.0f) {
+        drawGuids[1] = e->lod.farGuid;
+        drawFades[0] = 1.0f - lt;
+        drawFades[1] = lt;
+        drawCount = 2;
+      }
+    }
+    bool anyDrawn = false;
+    for (int li = 0; li < drawCount; ++li) {
+      bool drawn = false;
+      const MeshRecord* rec = assets.GetByGuid(drawGuids[li]);      if (rec != nullptr && rec->loaded && assets.EnsureMeshGpu(drawGuids[li], 4194304)) {
+        rec = assets.GetByGuid(drawGuids[li]);
+        if (rec != nullptr && rec->gpuReady) {
+          if (rec->data.parts.empty()) {
+            renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, 0, rec->gpuCount, nullptr, drawFades[li]);
+          } else {
           for (size_t p = 0; p < rec->data.parts.size(); ++p) {
             const MeshPartData& part = rec->data.parts[p];
             const DeferredMaterial* useMat = nullptr;
@@ -208,15 +230,17 @@ void EditorApp::RenderScene() {
               partMat.texFlags = flags;
               useMat = &partMat;
             }
-            renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, part.indexOffset, part.indexCount, useMat);
+            renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, part.indexOffset, part.indexCount, useMat, drawFades[li]);
           }
         }
-        continue;
+        drawn = true;
+        anyDrawn = true;
       }
     }
-    if (defaultVB != 0) {
+    if (!anyDrawn && defaultVB != 0) {
+      const MeshRecord* baserec = assets.GetByGuid(e->meshGuid);
       const DeferredMaterial* fallback = &grayMat;
-      if (rec == nullptr) {
+      if (baserec == nullptr) {
         fallback = &pinkMat;
       }
       renderer.DrawObjectEx(world, defaultVB, defaultIB, 0, defaultCount, fallback);
@@ -1026,7 +1050,64 @@ void EditorApp::DrawInspector() {
     }
     DrawDecalSection(e);
   }
-  if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal) {
+  if (e->hasLod) {
+    ImGui::Separator();
+    ImGui::Text("LOD");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Remove##lod")) {
+      std::unique_ptr<Command> cmd(new RemoveLodCmd(e->id));
+      undo.Execute(std::move(cmd), scene);
+    }
+    LodData lod = e->lod;
+    bool lodChanged = false;
+    if (ImGui::DragFloat("Near Dist", &lod.nearDist, 0.5f, 1.0f, 500.0f)) {
+      lodChanged = true;
+    }
+    if (ImGui::DragFloat("Far Dist", &lod.farDist, 0.5f, 2.0f, 1000.0f)) {
+      lodChanged = true;
+    }
+    if (lodChanged) {
+      edits.PushLod(e->id, lod);
+    }
+    if (lod.farGuid.empty()) {
+      ImGui::TextDisabled("Far mesh: (none)");
+    } else {
+      const MeshRecord* fr = assets.GetByGuid(lod.farGuid);
+      if (fr == nullptr) {
+        ImGui::TextDisabled("Far mesh: (missing)");
+      } else {
+        std::filesystem::path fp(fr->meshPath);
+        ImGui::Text("Far mesh: %s", fp.filename().string().c_str());
+      }
+    }
+    if (ImGui::BeginDragDropTarget()) {
+      const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("KZ_ASSET");
+      if (payload != nullptr && payload->Data != nullptr && payload->DataSize > 0) {
+        std::string guid(static_cast<const char*>(payload->Data));
+        if (assets.GetByGuid(guid) == nullptr) {
+          Announce(LogLevel::Warning, "Dropped asset not found");
+        } else if (guid != lod.farGuid) {
+          LodData after = e->lod;
+          after.farGuid = guid;
+          std::unique_ptr<Command> cmd(new SetLodCmd(e->id, e->lod, after));
+          if (undo.Execute(std::move(cmd), scene)) {
+            log.Add(LogLevel::Info, "LOD far mesh assigned");
+          }
+        }
+      }
+      ImGui::EndDragDropTarget();
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Clear##lodfar")) {
+      if (!e->lod.farGuid.empty()) {
+        LodData after = e->lod;
+        after.farGuid.clear();
+        std::unique_ptr<Command> cmd(new SetLodCmd(e->id, e->lod, after));
+        undo.Execute(std::move(cmd), scene);
+      }
+    }
+  }
+  if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal || !e->hasLod) {
     ImGui::Separator();
     if (ImGui::Button("Add Component")) {
       ImGui::OpenPopup("AddComponent");
@@ -1046,6 +1127,10 @@ void EditorApp::DrawInspector() {
       }
       if (!e->hasDecal && ImGui::MenuItem("Decal")) {
         std::unique_ptr<Command> cmd(new AddDecalCmd(e->id));
+        undo.Execute(std::move(cmd), scene);
+      }
+      if (!e->hasLod && ImGui::MenuItem("LOD")) {
+        std::unique_ptr<Command> cmd(new AddLodCmd(e->id));
         undo.Execute(std::move(cmd), scene);
       }
       ImGui::EndPopup();

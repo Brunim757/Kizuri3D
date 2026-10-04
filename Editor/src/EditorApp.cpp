@@ -216,6 +216,14 @@ void EditorApp::PumpAssets() {
     if (e == nullptr || ((!e->hasMesh || e->meshGuid.empty()) && !e->hasDecal)) {
       continue;
     }
+    if (e->hasLod && !e->lod.farGuid.empty() && e->lod.farGuid != e->meshGuid) {
+      MeshUse lu;
+      lu.meshGuid = e->lod.farGuid;
+      lu.pos[0] = e->transform.position[0];
+      lu.pos[1] = e->transform.position[1];
+      lu.pos[2] = e->transform.position[2];
+      uses.push_back(lu);
+    }
     MeshUse u;
     u.meshGuid = e->meshGuid;
     u.pos[0] = e->transform.position[0];

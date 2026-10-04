@@ -1071,7 +1071,7 @@ void DeferredRenderer::DrawObject(const float world[16]) {
   rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
   rhi->DrawIndexed(indexCount, 0, 0);
 }
-void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat) {
+void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat, float lodFade) {
   if (!begun || world == nullptr || vb == 0 || ib == 0 || count == 0) {
     return;
   }
@@ -1096,7 +1096,7 @@ void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuff
   mc.params[0] = use.roughness;
   mc.params[1] = use.metallic;
   mc.params[2] = static_cast<float>(use.texFlags);
-  mc.params[3] = 0.0f;
+  mc.params[3] = lodFade < 0.0f ? 0.0f : (lodFade > 1.0f ? 1.0f : lodFade);
   rhi->UpdateConstantBuffer(matCB, &mc, sizeof(mc));
   RHITexture alb = (use.texFlags & 1u) != 0 && use.albedoTex != 0 ? use.albedoTex : neutralAlbedo;
   RHITexture nrm = (use.texFlags & 2u) != 0 && use.normalTex != 0 ? use.normalTex : neutralNormal;

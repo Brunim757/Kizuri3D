@@ -52,6 +52,11 @@ struct DecalData {
   float life;
   std::string texGuid;
 };
+struct LodData {
+  std::string farGuid;
+  float nearDist;
+  float farDist;
+};
 struct Entity {
   EntityId id;
   std::string name;
@@ -64,6 +69,8 @@ struct Entity {
   bool hasMaterial;
   DecalData decal;
   bool hasDecal;
+  LodData lod;
+  bool hasLod;
   EntityId parent;
   std::vector<EntityId> children;
 };
@@ -100,6 +107,7 @@ void MakeIdentityTransform(Transform& t);
 void MakeDefaultLight(LightData& l);
 void MakeDefaultMaterial(MaterialData& m);
 void MakeDefaultDecal(DecalData& d);
+void MakeDefaultLod(LodData& l);
 void EntityForward(const Transform& t, float dir[3]);
 void ComposeMatrix(const Transform& t, float m[16]);
 bool InvertMatrix4(const float m[16], float invOut[16]);

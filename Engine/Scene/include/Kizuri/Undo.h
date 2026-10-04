@@ -21,6 +21,8 @@ struct SnapshotNode {
   bool hasMaterial;
   DecalData decal;
   bool hasDecal;
+  LodData lod;
+  bool hasLod;
   long parent;
 };
 struct EntitySnapshot {
@@ -217,6 +219,39 @@ public:
 private:
   EntityId target;
   DecalData prevDecal;
+  bool prevHas;
+};
+class SetLodCmd : public Command {
+public:
+  SetLodCmd(EntityId target, const LodData& before, const LodData& after);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  LodData before;
+  LodData after;
+};
+class AddLodCmd : public Command {
+public:
+  explicit AddLodCmd(EntityId target);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  LodData prevLod;
+  bool prevHas;
+};
+class RemoveLodCmd : public Command {
+public:
+  explicit RemoveLodCmd(EntityId target);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  LodData prevLod;
   bool prevHas;
 };
 class SetParentCmd : public Command {

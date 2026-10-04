@@ -38,14 +38,26 @@ void EditQueue::PushDecal(EntityId target, const DecalData& value) {
   e.value = value;
   decalEdits.push_back(e);
 }
+void EditQueue::PushLod(EntityId target, const LodData& value) {
+  if (!target.IsValid()) {
+    return;
+  }
+  LodEdit e;
+  e.target = target;
+  e.value = value;
+  lodEdits.push_back(e);
+}
 bool MaterialEqual(const MaterialData& a, const MaterialData& b) {
   return a.albedo[0] == b.albedo[0] && a.albedo[1] == b.albedo[1] && a.albedo[2] == b.albedo[2] && a.metallic == b.metallic && a.roughness == b.roughness && a.albedoTex == b.albedoTex && a.normalTex == b.normalTex && a.ormTex == b.ormTex && a.heightTex == b.heightTex;
 }
 bool DecalEqual(const DecalData& a, const DecalData& b) {
   return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.life == b.life && a.texGuid == b.texGuid;
 }
+bool LodEqual(const LodData& a, const LodData& b) {
+  return a.farGuid == b.farGuid && a.nearDist == b.nearDist && a.farDist == b.farDist;
+}
 size_t EditQueue::Pending() const {
-  return edits.size() + lightEdits.size() + materialEdits.size() + decalEdits.size();
+  return edits.size() + lightEdits.size() + materialEdits.size() + decalEdits.size() + lodEdits.size();
 }
 size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
   size_t applied = 0;
@@ -145,6 +157,30 @@ size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
     }
   }
   decalEdits.clear();
+  for (size_t i = 0; i < lodEdits.size(); ++i) {
+    bool last = true;
+    for (size_t j = i + 1; j < lodEdits.size(); ++j) {
+      if (lodEdits[j].target == lodEdits[i].target) {
+        last = false;
+        break;
+      }
+    }
+    if (!last) {
+      continue;
+    }
+    const Entity* e = scene.Get(lodEdits[i].target);
+    if (e == nullptr || !e->hasLod) {
+      continue;
+    }
+    if (LodEqual(e->lod, lodEdits[i].value)) {
+      continue;
+    }
+    std::unique_ptr<Command> cmd(new SetLodCmd(lodEdits[i].target, e->lod, lodEdits[i].value));
+    if (undo.Execute(std::move(cmd), scene)) {
+      ++applied;
+    }
+  }
+  lodEdits.clear();
   return applied;
 }
 void EditQueue::Clear() {
@@ -152,5 +188,6 @@ void EditQueue::Clear() {
   lightEdits.clear();
   materialEdits.clear();
   decalEdits.clear();
+  lodEdits.clear();
 }
 }

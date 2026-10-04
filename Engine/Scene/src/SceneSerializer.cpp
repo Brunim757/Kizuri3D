@@ -161,6 +161,10 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
       const DecalData& d = e->decal;
       std::fprintf(fp, "DECAL %.9g %.9g %.9g %.9g \"%s\"\n", d.size[0], d.size[1], d.size[2], d.life, EscapeName(d.texGuid).c_str());
     }
+    if (e->hasLod) {
+      const LodData& l = e->lod;
+      std::fprintf(fp, "LOD %.9g %.9g \"%s\"\n", l.nearDist, l.farDist, EscapeName(l.farGuid).c_str());
+    }
   }
   std::fclose(fp);
   return true;
@@ -202,6 +206,8 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
     bool hasMaterial;
     DecalData decal;
     bool hasDecal;
+    LodData lod;
+    bool hasLod;
   };
   std::vector<PendingEntity> pending;
   PendingEntity* current = nullptr;
@@ -220,10 +226,12 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       MakeDefaultLight(pe.light);
       MakeDefaultMaterial(pe.material);
       MakeDefaultDecal(pe.decal);
+      MakeDefaultLod(pe.lod);
       pe.hasMesh = false;
       pe.hasLight = false;
       pe.hasMaterial = false;
       pe.hasDecal = false;
+      pe.hasLod = false;
       pe.parentIdx = -1;
       size_t pos = 7;
       if (!ParseQuoted(s, pos, pe.name) || pe.name.empty()) {
@@ -372,6 +380,25 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
         current->hasDecal = true;
         continue;
       }
+      if (field == "LOD") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        float lv[2] = { 15.0f, 40.0f };
+        if (!ParseFloats(s, pos, lv, 2)) {
+          failed = true;
+          break;
+        }
+        MakeDefaultLod(current->lod);
+        current->lod.nearDist = lv[0];
+        current->lod.farDist = lv[1];
+        std::string slot;
+        if (!ParseQuoted(s, pos, slot)) {
+          failed = true;
+          break;
+        }
+        current->lod.farGuid = slot;
+        current->hasLod = true;
+        continue;
+      }
       const FieldDesc* fd = nullptr;
       for (size_t f = 0; f < tdesc->fields.size(); ++f) {
         if (tdesc->fields[f].name == field) {
@@ -434,6 +461,8 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       createdEntity->hasMaterial = pending[i].hasMaterial;
       createdEntity->decal = pending[i].decal;
       createdEntity->hasDecal = pending[i].hasDecal;
+      createdEntity->lod = pending[i].lod;
+      createdEntity->hasLod = pending[i].hasLod;
     }
     created.push_back(id);
   }

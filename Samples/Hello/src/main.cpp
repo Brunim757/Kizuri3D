@@ -452,6 +452,7 @@ bool TestDeferredNull() {  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API
   tmat.heightTex = t0;
   tmat.texFlags = 11;
   renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.5f);
   renderer.DrawObjectEx(ident, tvb, tib, 0, 0, &tmat);
   renderer.DrawObjectEx(ident, 0, tib, 0, 3, &tmat);
   renderer.DrawObjectEx(ident, tvb, tib, 0, 3, nullptr);
@@ -2913,6 +2914,88 @@ bool TestMaterialLegacy() {
   }
   return true;
 }
+bool TestLodDefaults() {
+  Kizuri::LodData l;
+  Kizuri::MakeDefaultLod(l);
+  if (!l.farGuid.empty() || l.nearDist != 15.0f || l.farDist != 40.0f) {
+    return false;
+  }
+  Kizuri::Scene scene;
+  Kizuri::EntityId a = scene.CreateEntity("A");
+  if (scene.Get(a)->hasLod) {
+    return false;
+  }
+  return true;
+}
+bool TestLodRoundTrip() {
+  Kizuri::Scene scene;
+  Kizuri::EntityId l = scene.CreateEntity("Lod");
+  scene.Get(l)->hasLod = true;
+  Kizuri::MakeDefaultLod(scene.Get(l)->lod);
+  scene.Get(l)->lod.farGuid = "far-guid";
+  scene.Get(l)->lod.nearDist = 10.0f;
+  scene.Get(l)->lod.farDist = 60.0f;
+  const char* path = "test_lod_tmp.kzscene";
+  std::remove(path);
+  if (!Kizuri::SaveSceneToFile(scene, path)) {
+    return false;
+  }
+  Kizuri::Scene back;
+  if (!Kizuri::LoadSceneFromFile(back, path, nullptr)) {
+    std::remove(path);
+    return false;
+  }
+  std::remove(path);
+  std::vector<Kizuri::EntityId> all = back.All();
+  if (all.size() != 1) {
+    return false;
+  }
+  const Kizuri::Entity* rl = back.Get(all[0]);
+  if (rl == nullptr || !rl->hasLod) {
+    return false;
+  }
+  if (rl->lod.farGuid != "far-guid" || rl->lod.nearDist != 10.0f || rl->lod.farDist != 60.0f) {
+    return false;
+  }
+  return true;
+}
+bool TestLodUndo() {
+  Kizuri::Scene scene;
+  Kizuri::UndoStack undo;
+  Kizuri::EditQueue edits;
+  Kizuri::EntityId a = scene.CreateEntity("A");
+  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddLodCmd(a));
+  if (!undo.Execute(std::move(add), scene) || !scene.Get(a)->hasLod) {
+    return false;
+  }
+  Kizuri::LodData v = scene.Get(a)->lod;
+  v.farGuid = "far-1";
+  v.nearDist = 5.0f;
+  edits.PushLod(a, v);
+  if (edits.Pending() != 1) {
+    return false;
+  }
+  if (edits.ApplyAll(scene, undo) != 1) {
+    return false;
+  }
+  if (scene.Get(a)->lod.farGuid != "far-1" || scene.Get(a)->lod.nearDist != 5.0f) {
+    return false;
+  }
+  if (!undo.Undo(scene) || scene.Get(a)->lod.nearDist != 15.0f || !scene.Get(a)->lod.farGuid.empty()) {
+    return false;
+  }
+  if (!undo.Redo(scene) || scene.Get(a)->lod.farGuid != "far-1") {
+    return false;
+  }
+  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveLodCmd(a));
+  if (!undo.Execute(std::move(rem), scene) || scene.Get(a)->hasLod) {
+    return false;
+  }
+  if (!undo.Undo(scene) || !scene.Get(a)->hasLod) {
+    return false;
+  }
+  return true;
+}
 bool TestLightRoundTrip() {
   Kizuri::Scene scene;
   Kizuri::EntityId p = scene.CreateEntity("Point");
@@ -3952,6 +4035,9 @@ int main() {
   failures += Check("DecalDefaults", TestDecalDefaults());
   failures += Check("DecalRoundTrip", TestDecalRoundTrip());
   failures += Check("DecalUndo", TestDecalUndo());
+  failures += Check("LodDefaults", TestLodDefaults());
+  failures += Check("LodRoundTrip", TestLodRoundTrip());
+  failures += Check("LodUndo", TestLodUndo());
   failures += Check("EntityForward", TestEntityForward());
   failures += Check("PBR-PointSpot", TestPBRPointSpot());
   failures += Check("LightGizmo", TestLightGizmo());

@@ -104,7 +104,7 @@ public:
   void* GetViewportTexture();
   void BeginObjects(const float view[16], const float proj[16]);
   void DrawObject(const float world[16]);
-  void DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat);
+  void DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat, float lodFade = 0.0f);
   void DrawDecal(const float world[16], const float invWorld[16], const float size[3], float fade, RHITexture tex);
   void EndObjectsToTexture(const float camPos[3]);
   void EndObjectsToBackbuffer(const float camPos[3]);

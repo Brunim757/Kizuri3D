@@ -33,6 +33,8 @@ bool EntitySnapshot::Capture(const Scene& scene, EntityId root) {
     node.hasMaterial = e->hasMaterial;
     node.decal = e->decal;
     node.hasDecal = e->hasDecal;
+    node.lod = e->lod;
+    node.hasLod = e->hasLod;
     node.parent = par;
     long idx = static_cast<long>(nodes.size());
     nodes.push_back(node);
@@ -64,6 +66,8 @@ EntityId EntitySnapshot::Restore(Scene& scene, EntityId newParent) const {
       createdEntity->hasMaterial = nodes[i].hasMaterial;
       createdEntity->decal = nodes[i].decal;
       createdEntity->hasDecal = nodes[i].hasDecal;
+      createdEntity->lod = nodes[i].lod;
+      createdEntity->hasLod = nodes[i].hasLod;
     }
     created.push_back(id);
   }
@@ -547,6 +551,92 @@ bool RemoveDecalCmd::Revert(Scene& scene) {
 }
 const char* RemoveDecalCmd::Name() const {
   return "Remove Decal";
+}
+SetLodCmd::SetLodCmd(EntityId t, const LodData& b, const LodData& a)
+  : target(t)
+  , before(b)
+  , after(a) {
+}
+bool SetLodCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasLod) {
+    return false;
+  }
+  e->lod = after;
+  scene.MarkDirty();
+  return true;
+}
+bool SetLodCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasLod) {
+    return false;
+  }
+  e->lod = before;
+  scene.MarkDirty();
+  return true;
+}
+const char* SetLodCmd::Name() const {
+  return "Set LOD";
+}
+AddLodCmd::AddLodCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultLod(prevLod);
+}
+bool AddLodCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || e->hasLod) {
+    return false;
+  }
+  prevLod = e->lod;
+  prevHas = e->hasLod;
+  e->hasLod = true;
+  MakeDefaultLod(e->lod);
+  scene.MarkDirty();
+  return true;
+}
+bool AddLodCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->lod = prevLod;
+  e->hasLod = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* AddLodCmd::Name() const {
+  return "Add LOD";
+}
+RemoveLodCmd::RemoveLodCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultLod(prevLod);
+}
+bool RemoveLodCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasLod) {
+    return false;
+  }
+  prevLod = e->lod;
+  prevHas = e->hasLod;
+  e->hasLod = false;
+  MakeDefaultLod(e->lod);
+  scene.MarkDirty();
+  return true;
+}
+bool RemoveLodCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->lod = prevLod;
+  e->hasLod = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* RemoveLodCmd::Name() const {
+  return "Remove LOD";
 }
 SetParentCmd::SetParentCmd(EntityId c, EntityId b, EntityId a)
   : child(c)

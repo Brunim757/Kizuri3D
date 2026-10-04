@@ -28,6 +28,13 @@ PSOut main(PSIn pin)
 {
     PSOut pout;
     uint flags = (uint) Params.z;
+    if (Params.w > 0.0 && Params.w < 1.0) {
+        float2 cell = floor(pin.pos.xy);
+        float h = frac(sin(dot(cell, float2(12.9898, 78.233))) * 43758.5453);
+        if (h > Params.w) {
+            discard;
+        }
+    }
     float2 pov = pin.uv;
     if ((flags & 8u) != 0u) {
         float3 vts = normalize(pin.vts);
