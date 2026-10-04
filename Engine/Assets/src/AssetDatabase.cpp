@@ -1113,6 +1113,7 @@ void AssetDatabase::RequestTexture(const std::string& guid, float dist) {
       uploadQueue.push_back(up);
     }
   }
+}
 size_t AssetDatabase::DrainUploads(IRHI* rhi, size_t maxBytes) {
   if (rhi == nullptr || maxBytes == 0) {
     return 0;
