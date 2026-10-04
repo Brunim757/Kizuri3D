@@ -38,6 +38,14 @@ struct LightData {
   int cascades;
   float lambda;
 };
+struct MaterialData {
+  float albedo[3];
+  float metallic;
+  float roughness;
+  std::string albedoTex;
+  std::string normalTex;
+  std::string ormTex;
+};
 struct Entity {
   EntityId id;
   std::string name;
@@ -46,6 +54,8 @@ struct Entity {
   bool hasMesh;
   LightData light;
   bool hasLight;
+  MaterialData material;
+  bool hasMaterial;
   EntityId parent;
   std::vector<EntityId> children;
 };
@@ -80,6 +90,7 @@ private:
 };
 void MakeIdentityTransform(Transform& t);
 void MakeDefaultLight(LightData& l);
+void MakeDefaultMaterial(MaterialData& m);
 void EntityForward(const Transform& t, float dir[3]);
 void ComposeMatrix(const Transform& t, float m[16]);
 }

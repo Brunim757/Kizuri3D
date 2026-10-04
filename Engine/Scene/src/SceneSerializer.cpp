@@ -153,6 +153,10 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
       }
       std::fprintf(fp, "\n");
     }
+    if (e->hasMaterial) {
+      const MaterialData& m = e->material;
+      std::fprintf(fp, "MATERIAL %.9g %.9g %.9g %.9g %.9g \"%s\" \"%s\" \"%s\"\n", m.albedo[0], m.albedo[1], m.albedo[2], m.metallic, m.roughness, EscapeName(m.albedoTex).c_str(), EscapeName(m.normalTex).c_str(), EscapeName(m.ormTex).c_str());
+    }
   }
   std::fclose(fp);
   return true;
@@ -190,6 +194,8 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
     bool hasMesh;
     LightData light;
     bool hasLight;
+    MaterialData material;
+    bool hasMaterial;
   };
   std::vector<PendingEntity> pending;
   PendingEntity* current = nullptr;
@@ -206,8 +212,10 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       PendingEntity pe;
       MakeIdentityTransform(pe.transform);
       MakeDefaultLight(pe.light);
+      MakeDefaultMaterial(pe.material);
       pe.hasMesh = false;
       pe.hasLight = false;
+      pe.hasMaterial = false;
       pe.parentIdx = -1;
       size_t pos = 7;
       if (!ParseQuoted(s, pos, pe.name) || pe.name.empty()) {
@@ -299,6 +307,38 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
         current->hasLight = true;
         continue;
       }
+      if (field == "MATERIAL") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        float mv[5] = { 1.0f, 1.0f, 1.0f, 0.0f, 0.5f };
+        if (!ParseFloats(s, pos, mv, 5)) {
+          failed = true;
+          break;
+        }
+        MakeDefaultMaterial(current->material);
+        current->material.albedo[0] = mv[0];
+        current->material.albedo[1] = mv[1];
+        current->material.albedo[2] = mv[2];
+        current->material.metallic = mv[3];
+        current->material.roughness = mv[4];
+        std::string slot;
+        if (!ParseQuoted(s, pos, slot)) {
+          failed = true;
+          break;
+        }
+        current->material.albedoTex = slot;
+        if (!ParseQuoted(s, pos, slot)) {
+          failed = true;
+          break;
+        }
+        current->material.normalTex = slot;
+        if (!ParseQuoted(s, pos, slot)) {
+          failed = true;
+          break;
+        }
+        current->material.ormTex = slot;
+        current->hasMaterial = true;
+        continue;
+      }
       const FieldDesc* fd = nullptr;
       for (size_t f = 0; f < tdesc->fields.size(); ++f) {
         if (tdesc->fields[f].name == field) {
@@ -357,6 +397,8 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       createdEntity->hasMesh = pending[i].hasMesh;
       createdEntity->light = pending[i].light;
       createdEntity->hasLight = pending[i].hasLight;
+      createdEntity->material = pending[i].material;
+      createdEntity->hasMaterial = pending[i].hasMaterial;
     }
     created.push_back(id);
   }

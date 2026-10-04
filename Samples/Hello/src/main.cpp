@@ -2283,6 +2283,123 @@ bool TestLightTypeRetention() {
   }
   return true;
 }
+bool TestMaterialDefaults() {
+  Kizuri::MaterialData m;
+  Kizuri::MakeDefaultMaterial(m);
+  if (m.albedo[0] != 1.0f || m.albedo[1] != 1.0f || m.albedo[2] != 1.0f) {
+    return false;
+  }
+  if (m.metallic != 0.0f || m.roughness != 0.5f) {
+    return false;
+  }
+  if (!m.albedoTex.empty() || !m.normalTex.empty() || !m.ormTex.empty()) {
+    return false;
+  }
+  Kizuri::Scene scene;
+  Kizuri::EntityId a = scene.CreateEntity("A");
+  if (scene.Get(a)->hasMaterial) {
+    return false;
+  }
+  return true;
+}
+bool TestMaterialRoundTrip() {
+  Kizuri::Scene scene;
+  Kizuri::EntityId m = scene.CreateEntity("Mat");
+  scene.Get(m)->hasMaterial = true;
+  Kizuri::MakeDefaultMaterial(scene.Get(m)->material);
+  scene.Get(m)->material.albedo[0] = 0.8f;
+  scene.Get(m)->material.albedo[1] = 0.2f;
+  scene.Get(m)->material.albedo[2] = 0.1f;
+  scene.Get(m)->material.metallic = 0.9f;
+  scene.Get(m)->material.roughness = 0.25f;
+  scene.Get(m)->material.albedoTex = "albedo-guid-1";
+  scene.Get(m)->material.normalTex = "normal-guid-2";
+  scene.Get(m)->material.ormTex = "orm-guid-3";
+  Kizuri::EntityId p = scene.CreateEntity("Plain");
+  (void)p;
+  const char* path = "test_material_tmp.kzscene";
+  std::remove(path);
+  if (!Kizuri::SaveSceneToFile(scene, path)) {
+    return false;
+  }
+  Kizuri::Scene back;
+  if (!Kizuri::LoadSceneFromFile(back, path, nullptr)) {
+    std::remove(path);
+    return false;
+  }
+  std::remove(path);
+  const Kizuri::Entity* rm = nullptr;
+  const Kizuri::Entity* rp = nullptr;
+  std::vector<Kizuri::EntityId> all = back.All();
+  for (size_t i = 0; i < all.size(); ++i) {
+    const Kizuri::Entity* ce = back.Get(all[i]);
+    if (ce->name == "Mat") {
+      rm = ce;
+    } else if (ce->name == "Plain") {
+      rp = ce;
+    }
+  }
+  if (rm == nullptr || rp == nullptr) {
+    return false;
+  }
+  if (!rm->hasMaterial) {
+    return false;
+  }
+  if (std::fabs(rm->material.albedo[0] - 0.8f) > 1e-6f || std::fabs(rm->material.metallic - 0.9f) > 1e-6f || std::fabs(rm->material.roughness - 0.25f) > 1e-6f) {
+    return false;
+  }
+  if (rm->material.albedoTex != "albedo-guid-1" || rm->material.normalTex != "normal-guid-2" || rm->material.ormTex != "orm-guid-3") {
+    return false;
+  }
+  if (rp->hasMaterial) {
+    return false;
+  }
+  return true;
+}
+bool TestMaterialUndo() {
+  Kizuri::Scene scene;
+  Kizuri::UndoStack undo;
+  Kizuri::EditQueue edits;
+  Kizuri::EntityId a = scene.CreateEntity("A");
+  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddMaterialCmd(a));
+  if (!undo.Execute(std::move(add), scene) || !scene.Get(a)->hasMaterial) {
+    return false;
+  }
+  if (scene.Get(a)->material.roughness != 0.5f) {
+    return false;
+  }
+  Kizuri::MaterialData v = scene.Get(a)->material;
+  v.roughness = 0.9f;
+  v.albedoTex = "tex-a";
+  edits.PushMaterial(a, v);
+  Kizuri::MaterialData v2 = v;
+  v2.roughness = 0.1f;
+  v2.normalTex = "tex-n";
+  edits.PushMaterial(a, v2);
+  if (edits.Pending() != 2) {
+    return false;
+  }
+  if (edits.ApplyAll(scene, undo) != 1) {
+    return false;
+  }
+  if (scene.Get(a)->material.roughness != 0.1f || scene.Get(a)->material.normalTex != "tex-n") {
+    return false;
+  }
+  if (!undo.Undo(scene) || scene.Get(a)->material.roughness != 0.5f || !scene.Get(a)->material.albedoTex.empty()) {
+    return false;
+  }
+  if (!undo.Redo(scene) || scene.Get(a)->material.roughness != 0.1f) {
+    return false;
+  }
+  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveMaterialCmd(a));
+  if (!undo.Execute(std::move(rem), scene) || scene.Get(a)->hasMaterial) {
+    return false;
+  }
+  if (!undo.Undo(scene) || !scene.Get(a)->hasMaterial || scene.Get(a)->material.roughness != 0.1f) {
+    return false;
+  }
+  return true;
+}
 bool TestLightRoundTrip() {
   Kizuri::Scene scene;
   Kizuri::EntityId p = scene.CreateEntity("Point");
@@ -3304,6 +3421,9 @@ int main() {
   failures += Check("LightTypeRetention", TestLightTypeRetention());
   failures += Check("LightRoundTrip", TestLightRoundTrip());
   failures += Check("LightUndo", TestLightUndo());
+  failures += Check("MaterialDefaults", TestMaterialDefaults());
+  failures += Check("MaterialRoundTrip", TestMaterialRoundTrip());
+  failures += Check("MaterialUndo", TestMaterialUndo());
   failures += Check("EntityForward", TestEntityForward());
   failures += Check("PBR-PointSpot", TestPBRPointSpot());
   failures += Check("LightGizmo", TestLightGizmo());

@@ -29,6 +29,8 @@ bool EntitySnapshot::Capture(const Scene& scene, EntityId root) {
     node.hasMesh = e->hasMesh;
     node.light = e->light;
     node.hasLight = e->hasLight;
+    node.material = e->material;
+    node.hasMaterial = e->hasMaterial;
     node.parent = par;
     long idx = static_cast<long>(nodes.size());
     nodes.push_back(node);
@@ -56,6 +58,8 @@ EntityId EntitySnapshot::Restore(Scene& scene, EntityId newParent) const {
       createdEntity->hasMesh = nodes[i].hasMesh;
       createdEntity->light = nodes[i].light;
       createdEntity->hasLight = nodes[i].hasLight;
+      createdEntity->material = nodes[i].material;
+      createdEntity->hasMaterial = nodes[i].hasMaterial;
     }
     created.push_back(id);
   }
@@ -367,6 +371,92 @@ bool RemoveLightCmd::Revert(Scene& scene) {
 }
 const char* RemoveLightCmd::Name() const {
   return "Remove Light";
+}
+SetMaterialCmd::SetMaterialCmd(EntityId t, const MaterialData& b, const MaterialData& a)
+  : target(t)
+  , before(b)
+  , after(a) {
+}
+bool SetMaterialCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasMaterial) {
+    return false;
+  }
+  e->material = after;
+  scene.MarkDirty();
+  return true;
+}
+bool SetMaterialCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasMaterial) {
+    return false;
+  }
+  e->material = before;
+  scene.MarkDirty();
+  return true;
+}
+const char* SetMaterialCmd::Name() const {
+  return "Set Material";
+}
+AddMaterialCmd::AddMaterialCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultMaterial(prevMaterial);
+}
+bool AddMaterialCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || e->hasMaterial) {
+    return false;
+  }
+  prevMaterial = e->material;
+  prevHas = e->hasMaterial;
+  e->hasMaterial = true;
+  MakeDefaultMaterial(e->material);
+  scene.MarkDirty();
+  return true;
+}
+bool AddMaterialCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->material = prevMaterial;
+  e->hasMaterial = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* AddMaterialCmd::Name() const {
+  return "Add Material";
+}
+RemoveMaterialCmd::RemoveMaterialCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultMaterial(prevMaterial);
+}
+bool RemoveMaterialCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasMaterial) {
+    return false;
+  }
+  prevMaterial = e->material;
+  prevHas = e->hasMaterial;
+  e->hasMaterial = false;
+  MakeDefaultMaterial(e->material);
+  scene.MarkDirty();
+  return true;
+}
+bool RemoveMaterialCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->material = prevMaterial;
+  e->hasMaterial = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* RemoveMaterialCmd::Name() const {
+  return "Remove Material";
 }
 SetParentCmd::SetParentCmd(EntityId c, EntityId b, EntityId a)
   : child(c)

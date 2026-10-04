@@ -20,8 +20,20 @@ void EditQueue::PushLight(EntityId target, const LightData& value) {
   e.value = value;
   lightEdits.push_back(e);
 }
+void EditQueue::PushMaterial(EntityId target, const MaterialData& value) {
+  if (!target.IsValid()) {
+    return;
+  }
+  MaterialEdit e;
+  e.target = target;
+  e.value = value;
+  materialEdits.push_back(e);
+}
+bool MaterialEqual(const MaterialData& a, const MaterialData& b) {
+  return a.albedo[0] == b.albedo[0] && a.albedo[1] == b.albedo[1] && a.albedo[2] == b.albedo[2] && a.metallic == b.metallic && a.roughness == b.roughness && a.albedoTex == b.albedoTex && a.normalTex == b.normalTex && a.ormTex == b.ormTex;
+}
 size_t EditQueue::Pending() const {
-  return edits.size() + lightEdits.size();
+  return edits.size() + lightEdits.size() + materialEdits.size();
 }
 size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
   size_t applied = 0;
@@ -73,10 +85,35 @@ size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
   }
   edits.clear();
   lightEdits.clear();
+  for (size_t i = 0; i < materialEdits.size(); ++i) {
+    bool last = true;
+    for (size_t j = i + 1; j < materialEdits.size(); ++j) {
+      if (materialEdits[j].target == materialEdits[i].target) {
+        last = false;
+        break;
+      }
+    }
+    if (!last) {
+      continue;
+    }
+    const Entity* e = scene.Get(materialEdits[i].target);
+    if (e == nullptr || !e->hasMaterial) {
+      continue;
+    }
+    if (MaterialEqual(e->material, materialEdits[i].value)) {
+      continue;
+    }
+    std::unique_ptr<Command> cmd(new SetMaterialCmd(materialEdits[i].target, e->material, materialEdits[i].value));
+    if (undo.Execute(std::move(cmd), scene)) {
+      ++applied;
+    }
+  }
+  materialEdits.clear();
   return applied;
 }
 void EditQueue::Clear() {
   edits.clear();
   lightEdits.clear();
+  materialEdits.clear();
 }
 }

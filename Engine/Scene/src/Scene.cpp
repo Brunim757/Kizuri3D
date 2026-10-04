@@ -29,6 +29,16 @@ void MakeDefaultLight(LightData& l) {
   l.cascades = 3;
   l.lambda = 0.5f;
 }
+void MakeDefaultMaterial(MaterialData& m) {
+  m.albedo[0] = 1.0f;
+  m.albedo[1] = 1.0f;
+  m.albedo[2] = 1.0f;
+  m.metallic = 0.0f;
+  m.roughness = 0.5f;
+  m.albedoTex.clear();
+  m.normalTex.clear();
+  m.ormTex.clear();
+}
 void ComposeMatrix(const Transform& t, float m[16]) {  float rx = t.rotation[0] * 0.01745329252f;
   float ry = t.rotation[1] * 0.01745329252f;
   float rz = t.rotation[2] * 0.01745329252f;
@@ -107,6 +117,8 @@ EntityId Scene::CreateEntity(const std::string& name) {
     s.entity.hasMesh = false;
     MakeDefaultLight(s.entity.light);
     s.entity.hasLight = false;
+    MakeDefaultMaterial(s.entity.material);
+    s.entity.hasMaterial = false;
     s.entity.parent = EntityId::Invalid();
     s.entity.children.clear();
     id = s.entity.id;
@@ -121,6 +133,8 @@ EntityId Scene::CreateEntity(const std::string& name) {
     s.entity.hasMesh = false;
     MakeDefaultLight(s.entity.light);
     s.entity.hasLight = false;
+    MakeDefaultMaterial(s.entity.material);
+    s.entity.hasMaterial = false;
     s.entity.parent = EntityId::Invalid();
     slots.push_back(s);
     id = slots.back().entity.id;

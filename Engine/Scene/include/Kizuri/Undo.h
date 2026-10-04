@@ -17,6 +17,8 @@ struct SnapshotNode {
   bool hasMesh;
   LightData light;
   bool hasLight;
+  MaterialData material;
+  bool hasMaterial;
   long parent;
 };
 struct EntitySnapshot {
@@ -147,6 +149,39 @@ public:
 private:
   EntityId target;
   LightData prevLight;
+  bool prevHas;
+};
+class SetMaterialCmd : public Command {
+public:
+  SetMaterialCmd(EntityId target, const MaterialData& before, const MaterialData& after);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  MaterialData before;
+  MaterialData after;
+};
+class AddMaterialCmd : public Command {
+public:
+  explicit AddMaterialCmd(EntityId target);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  MaterialData prevMaterial;
+  bool prevHas;
+};
+class RemoveMaterialCmd : public Command {
+public:
+  explicit RemoveMaterialCmd(EntityId target);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  MaterialData prevMaterial;
   bool prevHas;
 };
 class SetParentCmd : public Command {
