@@ -90,6 +90,7 @@ void EditorApp::RenderScene() {
   renderer.SetBloom(viewBloom);
   renderer.SetSsao(viewSsao, viewSsaoIntensity, viewSsaoRadius);
   renderer.SetSsr(viewSsr);
+  renderer.SetContact(viewContact);
   renderer.SetFog(viewFog, viewFogDensity, viewFogColor);
   std::vector<EntityId> lightIds = scene.All();
   for (size_t i = 0; i < lightIds.size(); ++i) {
@@ -721,6 +722,7 @@ void EditorApp::DrawSettings() {
       ImGui::SliderFloat("SSAO Radius", &viewSsaoRadius, 0.1f, 2.0f);
       ImGui::Separator();
       ImGui::Checkbox("SSR", &viewSsr);
+      ImGui::Checkbox("Contact Shadows", &viewContact);
       ImGui::Separator();
       ImGui::Checkbox("Fog", &viewFog);
       ImGui::SliderFloat("Fog Density", &viewFogDensity, 0.0f, 0.05f);

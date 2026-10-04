@@ -39,6 +39,7 @@ cbuffer LightCB : register(b0)
 };
 Texture2D SSAOTX : register(t6);
 Texture2D SsrTX : register(t7);
+Texture2D ContactTX : register(t8);
 Texture2D ShadowAtlas : register(t4);
 TextureCube PointCube : register(t5);
 SamplerState ShadowSampler : register(s1);
@@ -99,7 +100,9 @@ float3 ShadeOne(float3 N, float3 V, float3 L, float3 lightColor, float3 albedo, 
     float3 diff = kd * albedo;
     float wrapLi = saturate((rawLi + 0.5) / 1.5);
     wrapLi *= wrapLi;
-    return diff * lightColor * wrapLi + spec * lightColor * cosLi;
+    float backlit = pow(saturate(dot(V, -L)), 3.0) * (1.0 - metallic);
+    float3 sss = albedo * backlit * 0.15;
+    return diff * lightColor * wrapLi + spec * lightColor * cosLi + sss * lightColor;
 }
 float BlockerSearch2D(float2 uv, float recvDist, float nearZ, float farZ, float searchUV)
 {
@@ -437,6 +440,7 @@ float4 main(PSIn pin) : SV_Target
     if (SsaoInfo.x > 0.5) {
         ao = SSAOTX.Sample(LinearSampler, pin.uv).r;
     }
+    ao *= ContactTX.Sample(LinearSampler, pin.uv).r;
     col *= ao;
     float sint2 = max(SkySun.w, 1e-3);
     float3 hemi = SkyGradient(N, normalize(SkySun.xyz), SkyColor.rgb, sint2);

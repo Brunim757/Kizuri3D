@@ -136,6 +136,9 @@ DeferredRenderer::DeferredRenderer()
   , ssrH(1)
   , ssrOn(true)
   , ssrValid(false)
+  , contactPS(0)
+  , contactA(0)
+  , contactOn(true)
   , layout(0)
   , sampler(0)
   , geoSampler(0)
@@ -220,6 +223,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   std::string ssaoPath = dir + "/SsaoPS.hlsl";
   std::string ssaoBlurPath = dir + "/SsaoBlurPS.hlsl";
   std::string ssrPath = dir + "/SsrPS.hlsl";
+  std::string contactPath = dir + "/ContactPS.hlsl";
   geoVS = rhi->CreateVertexShaderFromFile(geoVSPath.c_str(), "main");
   geoPS = rhi->CreatePixelShaderFromFile(geoPSPath.c_str(), "main");
   lightVS = rhi->CreateVertexShaderFromFile(lightVSPath.c_str(), "main");
@@ -251,6 +255,10 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   }
   ssrPS = rhi->CreatePixelShaderFromFile(ssrPath.c_str(), "main");
   if (ssrPS == 0) {
+    return false;
+  }
+  contactPS = rhi->CreatePixelShaderFromFile(contactPath.c_str(), "main");
+  if (contactPS == 0) {
     return false;
   }
   layout = rhi->CreateInputLayoutPNUT(geoVS);
@@ -557,6 +565,9 @@ void DeferredRenderer::SetSsao(bool on, float intensity, float radius) {  ssaoOn
 }
 void DeferredRenderer::SetSsr(bool on) {
   ssrOn = on;
+}
+void DeferredRenderer::SetContact(bool on) {
+  contactOn = on;
 }
 void DeferredRenderer::SetFog(bool on, float density, const float color[3]) {
   fogOn = on;
@@ -1193,6 +1204,43 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   } else if (ssrA != 0) {
     rhi->ClearRenderTarget(ssrA, 0.0f, 0.0f, 0.0f, 0.0f);
   }
+  if (toTexture && contactOn && contactA != 0 && contactPS != 0) {
+    SsrConstants cc;
+    std::memcpy(cc.viewProj, ssaoVP, sizeof(cc.viewProj));
+    cc.camPos[0] = camPos[0];
+    cc.camPos[1] = camPos[1];
+    cc.camPos[2] = camPos[2];
+    cc.camPos[3] = 1.0f;
+    cc.params[0] = 4.0f;
+    cc.params[1] = 0.4f;
+    cc.params[2] = 8.0f;
+    cc.params[3] = 1.0f;
+    cc.screen[0] = static_cast<float>(w);
+    cc.screen[1] = static_cast<float>(h);
+    cc.screen[2] = 0.0f;
+    cc.screen[3] = 0.0f;
+    rhi->UpdateConstantBuffer(ssrCB, &cc, sizeof(cc));
+    rhi->SetPixelConstantBuffer(0, ssrCB);
+    rhi->SetPixelSampler(0, sampler);
+    rhi->SetRenderTargets(1, &contactA, 0);
+    RHIViewport cvp;
+    cvp.x = 0.0f;
+    cvp.y = 0.0f;
+    cvp.w = static_cast<float>(w);
+    cvp.h = static_cast<float>(h);
+    cvp.minD = 0.0f;
+    cvp.maxD = 1.0f;
+    rhi->SetViewport(cvp);
+    rhi->SetVertexShader(lightVS);
+    rhi->SetPixelShader(contactPS);
+    rhi->SetPixelTexture(0, gPosition);
+    rhi->SetPixelTexture(1, gNormalRough);
+    rhi->DrawFullscreenTriangle();
+    rhi->SetPixelTexture(0, 0);
+    rhi->SetPixelTexture(1, 0);
+  } else if (contactA != 0) {
+    rhi->ClearRenderTarget(contactA, 1.0f, 1.0f, 1.0f, 1.0f);
+  }
   if (toTexture && ssaoOn && ssaoA != 0 && ssaoB != 0) {
     float sq[24] = { 0.0f };
     sq[0] = ssaoRadius;
@@ -1479,6 +1527,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   if (ssrValid) {
     rhi->SetPixelTexture(7, ssrA);
   }
+  rhi->SetPixelTexture(8, contactA);
   rhi->DrawFullscreenTriangle();
   rhi->SetPixelTexture(0, 0);
   rhi->SetPixelTexture(1, 0);
@@ -1488,6 +1537,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture(5, 0);
   rhi->SetPixelTexture(6, 0);
   rhi->SetPixelTexture(7, 0);
+  rhi->SetPixelTexture(8, 0);
   if (toTexture) {
     float bp[4] = { 0.8f, 0.0f, 0.0f, 0.0f };
     rhi->UpdateConstantBuffer(bloomCB, &bp, sizeof(bp));
@@ -1615,7 +1665,8 @@ bool DeferredRenderer::CreateTargets() {
   ssrW = w;
   ssrH = h;
   ssrA = rhi->CreateRenderTarget(ssrW, ssrH, RHIFormat::RGBA8_UNORM);
-  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0;
+  contactA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
+  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0 && contactA != 0;
 }
 void DeferredRenderer::DestroyTargets() {
   if (rhi == nullptr) {
@@ -1676,6 +1727,10 @@ void DeferredRenderer::DestroyTargets() {
   if (ssrA != 0) {
     rhi->DestroyRenderTarget(ssrA);
     ssrA = 0;
+  }
+  if (contactA != 0) {
+    rhi->DestroyRenderTarget(contactA);
+    contactA = 0;
   }
 }
 }

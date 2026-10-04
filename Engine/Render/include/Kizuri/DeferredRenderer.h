@@ -91,6 +91,7 @@ public:
   void SetFsr(float scale, float sharpness);
   void SetSsao(bool on, float intensity, float radius);
   void SetSsr(bool on);
+  void SetContact(bool on);
   void SetFog(bool on, float density, const float color[3]);
   bool Resize(int w, int h);
   void SetViewOffset(float x, float y);
@@ -198,6 +199,9 @@ private:
   int ssrH;
   bool ssrOn;
   bool ssrValid;
+  RHIPixelShader contactPS;
+  RHIRenderTarget contactA;
+  bool contactOn;
   RHIInputLayout layout;
   RHISampler sampler;
   RHISampler geoSampler;

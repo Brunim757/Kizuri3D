@@ -923,12 +923,12 @@ public:
   }
   RHISampler CreateSamplerWrap() override {
     D3D11_SAMPLER_DESC sd;
-    sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    sd.Filter = D3D11_FILTER_ANISOTROPIC;
     sd.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
     sd.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
     sd.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
     sd.MipLODBias = 0.0f;
-    sd.MaxAnisotropy = 1;
+    sd.MaxAnisotropy = 8;
     sd.ComparisonFunc = D3D11_COMPARISON_NEVER;
     sd.BorderColor[0] = 0.0f;
     sd.BorderColor[1] = 0.0f;
