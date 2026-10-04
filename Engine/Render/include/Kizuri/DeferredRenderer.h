@@ -64,6 +64,13 @@ struct ShadowDrawItem {
   uint32_t start;
   uint32_t count;
 };
+struct DecalDrawItem {
+  float world[16];
+  float invWorld[16];
+  float size[3];
+  float fade;
+  RHITexture tex;
+};
 class DeferredRenderer {
 public:
   DeferredRenderer();
@@ -92,6 +99,7 @@ public:
   void BeginObjects(const float view[16], const float proj[16]);
   void DrawObject(const float world[16]);
   void DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat);
+  void DrawDecal(const float world[16], const float invWorld[16], const float size[3], float fade, RHITexture tex);
   void EndObjectsToTexture(const float camPos[3]);
   void EndObjectsToBackbuffer(const float camPos[3]);
   bool IsReady() const;
@@ -115,6 +123,11 @@ private:
   RHIVertexShader lightVS;
   RHIPixelShader lightPS;
   RHIVertexShader depthVS;
+  RHIVertexShader decalVS;
+  RHIPixelShader decalPS;
+  RHIConstBuffer decalCB;
+  RHIBuffer decalVB;
+  RHIBuffer decalIB;
   RHIRenderTarget shadowAtlas;
   RHIRenderTarget shadowCube;
   RHISampler shadowSampler;
@@ -141,6 +154,7 @@ private:
   int shadowPointLight;
   bool shadowPointActive;
   std::vector<ShadowDrawItem> shadowDraws;
+  std::vector<DecalDrawItem> decalDraws;
   RHIPixelShader bloomBrightPS;
   RHIPixelShader bloomBlurPS;
   RHIPixelShader bloomAddPS;
@@ -197,6 +211,7 @@ private:
   bool CreateTargets();
   void DestroyTargets();
   void RenderShadowMaps();
+  void RenderDecals();
   void RenderInternal(const float view[16], const float proj[16], const float camPos[3], bool toTexture);
   void EndInternal(const float camPos[3], bool toTexture);
   DeferredRenderer(const DeferredRenderer&) = delete;

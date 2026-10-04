@@ -157,6 +157,10 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
       const MaterialData& m = e->material;
       std::fprintf(fp, "MATERIAL %.9g %.9g %.9g %.9g %.9g \"%s\" \"%s\" \"%s\"\n", m.albedo[0], m.albedo[1], m.albedo[2], m.metallic, m.roughness, EscapeName(m.albedoTex).c_str(), EscapeName(m.normalTex).c_str(), EscapeName(m.ormTex).c_str());
     }
+    if (e->hasDecal) {
+      const DecalData& d = e->decal;
+      std::fprintf(fp, "DECAL %.9g %.9g %.9g %.9g \"%s\"\n", d.size[0], d.size[1], d.size[2], d.life, EscapeName(d.texGuid).c_str());
+    }
   }
   std::fclose(fp);
   return true;
@@ -196,6 +200,8 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
     bool hasLight;
     MaterialData material;
     bool hasMaterial;
+    DecalData decal;
+    bool hasDecal;
   };
   std::vector<PendingEntity> pending;
   PendingEntity* current = nullptr;
@@ -213,9 +219,11 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       MakeIdentityTransform(pe.transform);
       MakeDefaultLight(pe.light);
       MakeDefaultMaterial(pe.material);
+      MakeDefaultDecal(pe.decal);
       pe.hasMesh = false;
       pe.hasLight = false;
       pe.hasMaterial = false;
+      pe.hasDecal = false;
       pe.parentIdx = -1;
       size_t pos = 7;
       if (!ParseQuoted(s, pos, pe.name) || pe.name.empty()) {
@@ -339,6 +347,27 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
         current->hasMaterial = true;
         continue;
       }
+      if (field == "DECAL") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        float dv[4] = { 1.0f, 1.0f, 1.0f, 0.0f };
+        if (!ParseFloats(s, pos, dv, 4)) {
+          failed = true;
+          break;
+        }
+        MakeDefaultDecal(current->decal);
+        current->decal.size[0] = dv[0];
+        current->decal.size[1] = dv[1];
+        current->decal.size[2] = dv[2];
+        current->decal.life = dv[3];
+        std::string slot;
+        if (!ParseQuoted(s, pos, slot)) {
+          failed = true;
+          break;
+        }
+        current->decal.texGuid = slot;
+        current->hasDecal = true;
+        continue;
+      }
       const FieldDesc* fd = nullptr;
       for (size_t f = 0; f < tdesc->fields.size(); ++f) {
         if (tdesc->fields[f].name == field) {
@@ -399,6 +428,8 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       createdEntity->hasLight = pending[i].hasLight;
       createdEntity->material = pending[i].material;
       createdEntity->hasMaterial = pending[i].hasMaterial;
+      createdEntity->decal = pending[i].decal;
+      createdEntity->hasDecal = pending[i].hasDecal;
     }
     created.push_back(id);
   }

@@ -39,6 +39,13 @@ void MakeDefaultMaterial(MaterialData& m) {
   m.normalTex.clear();
   m.ormTex.clear();
 }
+void MakeDefaultDecal(DecalData& d) {
+  d.size[0] = 1.0f;
+  d.size[1] = 1.0f;
+  d.size[2] = 1.0f;
+  d.life = 0.0f;
+  d.texGuid.clear();
+}
 void ComposeMatrix(const Transform& t, float m[16]) {  float rx = t.rotation[0] * 0.01745329252f;
   float ry = t.rotation[1] * 0.01745329252f;
   float rz = t.rotation[2] * 0.01745329252f;
@@ -89,6 +96,62 @@ void EntityForward(const Transform& t, float dir[3]) {
   dir[1] /= l;
   dir[2] /= l;
 }
+bool InvertMatrix4(const float m[16], float invOut[16]) {
+  if (m == nullptr || invOut == nullptr) {
+    return false;
+  }
+  float a[16];
+  for (int i = 0; i < 16; ++i) {
+    a[i] = m[i];
+  }
+  float inv[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+  for (int c = 0; c < 4; ++c) {
+    int piv = c;
+    float best = a[c * 4 + c] < 0.0f ? -a[c * 4 + c] : a[c * 4 + c];
+    for (int r = c + 1; r < 4; ++r) {
+      float v = a[r * 4 + c] < 0.0f ? -a[r * 4 + c] : a[r * 4 + c];
+      if (v > best) {
+        best = v;
+        piv = r;
+      }
+    }
+    if (best < 1e-12f) {
+      return false;
+    }
+    if (piv != c) {
+      for (int k = 0; k < 4; ++k) {
+        float t = a[c * 4 + k];
+        a[c * 4 + k] = a[piv * 4 + k];
+        a[piv * 4 + k] = t;
+        t = inv[c * 4 + k];
+        inv[c * 4 + k] = inv[piv * 4 + k];
+        inv[piv * 4 + k] = t;
+      }
+    }
+    float d = a[c * 4 + c];
+    for (int k = 0; k < 4; ++k) {
+      a[c * 4 + k] /= d;
+      inv[c * 4 + k] /= d;
+    }
+    for (int r = 0; r < 4; ++r) {
+      if (r == c) {
+        continue;
+      }
+      float f = a[r * 4 + c];
+      if (f == 0.0f) {
+        continue;
+      }
+      for (int k = 0; k < 4; ++k) {
+        a[r * 4 + k] -= f * a[c * 4 + k];
+        inv[r * 4 + k] -= f * inv[c * 4 + k];
+      }
+    }
+  }
+  for (int i = 0; i < 16; ++i) {
+    invOut[i] = inv[i];
+  }
+  return true;
+}
 Scene::Scene()
   : dirty(false) {
 }
@@ -119,6 +182,8 @@ EntityId Scene::CreateEntity(const std::string& name) {
     s.entity.hasLight = false;
     MakeDefaultMaterial(s.entity.material);
     s.entity.hasMaterial = false;
+    MakeDefaultDecal(s.entity.decal);
+    s.entity.hasDecal = false;
     s.entity.parent = EntityId::Invalid();
     s.entity.children.clear();
     id = s.entity.id;
@@ -135,6 +200,8 @@ EntityId Scene::CreateEntity(const std::string& name) {
     s.entity.hasLight = false;
     MakeDefaultMaterial(s.entity.material);
     s.entity.hasMaterial = false;
+    MakeDefaultDecal(s.entity.decal);
+    s.entity.hasDecal = false;
     s.entity.parent = EntityId::Invalid();
     slots.push_back(s);
     id = slots.back().entity.id;

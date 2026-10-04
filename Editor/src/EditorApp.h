@@ -32,6 +32,7 @@ struct EditorApp {
   EntityId gizmoTarget;
   bool gizmoJustEnded;
   std::unordered_map<EntityId, Transform, EntityIdHash> gizmoOrigins;
+  std::unordered_map<EntityId, float, EntityIdHash> decalAge;
   bool rubberActive;
   float rubberX0;
   float rubberY0;
@@ -121,6 +122,7 @@ struct EditorApp {
   void DrawMeshSection(Entity* e);
   void DrawMaterialSection(Entity* e);
   void DrawMaterialSlot(Entity* e, const char* label, int slot);
+  void DrawDecalSection(Entity* e);
   void DrawLightGizmo();
   std::string ResolveAssetsDir();
   std::vector<RefUse> SceneMeshRefs();

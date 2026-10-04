@@ -71,6 +71,11 @@ DeferredRenderer::DeferredRenderer()
   , lightVS(0)
   , lightPS(0)
   , depthVS(0)
+  , decalVS(0)
+  , decalPS(0)
+  , decalCB(0)
+  , decalVB(0)
+  , decalIB(0)
   , shadowAtlas(0)
   , shadowCube(0)
   , shadowSampler(0)
@@ -192,6 +197,8 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   std::string lightVSPath = dir + "/LightingVS.hlsl";
   std::string lightPSPath = dir + "/LightingPS.hlsl";
   std::string depthVSPath = dir + "/DepthVS.hlsl";
+  std::string decalVSPath = dir + "/DecalVS.hlsl";
+  std::string decalPSPath = dir + "/DecalPS.hlsl";
   std::string bloomBrightPath = dir + "/BloomBrightPS.hlsl";
   std::string bloomBlurPath = dir + "/BloomBlurPS.hlsl";
   std::string bloomAddPath = dir + "/BloomAddPS.hlsl";
@@ -204,10 +211,15 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   lightVS = rhi->CreateVertexShaderFromFile(lightVSPath.c_str(), "main");
   lightPS = rhi->CreatePixelShaderFromFile(lightPSPath.c_str(), "main");
   depthVS = rhi->CreateVertexShaderFromFile(depthVSPath.c_str(), "main");
+  decalVS = rhi->CreateVertexShaderFromFile(decalVSPath.c_str(), "main");
+  decalPS = rhi->CreatePixelShaderFromFile(decalPSPath.c_str(), "main");
   bloomBrightPS = rhi->CreatePixelShaderFromFile(bloomBrightPath.c_str(), "main");
   bloomBlurPS = rhi->CreatePixelShaderFromFile(bloomBlurPath.c_str(), "main");
   bloomAddPS = rhi->CreatePixelShaderFromFile(bloomAddPath.c_str(), "main");
   if (geoVS == 0 || geoPS == 0 || lightVS == 0 || lightPS == 0 || depthVS == 0) {
+    return false;
+  }
+  if (decalVS == 0 || decalPS == 0) {
     return false;
   }
   if (bloomBrightPS == 0 || bloomBlurPS == 0 || bloomAddPS == 0) {
@@ -268,6 +280,34 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (!rhi->UpdateTextureMip(neutralAlbedo, 0, 1, 1, 4, whitePx, 4) || !rhi->UpdateTextureMip(neutralNormal, 0, 1, 1, 4, nrmPx, 4) || !rhi->UpdateTextureMip(neutralOrm, 0, 1, 1, 4, ormPx, 4)) {
     return false;
   }
+  float decalBox[8 * 12] = {
+    -0.5f, -0.5f, -0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    0.5f, -0.5f, -0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    0.5f, 0.5f, -0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    -0.5f, 0.5f, -0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    -0.5f, -0.5f, 0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    0.5f, -0.5f, 0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    0.5f, 0.5f, 0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    -0.5f, 0.5f, 0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1
+  };
+  uint32_t decalIdx[36] = {
+    0, 1, 2, 0, 2, 3,
+    5, 4, 7, 5, 7, 6,
+    4, 0, 3, 4, 3, 7,
+    1, 5, 6, 1, 6, 2,
+    3, 2, 6, 3, 6, 7,
+    4, 5, 1, 4, 1, 0
+  };
+  decalVB = rhi->CreateBuffer(sizeof(decalBox), 48, false, decalBox);
+  decalIB = rhi->CreateBuffer(sizeof(decalIdx), 4, true, decalIdx);
+  if (decalVB == 0 || decalIB == 0) {
+    return false;
+  }
+  float decalInit[16] = { 0.0f };
+  decalCB = rhi->CreateConstantBuffer(sizeof(decalInit), &decalInit);
+  if (decalCB == 0) {
+    return false;
+  }
   shadowAtlas = rhi->CreateRenderTarget(ShadowAtlasSize, ShadowAtlasSize, RHIFormat::R32_DEPTH);
   shadowCube = rhi->CreateShadowCube(ShadowCubeSize);
   shadowSampler = rhi->CreateSamplerShadow();
@@ -283,6 +323,18 @@ void DeferredRenderer::Shutdown() {
     return;
   }
   DestroyTargets();
+  if (decalVB != 0) {
+    rhi->DestroyBuffer(decalVB);
+    decalVB = 0;
+  }
+  if (decalIB != 0) {
+    rhi->DestroyBuffer(decalIB);
+    decalIB = 0;
+  }
+  if (decalCB != 0) {
+    rhi->DestroyConstantBuffer(decalCB);
+    decalCB = 0;
+  }
   if (neutralAlbedo != 0) {
     rhi->DestroyTexture(neutralAlbedo);
     neutralAlbedo = 0;
@@ -839,6 +891,7 @@ void DeferredRenderer::BeginObjects(const float view[16], const float proj[16]) 
   std::memcpy(lastView, view, sizeof(lastView));
   std::memcpy(lastProj, proj, sizeof(lastProj));
   shadowDraws.clear();
+  decalDraws.clear();
   shadowMapsValid = false;
   ssaoValid = false;
   RHIRenderTarget mrts[4] = { gAlbedo, gNormalRough, gMetallic, gPosition };
@@ -947,6 +1000,94 @@ void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuff
   rhi->SetIndexBuffer(ib);
   rhi->DrawIndexed(count, start, 0);
 }
+void DeferredRenderer::DrawDecal(const float world[16], const float invWorld[16], const float size[3], float fade, RHITexture tex) {
+  if (!begun || world == nullptr || invWorld == nullptr || size == nullptr || tex == 0) {
+    return;
+  }
+  if (fade <= 0.0f || size[0] <= 0.0f || size[1] <= 0.0f || size[2] <= 0.0f) {
+    return;
+  }
+  DecalDrawItem item;
+  std::memcpy(item.world, world, sizeof(item.world));
+  std::memcpy(item.invWorld, invWorld, sizeof(item.invWorld));
+  item.size[0] = size[0];
+  item.size[1] = size[1];
+  item.size[2] = size[2];
+  item.fade = fade > 1.0f ? 1.0f : fade;
+  item.tex = tex;
+  decalDraws.push_back(item);
+}
+void DeferredRenderer::RenderDecals() {
+  if (decalDraws.empty() || decalVB == 0 || decalIB == 0 || decalVS == 0 || decalPS == 0) {
+    decalDraws.clear();
+    return;
+  }
+  RHIViewport vp;
+  vp.x = viewX;
+  vp.y = viewY;
+  vp.w = static_cast<float>(w);
+  vp.h = static_cast<float>(h);
+  vp.minD = 0.0f;
+  vp.maxD = 1.0f;
+  rhi->SetViewport(vp);
+  rhi->SetTopology(RHITopology::TriangleList);
+  RHIRasterizer rs;
+  rs.cull = RHICull::None;
+  rs.fill = RHIFill::Solid;
+  rs.frontCCW = false;
+  rs.slopeBias = 0.0f;
+  rhi->SetRasterizerState(rs);
+  RHIDepthStencil ds;
+  ds.depthEnable = true;
+  ds.depthWrite = false;
+  rhi->SetDepthStencilState(ds);
+  RHIBlend blend;
+  blend.enable = true;
+  rhi->SetBlendState(blend);
+  rhi->SetInputLayout(layout);
+  rhi->SetVertexShader(decalVS);
+  rhi->SetPixelShader(decalPS);
+  rhi->SetVertexBuffer(decalVB, 0);
+  rhi->SetIndexBuffer(decalIB);
+  rhi->SetVertexConstantBuffer(0, geoCB);
+  rhi->SetPixelConstantBuffer(0, decalCB);
+  rhi->SetPixelSampler(0, geoSampler);
+  rhi->SetRenderTargets(1, &gAlbedo, gDepth);
+  for (size_t i = 0; i < decalDraws.size(); ++i) {
+    const DecalDrawItem& d = decalDraws[i];
+    GeoConstants gc;
+    std::memcpy(gc.world, d.world, sizeof(gc.world));
+    std::memcpy(gc.view, lastView, sizeof(gc.view));
+    std::memcpy(gc.proj, lastProj, sizeof(gc.proj));
+    rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
+    float dc[16];
+    dc[0] = d.invWorld[0];
+    dc[1] = d.invWorld[1];
+    dc[2] = d.invWorld[2];
+    dc[3] = d.invWorld[3];
+    dc[4] = d.invWorld[4];
+    dc[5] = d.invWorld[5];
+    dc[6] = d.invWorld[6];
+    dc[7] = d.invWorld[7];
+    dc[8] = d.invWorld[8];
+    dc[9] = d.invWorld[9];
+    dc[10] = d.invWorld[10];
+    dc[11] = d.invWorld[11];
+    dc[12] = d.size[0];
+    dc[13] = d.size[1];
+    dc[14] = d.size[2];
+    dc[15] = d.fade;
+    rhi->UpdateConstantBuffer(decalCB, &dc, sizeof(dc));
+    rhi->SetPixelTexture2D(0, d.tex);
+    rhi->DrawIndexed(36, 0, 0);
+  }
+  rhi->SetPixelTexture2D(0, 0);
+  blend.enable = false;
+  rhi->SetBlendState(blend);
+  ds.depthWrite = true;
+  rhi->SetDepthStencilState(ds);
+  decalDraws.clear();
+}
 void DeferredRenderer::EndObjectsToTexture(const float camPos[3]) {
   EndInternal(camPos, true);
 }
@@ -969,6 +1110,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   }
   begun = false;
   RenderShadowMaps();
+  RenderDecals();
   float ssaoVP[16] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
   for (int cc = 0; cc < 4; ++cc) {
     for (int rr = 0; rr < 4; ++rr) {

@@ -456,6 +456,13 @@ bool TestDeferredNull() {  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API
   renderer.DrawObjectEx(ident, tvb, tib, 0, 3, nullptr);
   rhi->DestroyBuffer(tvb);
   rhi->DestroyBuffer(tib);
+  float dworld[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 2, 1 };
+  float dinv[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -2, 1 };
+  float dsize[3] = { 1, 1, 0.2f };
+  renderer.DrawDecal(dworld, dinv, dsize, 1.0f, t0);
+  renderer.DrawDecal(dworld, dinv, dsize, 0.0f, t0);
+  renderer.DrawDecal(nullptr, dinv, dsize, 1.0f, t0);
+  renderer.DrawDecal(dworld, dinv, dsize, 1.0f, 0);
   rhi->DestroyTexture(t0);
   renderer.EndObjectsToTexture(cam);
   renderer.BeginObjects(view, proj);
@@ -2685,6 +2692,155 @@ bool TestMaterialUndo() {
   }
   return true;
 }
+bool TestInvertMatrix4() {
+  float ident[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+  float inv[16] = { 0 };
+  if (!Kizuri::InvertMatrix4(ident, inv)) {
+    return false;
+  }
+  for (int i = 0; i < 16; ++i) {
+    float want = (i % 5 == 0) ? 1.0f : 0.0f;
+    if (std::fabs(inv[i] - want) > 1e-6f) {
+      return false;
+    }
+  }
+  Kizuri::Transform t;
+  Kizuri::MakeIdentityTransform(t);
+  t.position[0] = 3.0f;
+  t.position[1] = -2.0f;
+  t.position[2] = 5.0f;
+  t.scale[0] = 2.0f;
+  t.scale[1] = 2.0f;
+  t.scale[2] = 2.0f;
+  float m[16];
+  Kizuri::ComposeMatrix(t, m);
+  if (!Kizuri::InvertMatrix4(m, inv)) {
+    return false;
+  }
+  for (int r = 0; r < 4; ++r) {
+    for (int c = 0; c < 4; ++c) {
+      float s = 0.0f;
+      for (int k = 0; k < 4; ++k) {
+        s += m[r * 4 + k] * inv[k * 4 + c];
+      }
+      float want = (r == c) ? 1.0f : 0.0f;
+      if (std::fabs(s - want) > 1e-4f) {
+        return false;
+      }
+    }
+  }
+  float singular[16] = { 0 };
+  if (Kizuri::InvertMatrix4(singular, inv)) {
+    return false;
+  }
+  if (Kizuri::InvertMatrix4(nullptr, inv) || Kizuri::InvertMatrix4(ident, nullptr)) {
+    return false;
+  }
+  return true;
+}
+bool TestDecalDefaults() {
+  Kizuri::DecalData d;
+  Kizuri::MakeDefaultDecal(d);
+  if (d.size[0] != 1.0f || d.size[1] != 1.0f || d.size[2] != 1.0f) {
+    return false;
+  }
+  if (d.life != 0.0f || !d.texGuid.empty()) {
+    return false;
+  }
+  Kizuri::Scene scene;
+  Kizuri::EntityId a = scene.CreateEntity("A");
+  if (scene.Get(a)->hasDecal) {
+    return false;
+  }
+  return true;
+}
+bool TestDecalRoundTrip() {
+  Kizuri::Scene scene;
+  Kizuri::EntityId d = scene.CreateEntity("Blood");
+  scene.Get(d)->hasDecal = true;
+  Kizuri::MakeDefaultDecal(scene.Get(d)->decal);
+  scene.Get(d)->decal.size[0] = 2.0f;
+  scene.Get(d)->decal.size[1] = 0.5f;
+  scene.Get(d)->decal.life = 10.0f;
+  scene.Get(d)->decal.texGuid = "blood-guid";
+  Kizuri::EntityId p = scene.CreateEntity("Plain");
+  (void)p;
+  const char* path = "test_decal_tmp.kzscene";
+  std::remove(path);
+  if (!Kizuri::SaveSceneToFile(scene, path)) {
+    return false;
+  }
+  Kizuri::Scene back;
+  if (!Kizuri::LoadSceneFromFile(back, path, nullptr)) {
+    std::remove(path);
+    return false;
+  }
+  std::remove(path);
+  const Kizuri::Entity* rd = nullptr;
+  const Kizuri::Entity* rp = nullptr;
+  std::vector<Kizuri::EntityId> all = back.All();
+  for (size_t i = 0; i < all.size(); ++i) {
+    const Kizuri::Entity* ce = back.Get(all[i]);
+    if (ce->name == "Blood") {
+      rd = ce;
+    } else if (ce->name == "Plain") {
+      rp = ce;
+    }
+  }
+  if (rd == nullptr || rp == nullptr) {
+    return false;
+  }
+  if (!rd->hasDecal) {
+    return false;
+  }
+  if (std::fabs(rd->decal.size[0] - 2.0f) > 1e-6f || std::fabs(rd->decal.size[1] - 0.5f) > 1e-6f || std::fabs(rd->decal.life - 10.0f) > 1e-6f) {
+    return false;
+  }
+  if (rd->decal.texGuid != "blood-guid" || rp->hasDecal) {
+    return false;
+  }
+  return true;
+}
+bool TestDecalUndo() {
+  Kizuri::Scene scene;
+  Kizuri::UndoStack undo;
+  Kizuri::EditQueue edits;
+  Kizuri::EntityId a = scene.CreateEntity("A");
+  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddDecalCmd(a));
+  if (!undo.Execute(std::move(add), scene) || !scene.Get(a)->hasDecal) {
+    return false;
+  }
+  if (scene.Get(a)->decal.size[0] != 1.0f) {
+    return false;
+  }
+  Kizuri::DecalData v = scene.Get(a)->decal;
+  v.size[0] = 3.0f;
+  v.texGuid = "tex-d";
+  edits.PushDecal(a, v);
+  if (edits.Pending() != 1) {
+    return false;
+  }
+  if (edits.ApplyAll(scene, undo) != 1) {
+    return false;
+  }
+  if (scene.Get(a)->decal.size[0] != 3.0f || scene.Get(a)->decal.texGuid != "tex-d") {
+    return false;
+  }
+  if (!undo.Undo(scene) || scene.Get(a)->decal.size[0] != 1.0f || !scene.Get(a)->decal.texGuid.empty()) {
+    return false;
+  }
+  if (!undo.Redo(scene) || scene.Get(a)->decal.size[0] != 3.0f) {
+    return false;
+  }
+  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveDecalCmd(a));
+  if (!undo.Execute(std::move(rem), scene) || scene.Get(a)->hasDecal) {
+    return false;
+  }
+  if (!undo.Undo(scene) || !scene.Get(a)->hasDecal || scene.Get(a)->decal.size[0] != 3.0f) {
+    return false;
+  }
+  return true;
+}
 bool TestLightRoundTrip() {
   Kizuri::Scene scene;
   Kizuri::EntityId p = scene.CreateEntity("Point");
@@ -2925,7 +3081,7 @@ bool TestShaderCompile() {
     const char* file;
     const char* profile;
   };
-  Entry entries[12] = {
+  Entry entries[14] = {
     { "GeometryVS.hlsl", "vs_5_0" },
     { "GeometryPS.hlsl", "ps_5_0" },
     { "LightingVS.hlsl", "vs_5_0" },
@@ -2937,10 +3093,12 @@ bool TestShaderCompile() {
     { "FsrEasuPS.hlsl", "ps_5_0" },
     { "FsrRcasPS.hlsl", "ps_5_0" },
     { "SsaoPS.hlsl", "ps_5_0" },
-    { "SsaoBlurPS.hlsl", "ps_5_0" }
+    { "SsaoBlurPS.hlsl", "ps_5_0" },
+    { "DecalVS.hlsl", "vs_5_0" },
+    { "DecalPS.hlsl", "ps_5_0" }
   };
   const char* dirs[4] = { "Shaders", "../Shaders", "../../Shaders", "build/bin/Release/Shaders" };
-  for (int e = 0; e < 12; ++e) {
+  for (int e = 0; e < 14; ++e) {
     bool found = false;
     for (int d = 0; d < 4; ++d) {
       std::string path = std::string(dirs[d]) + "/" + entries[e].file;
@@ -3714,6 +3872,10 @@ int main() {
   failures += Check("MaterialDefaults", TestMaterialDefaults());
   failures += Check("MaterialRoundTrip", TestMaterialRoundTrip());
   failures += Check("MaterialUndo", TestMaterialUndo());
+  failures += Check("InvertMatrix4", TestInvertMatrix4());
+  failures += Check("DecalDefaults", TestDecalDefaults());
+  failures += Check("DecalRoundTrip", TestDecalRoundTrip());
+  failures += Check("DecalUndo", TestDecalUndo());
   failures += Check("EntityForward", TestEntityForward());
   failures += Check("PBR-PointSpot", TestPBRPointSpot());
   failures += Check("LightGizmo", TestLightGizmo());

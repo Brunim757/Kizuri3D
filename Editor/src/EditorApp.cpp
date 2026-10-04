@@ -203,7 +203,7 @@ void EditorApp::PumpAssets() {
   std::vector<MeshUse> uses;
   for (size_t i = 0; i < all.size(); ++i) {
     const Entity* e = scene.Get(all[i]);
-    if (e == nullptr || !e->hasMesh || e->meshGuid.empty()) {
+    if (e == nullptr || ((!e->hasMesh || e->meshGuid.empty()) && !e->hasDecal)) {
       continue;
     }
     MeshUse u;
@@ -211,15 +211,20 @@ void EditorApp::PumpAssets() {
     u.pos[0] = e->transform.position[0];
     u.pos[1] = e->transform.position[1];
     u.pos[2] = e->transform.position[2];
-    uses.push_back(u);
+    if (e->hasMesh && !e->meshGuid.empty()) {
+      uses.push_back(u);
+    }
+    float dx = u.pos[0] - camPos[0];
+    float dy = u.pos[1] - camPos[1];
+    float dz = u.pos[2] - camPos[2];
+    float dist = sqrtf(dx * dx + dy * dy + dz * dz);
     if (e->hasMaterial) {
-      float dx = u.pos[0] - camPos[0];
-      float dy = u.pos[1] - camPos[1];
-      float dz = u.pos[2] - camPos[2];
-      float dist = sqrtf(dx * dx + dy * dy + dz * dz);
       assets.RequestTexture(e->material.albedoTex, dist);
       assets.RequestTexture(e->material.normalTex, dist);
       assets.RequestTexture(e->material.ormTex, dist);
+    }
+    if (e->hasDecal) {
+      assets.RequestTexture(e->decal.texGuid, dist);
     }
   }
   assets.UpdateStreaming(camPos, uses);

@@ -31,6 +31,8 @@ bool EntitySnapshot::Capture(const Scene& scene, EntityId root) {
     node.hasLight = e->hasLight;
     node.material = e->material;
     node.hasMaterial = e->hasMaterial;
+    node.decal = e->decal;
+    node.hasDecal = e->hasDecal;
     node.parent = par;
     long idx = static_cast<long>(nodes.size());
     nodes.push_back(node);
@@ -60,6 +62,8 @@ EntityId EntitySnapshot::Restore(Scene& scene, EntityId newParent) const {
       createdEntity->hasLight = nodes[i].hasLight;
       createdEntity->material = nodes[i].material;
       createdEntity->hasMaterial = nodes[i].hasMaterial;
+      createdEntity->decal = nodes[i].decal;
+      createdEntity->hasDecal = nodes[i].hasDecal;
     }
     created.push_back(id);
   }
@@ -457,6 +461,92 @@ bool RemoveMaterialCmd::Revert(Scene& scene) {
 }
 const char* RemoveMaterialCmd::Name() const {
   return "Remove Material";
+}
+SetDecalCmd::SetDecalCmd(EntityId t, const DecalData& b, const DecalData& a)
+  : target(t)
+  , before(b)
+  , after(a) {
+}
+bool SetDecalCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasDecal) {
+    return false;
+  }
+  e->decal = after;
+  scene.MarkDirty();
+  return true;
+}
+bool SetDecalCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasDecal) {
+    return false;
+  }
+  e->decal = before;
+  scene.MarkDirty();
+  return true;
+}
+const char* SetDecalCmd::Name() const {
+  return "Set Decal";
+}
+AddDecalCmd::AddDecalCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultDecal(prevDecal);
+}
+bool AddDecalCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || e->hasDecal) {
+    return false;
+  }
+  prevDecal = e->decal;
+  prevHas = e->hasDecal;
+  e->hasDecal = true;
+  MakeDefaultDecal(e->decal);
+  scene.MarkDirty();
+  return true;
+}
+bool AddDecalCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->decal = prevDecal;
+  e->hasDecal = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* AddDecalCmd::Name() const {
+  return "Add Decal";
+}
+RemoveDecalCmd::RemoveDecalCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultDecal(prevDecal);
+}
+bool RemoveDecalCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasDecal) {
+    return false;
+  }
+  prevDecal = e->decal;
+  prevHas = e->hasDecal;
+  e->hasDecal = false;
+  MakeDefaultDecal(e->decal);
+  scene.MarkDirty();
+  return true;
+}
+bool RemoveDecalCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->decal = prevDecal;
+  e->hasDecal = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* RemoveDecalCmd::Name() const {
+  return "Remove Decal";
 }
 SetParentCmd::SetParentCmd(EntityId c, EntityId b, EntityId a)
   : child(c)

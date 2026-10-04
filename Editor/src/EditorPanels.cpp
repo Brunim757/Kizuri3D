@@ -215,6 +215,49 @@ void EditorApp::RenderScene() {
       renderer.DrawObjectEx(world, defaultVB, defaultIB, 0, defaultCount, fallback);
     }
   }
+  for (size_t i = 0; i < ids.size(); ++i) {
+    const Entity* e = scene.Get(ids[i]);
+    if (e == nullptr || !e->hasDecal || e->decal.texGuid.empty()) {
+      continue;
+    }
+    float age = 0.0f;
+    auto ag = decalAge.find(e->id);
+    if (ag != decalAge.end()) {
+      age = ag->second;
+    }
+    age += frameDt;
+    decalAge[e->id] = age;
+    float fade = 1.0f;
+    if (e->decal.life > 0.0f) {
+      if (age >= e->decal.life) {
+        continue;
+      }
+      fade = 1.0f - age / e->decal.life;
+    }
+    RHITexture dtex = 0;
+    ResolveMaterialSlot(assets, e->decal.texGuid, 1u, dtex);
+    if (dtex == 0) {
+      continue;
+    }
+    Transform dt = e->transform;
+    dt.scale[0] *= e->decal.size[0];
+    dt.scale[1] *= e->decal.size[1];
+    dt.scale[2] *= e->decal.size[2];
+    float dworld[16];
+    ComposeMatrix(dt, dworld);
+    float dinv[16];
+    if (!InvertMatrix4(dworld, dinv)) {
+      continue;
+    }
+    renderer.DrawDecal(dworld, dinv, e->decal.size, fade, dtex);
+  }
+  for (auto it = decalAge.begin(); it != decalAge.end();) {
+    if (!scene.Has(it->first)) {
+      it = decalAge.erase(it);
+    } else {
+      ++it;
+    }
+  }
   renderer.EndObjectsToTexture(cpos);
   rhi->Clear(0.03f, 0.03f, 0.04f, 1.0f);
 }
@@ -943,7 +986,28 @@ void EditorApp::DrawInspector() {
     }
     DrawMaterialSection(e);
   }
-  if (!e->hasMesh || !e->hasLight || !e->hasMaterial) {
+  if (e->hasDecal) {
+    ImGui::Separator();
+    ImGui::Text("Decal");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Remove##decal")) {
+      std::unique_ptr<Command> cmd(new RemoveDecalCmd(e->id));
+      undo.Execute(std::move(cmd), scene);
+    }
+    DecalData dec = e->decal;
+    bool decChanged = false;
+    if (ImGui::DragFloat3("Size", dec.size, 0.05f, 0.05f, 50.0f)) {
+      decChanged = true;
+    }
+    if (ImGui::DragFloat("Life", &dec.life, 0.1f, 0.0f, 300.0f)) {
+      decChanged = true;
+    }
+    if (decChanged) {
+      edits.PushDecal(e->id, dec);
+    }
+    DrawDecalSection(e);
+  }
+  if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal) {
     ImGui::Separator();
     if (ImGui::Button("Add Component")) {
       ImGui::OpenPopup("AddComponent");
@@ -959,6 +1023,10 @@ void EditorApp::DrawInspector() {
       }
       if (!e->hasMaterial && ImGui::MenuItem("Material")) {
         std::unique_ptr<Command> cmd(new AddMaterialCmd(e->id));
+        undo.Execute(std::move(cmd), scene);
+      }
+      if (!e->hasDecal && ImGui::MenuItem("Decal")) {
+        std::unique_ptr<Command> cmd(new AddDecalCmd(e->id));
         undo.Execute(std::move(cmd), scene);
       }
       ImGui::EndPopup();
@@ -1076,6 +1144,50 @@ void EditorApp::DrawMaterialSection(Entity* e) {
   DrawMaterialSlot(e, "Albedo", 0);
   DrawMaterialSlot(e, "Normal", 1);
   DrawMaterialSlot(e, "ORM", 2);
+}
+void EditorApp::DrawDecalSection(Entity* e) {
+  if (e == nullptr || !e->hasDecal) {
+    return;
+  }
+  ImGui::Text("Texture:");
+  ImGui::SameLine();
+  if (e->decal.texGuid.empty()) {
+    ImGui::TextDisabled("(none)");
+  } else {
+    const TextureRecord* tr = assets.GetTexByGuid(e->decal.texGuid);
+    if (tr == nullptr) {
+      ImGui::TextDisabled("(missing)");
+    } else {
+      std::filesystem::path tp(tr->texPath);
+      ImGui::Text("%s", tp.filename().string().c_str());
+    }
+  }
+  if (ImGui::BeginDragDropTarget()) {
+    const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("KZ_TEX");
+    if (payload != nullptr && payload->Data != nullptr && payload->DataSize > 0) {
+      std::string guid(static_cast<const char*>(payload->Data));
+      if (assets.GetTexByGuid(guid) == nullptr) {
+        Announce(LogLevel::Warning, "Dropped texture not found");
+      } else if (guid != e->decal.texGuid) {
+        DecalData after = e->decal;
+        after.texGuid = guid;
+        std::unique_ptr<Command> cmd(new SetDecalCmd(e->id, e->decal, after));
+        if (undo.Execute(std::move(cmd), scene)) {
+          log.Add(LogLevel::Info, "Decal texture assigned");
+        }
+      }
+    }
+    ImGui::EndDragDropTarget();
+  }
+  ImGui::SameLine();
+  if (ImGui::SmallButton("Clear##decaltex")) {
+    if (!e->decal.texGuid.empty()) {
+      DecalData after = e->decal;
+      after.texGuid.clear();
+      std::unique_ptr<Command> cmd(new SetDecalCmd(e->id, e->decal, after));
+      undo.Execute(std::move(cmd), scene);
+    }
+  }
 }
 void EditorApp::DrawMaterialSlot(Entity* e, const char* label, int slot) {
   if (e == nullptr || label == nullptr || slot < 0 || slot > 2) {

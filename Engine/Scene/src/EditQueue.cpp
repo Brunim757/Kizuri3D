@@ -29,11 +29,23 @@ void EditQueue::PushMaterial(EntityId target, const MaterialData& value) {
   e.value = value;
   materialEdits.push_back(e);
 }
+void EditQueue::PushDecal(EntityId target, const DecalData& value) {
+  if (!target.IsValid()) {
+    return;
+  }
+  DecalEdit e;
+  e.target = target;
+  e.value = value;
+  decalEdits.push_back(e);
+}
 bool MaterialEqual(const MaterialData& a, const MaterialData& b) {
   return a.albedo[0] == b.albedo[0] && a.albedo[1] == b.albedo[1] && a.albedo[2] == b.albedo[2] && a.metallic == b.metallic && a.roughness == b.roughness && a.albedoTex == b.albedoTex && a.normalTex == b.normalTex && a.ormTex == b.ormTex;
 }
+bool DecalEqual(const DecalData& a, const DecalData& b) {
+  return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.life == b.life && a.texGuid == b.texGuid;
+}
 size_t EditQueue::Pending() const {
-  return edits.size() + lightEdits.size() + materialEdits.size();
+  return edits.size() + lightEdits.size() + materialEdits.size() + decalEdits.size();
 }
 size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
   size_t applied = 0;
@@ -109,11 +121,36 @@ size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
     }
   }
   materialEdits.clear();
+  for (size_t i = 0; i < decalEdits.size(); ++i) {
+    bool last = true;
+    for (size_t j = i + 1; j < decalEdits.size(); ++j) {
+      if (decalEdits[j].target == decalEdits[i].target) {
+        last = false;
+        break;
+      }
+    }
+    if (!last) {
+      continue;
+    }
+    const Entity* e = scene.Get(decalEdits[i].target);
+    if (e == nullptr || !e->hasDecal) {
+      continue;
+    }
+    if (DecalEqual(e->decal, decalEdits[i].value)) {
+      continue;
+    }
+    std::unique_ptr<Command> cmd(new SetDecalCmd(decalEdits[i].target, e->decal, decalEdits[i].value));
+    if (undo.Execute(std::move(cmd), scene)) {
+      ++applied;
+    }
+  }
+  decalEdits.clear();
   return applied;
 }
 void EditQueue::Clear() {
   edits.clear();
   lightEdits.clear();
   materialEdits.clear();
+  decalEdits.clear();
 }
 }
