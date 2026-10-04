@@ -493,7 +493,7 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
               md.roughness = prim.material->pbr_metallic_roughness.roughness_factor;
               ImportEmbeddedTexture(prim.material->pbr_metallic_roughness.base_color_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.albedoTexGuid);
               ImportEmbeddedTexture(prim.material->normal_texture.texture, glbPath, hash, texCounter, TexKind::Normal, md.normalTexGuid);
-              ImportOrmTextures(prim.material, glbPath, hash, texCounter, md.ormTexGuid);
+              ImportOrmTextures(prim.material, glbPath, hash, texCounter, md, md.ormTexGuid);
             }
             matMap[static_cast<size_t>(gi)] = static_cast<long>(out.materials.size());
             out.materials.push_back(md);
