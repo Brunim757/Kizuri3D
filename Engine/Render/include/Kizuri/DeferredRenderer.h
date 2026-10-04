@@ -104,6 +104,11 @@ public:
   void RenderToTexture(const float view[16], const float proj[16], const float camPos[3]);
   void* GetViewportTexture();
   void BeginObjects(const float view[16], const float proj[16]);
+  void BeginEnvFace(int face, const float view[16], const float proj[16]);
+  void EndEnvFace(const float camPos[3]);
+  bool BeginEnvCapture(int size);
+  void GenerateEnvMips();
+  void SetEnvIntensity(float intensity);
   void DrawObject(const float world[16]);
   void DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat, float lodFade = 0.0f);
   void DrawDecal(const float world[16], const float invWorld[16], const float size[3], float fade, RHITexture tex);
@@ -213,6 +218,14 @@ private:
   RHIPixelShader ssgiPS;
   RHIRenderTarget ssgiA;
   bool ssgiOn;
+  RHITexture envCube;
+  RHIRenderTarget captureTarget;
+  bool captureMode;
+  float envIntensity;
+  float savedLastView[16];
+  float savedLastProj[16];
+  float savedPrevView[16];
+  float savedPrevProj[16];
   float prevView[16];
   float prevProj[16];
   bool dofOn;
@@ -247,6 +260,7 @@ private:
   void DestroyTargets();
   void RenderShadowMaps();
   void RenderDecals();
+  void SetupGeometryPass();
   void RenderInternal(const float view[16], const float proj[16], const float camPos[3], bool toTexture);
   void EndInternal(const float camPos[3], bool toTexture);
   DeferredRenderer(const DeferredRenderer&) = delete;

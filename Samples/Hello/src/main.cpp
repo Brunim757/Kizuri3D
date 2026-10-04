@@ -487,6 +487,22 @@ bool TestDeferredNull() {  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API
   renderer.SetSsgi(false);
   renderer.BeginObjects(view, proj);
   renderer.EndObjectsToTexture(cam);
+  renderer.SetEnvIntensity(1.0f);
+  if (!renderer.BeginEnvCapture(64)) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  for (int f = 0; f < 6; ++f) {
+    renderer.BeginEnvFace(f, view, proj);
+    renderer.DrawObject(ident);
+    float cp[3] = { 0, 0, -5 };
+    renderer.EndEnvFace(cp);
+  }
+  renderer.GenerateEnvMips();
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
   if (!renderer.Resize(320, 200)) {
     renderer.Shutdown();
     rhi->Shutdown();

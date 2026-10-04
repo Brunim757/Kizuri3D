@@ -95,7 +95,15 @@ void EditorApp::RenderScene() {
   renderer.SetMotionBlur(viewMotion, viewMotionScale);
   renderer.SetFilm(viewCa, viewVig, viewGrain);
   renderer.SetSsgi(viewSsgi);
+  renderer.SetEnvIntensity(viewEnv);
   renderer.SetFog(viewFog, viewFogDensity, viewFogColor);
+  renderer.SetEnvIntensity(viewEnv);
+  SubmitSceneDraws(cpos);
+  renderer.EndObjectsToTexture(cpos);
+  rhi->Clear(0.03f, 0.03f, 0.04f, 1.0f);
+}
+void EditorApp::SubmitSceneDraws(const float cpos[3]) {
+  renderer.ClearLights();
   std::vector<EntityId> lightIds = scene.All();
   for (size_t i = 0; i < lightIds.size(); ++i) {
     const Entity* e = scene.Get(lightIds[i]);
@@ -290,8 +298,53 @@ void EditorApp::RenderScene() {
       ++it;
     }
   }
-  renderer.EndObjectsToTexture(cpos);
-  rhi->Clear(0.03f, 0.03f, 0.04f, 1.0f);
+}
+void EditorApp::BakeEnvironment() {
+  float px = 0.0f;
+  float py = 0.0f;
+  float pz = 0.0f;
+  camera.GetPosition(px, py, pz);
+  if (!renderer.BeginEnvCapture(128)) {
+    Announce(LogLevel::Error, "Environment capture failed");
+    return;
+  }
+  float dirs[6][3] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
+  float ups[6][3] = { { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, -1 }, { 0, 0, 1 }, { 0, 1, 0 }, { 0, 1, 0 } };
+  DirectX::XMMATRIX proj = DirectX::XMMatrixPerspectiveFovLH(1.5707963f, 1.0f, 0.1f, 200.0f);
+  DirectX::XMFLOAT4X4 pf;
+  DirectX::XMStoreFloat4x4(&pf, proj);
+  float eye[3] = { px, py, pz };
+  for (int f = 0; f < 6; ++f) {
+    DirectX::XMVECTOR eyeV = DirectX::XMVectorSet(px, py, pz, 1.0f);
+    DirectX::XMVECTOR atV = DirectX::XMVectorSet(px + dirs[f][0], py + dirs[f][1], pz + dirs[f][2], 1.0f);
+    DirectX::XMVECTOR upV = DirectX::XMVectorSet(ups[f][0], ups[f][1], ups[f][2], 0.0f);
+    DirectX::XMMATRIX view = DirectX::XMMatrixLookAtLH(eyeV, atV, upV);
+    DirectX::XMFLOAT4X4 vf;
+    DirectX::XMStoreFloat4x4(&vf, view);
+    MainCameraSetup mainCam;
+    mainCam.camPos[0] = px;
+    mainCam.camPos[1] = py;
+    mainCam.camPos[2] = pz;
+    mainCam.camFwd[0] = vf.m[2][0];
+    mainCam.camFwd[1] = vf.m[2][1];
+    mainCam.camFwd[2] = vf.m[2][2];
+    mainCam.camRight[0] = vf.m[0][0];
+    mainCam.camRight[1] = vf.m[0][1];
+    mainCam.camRight[2] = vf.m[0][2];
+    mainCam.camUp[0] = vf.m[1][0];
+    mainCam.camUp[1] = vf.m[1][1];
+    mainCam.camUp[2] = vf.m[1][2];
+    mainCam.fovY = 1.5707963f;
+    mainCam.aspect = 1.0f;
+    mainCam.nearZ = 0.1f;
+    mainCam.farZ = 200.0f;
+    renderer.SetMainCamera(mainCam);
+    renderer.BeginEnvFace(f, &vf.m[0][0], &pf.m[0][0]);
+    SubmitSceneDraws(eye);
+    renderer.EndEnvFace(eye);
+  }
+  renderer.GenerateEnvMips();
+  Announce(LogLevel::Success, "Environment baked");
 }
 void EditorApp::HandleViewportClick() {
   DirectX::XMMATRIX view = camera.View();
@@ -772,6 +825,10 @@ void EditorApp::DrawSettings() {
     if (ImGui::BeginTabItem("Render")) {
       ImGui::SliderFloat("Render Scale", &viewScale, 0.5f, 1.0f);
       ImGui::SliderFloat("Sharpness", &viewSharp, 0.0f, 1.0f);
+      ImGui::SliderFloat("Env Intensity", &viewEnv, 0.0f, 4.0f);
+      if (ImGui::Button("Bake Environment")) {
+        BakeEnvironment();
+      }
       ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Debug")) {

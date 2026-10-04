@@ -1083,7 +1083,96 @@ public:
     return true;
   }
   void DestroyTexture(RHITexture tex) override {
+    auto it = textures.find(tex);
+    if (it != textures.end()) {
+      for (int f = 0; f < 6; ++f) {
+        if (it->second.faceTargets[f] != 0) {
+          targets.erase(it->second.faceTargets[f]);
+        }
+      }
+    }
     textures.erase(tex);
+  }
+  RHITexture CreateEnvCube(int size) override {
+    if (size < 16 || size > 512) {
+      return 0;
+    }
+    D3D11_TEXTURE2D_DESC td;
+    td.Width = static_cast<UINT>(size);
+    td.Height = static_cast<UINT>(size);
+    td.MipLevels = 0;
+    td.ArraySize = 6;
+    td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    td.SampleDesc.Count = 1;
+    td.SampleDesc.Quality = 0;
+    td.Usage = D3D11_USAGE_DEFAULT;
+    td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    td.CPUAccessFlags = 0;
+    td.MiscFlags = D3D11_RESOURCE_MISC_TEXTURECUBE | D3D11_RESOURCE_MISC_GENERATE_MIPS;
+    ComPtr<ID3D11Texture2D> tex;
+    if (FAILED(device->CreateTexture2D(&td, nullptr, tex.GetAddressOf()))) {
+      return 0;
+    }
+    D3D11_SHADER_RESOURCE_VIEW_DESC svd;
+    svd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    svd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
+    svd.TextureCube.MostDetailedMip = 0;
+    svd.TextureCube.MipLevels = static_cast<UINT>(-1);
+    ComPtr<ID3D11ShaderResourceView> srv;
+    if (FAILED(device->CreateShaderResourceView(tex.Get(), &svd, srv.GetAddressOf()))) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    TexEntry entry;
+    entry.tex = tex;
+    entry.srv = srv;
+    entry.w = size;
+    entry.h = size;
+    entry.mips = 0;
+    entry.fmt = RHITextureFormat::RGBA8_UNORM;
+    entry.isCube = true;
+    for (int f = 0; f < 6; ++f) {
+      D3D11_RENDER_TARGET_VIEW_DESC rvd;
+      rvd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+      rvd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
+      rvd.Texture2DArray.MipSlice = 0;
+      rvd.Texture2DArray.FirstArraySlice = static_cast<UINT>(f);
+      rvd.Texture2DArray.ArraySize = 1;
+      ComPtr<ID3D11RenderTargetView> rtv;
+      if (FAILED(device->CreateRenderTargetView(tex.Get(), &rvd, rtv.GetAddressOf()))) {
+        return 0;
+      }
+      entry.faceRTV[f] = rtv;
+      TargetRes res;
+      res.tex = tex;
+      res.rtv = rtv;
+      res.w = size;
+      res.h = size;
+      res.fmt = RHIFormat::RGBA8_UNORM;
+      res.isDepth = false;
+      uint64_t tid = nextId++;
+      targets[tid] = res;
+      entry.faceTargets[f] = tid;
+    }
+    textures[id] = entry;
+    return id;
+  }
+  RHIRenderTarget GetEnvCubeFace(RHITexture cube, int face) override {
+    if (face < 0 || face > 5) {
+      return 0;
+    }
+    auto it = textures.find(cube);
+    if (it == textures.end() || !it->second.isCube) {
+      return 0;
+    }
+    return it->second.faceTargets[face];
+  }
+  void GenerateCubeMips(RHITexture cube) override {
+    auto it = textures.find(cube);
+    if (it == textures.end() || !it->second.isCube || it->second.srv == nullptr) {
+      return;
+    }
+    context->GenerateMips(it->second.srv.Get());
   }
   int TextureResidentMips(RHITexture tex) const override {
     auto it = textures.find(tex);
@@ -1182,10 +1271,13 @@ private:
   struct TexEntry {
     ComPtr<ID3D11Texture2D> tex;
     ComPtr<ID3D11ShaderResourceView> srv;
-    int w;
-    int h;
-    int mips;
-    RHITextureFormat fmt;
+    ComPtr<ID3D11RenderTargetView> faceRTV[6];
+    RHIRenderTarget faceTargets[6] = { 0, 0, 0, 0, 0, 0 };
+    int w = 0;
+    int h = 0;
+    int mips = 0;
+    RHITextureFormat fmt = RHITextureFormat::RGBA8_UNORM;
+    bool isCube = false;
     std::set<int> resident;
   };
   std::unordered_map<uint64_t, TexEntry> textures;

@@ -40,6 +40,7 @@ cbuffer LightCB : register(b0)
 Texture2D SSAOTX : register(t6);
 Texture2D SsrTX : register(t7);
 Texture2D ContactTX : register(t8);
+TextureCube EnvTX : register(t9);
 Texture2D ShadowAtlas : register(t4);
 TextureCube PointCube : register(t5);
 SamplerState ShadowSampler : register(s1);
@@ -446,7 +447,9 @@ float4 main(PSIn pin) : SV_Target
     float3 hemi = SkyGradient(N, normalize(SkySun.xyz), SkyColor.rgb, sint2);
     float3 amb = albedo * hemi * 0.5 * ao;
     float3 R = reflect(-V, N);
-    float3 env = SkyGradient(R, normalize(SkySun.xyz), SkyColor.rgb, sint2);
+    float3 skyEnv = SkyGradient(R, normalize(SkySun.xyz), SkyColor.rgb, sint2);
+    float3 cubeEnv = EnvTX.SampleLevel(LinearSampler, R, clamp(roughness, 0.0, 1.0) * 6.0).rgb * GradeInfo.z;
+    float3 env = lerp(skyEnv, cubeEnv, clamp(GradeInfo.w, 0.0, 1.0));
     float4 ssr = SsrTX.Sample(LinearSampler, pin.uv);
     float3 specAmb = lerp(env, ssr.rgb, clamp(ssr.a, 0.0, 1.0));
     float3 F0e = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);

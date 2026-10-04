@@ -123,6 +123,9 @@ public:
   virtual bool UpdateTextureMip(RHITexture tex, int mip, int w, int h, uint32_t rowPitch, const void* data, size_t bytes) = 0;
   virtual void DestroyTexture(RHITexture tex) = 0;
   virtual int TextureResidentMips(RHITexture tex) const = 0;
+  virtual RHITexture CreateEnvCube(int size) = 0;
+  virtual RHIRenderTarget GetEnvCubeFace(RHITexture cube, int face) = 0;
+  virtual void GenerateCubeMips(RHITexture cube) = 0;
   virtual void DrawIndexed(uint32_t indexCount, uint32_t startIndex, int32_t baseVertex) = 0;
   virtual void DrawFullscreenTriangle() = 0;
 };

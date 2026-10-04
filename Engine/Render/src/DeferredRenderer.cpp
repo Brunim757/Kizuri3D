@@ -152,6 +152,10 @@ DeferredRenderer::DeferredRenderer()
   , ssgiPS(0)
   , ssgiA(0)
   , ssgiOn(true)
+  , envCube(0)
+  , captureTarget(0)
+  , captureMode(false)
+  , envIntensity(1.0f)
   , dofOn(false)
   , focusDist(10.0f)
   , focusRange(20.0f)
@@ -215,6 +219,10 @@ DeferredRenderer::DeferredRenderer()
   for (int i = 0; i < 16; ++i) {
     prevView[i] = (i % 5 == 0) ? 1.0f : 0.0f;
     prevProj[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+    savedLastView[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+    savedLastProj[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+    savedPrevView[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+    savedPrevProj[i] = (i % 5 == 0) ? 1.0f : 0.0f;
   }
 }
 DeferredRenderer::~DeferredRenderer() {
@@ -399,6 +407,12 @@ void DeferredRenderer::Shutdown() {
     return;
   }
   DestroyTargets();
+  if (envCube != 0) {
+    rhi->DestroyTexture(envCube);
+    envCube = 0;
+  }
+  captureTarget = 0;
+  captureMode = false;
   if (decalVB != 0) {
     rhi->DestroyBuffer(decalVB);
     decalVB = 0;
@@ -642,6 +656,51 @@ void DeferredRenderer::SetFilm(float ca, float vignette, float grain) {
 }
 void DeferredRenderer::SetSsgi(bool on) {
   ssgiOn = on;
+}
+void DeferredRenderer::SetEnvIntensity(float intensity) {
+  envIntensity = intensity;
+  if (envIntensity < 0.0f) {
+    envIntensity = 0.0f;
+  }
+  if (envIntensity > 4.0f) {
+    envIntensity = 4.0f;
+  }
+}
+bool DeferredRenderer::BeginEnvCapture(int size) {
+  if (rhi == nullptr || size <= 0) {
+    return false;
+  }
+  if (envCube != 0) {
+    rhi->DestroyTexture(envCube);
+    envCube = 0;
+  }
+  captureTarget = 0;
+  captureMode = false;
+  std::memcpy(savedLastView, lastView, sizeof(savedLastView));
+  std::memcpy(savedLastProj, lastProj, sizeof(savedLastProj));
+  std::memcpy(savedPrevView, prevView, sizeof(savedPrevView));
+  std::memcpy(savedPrevProj, prevProj, sizeof(savedPrevProj));
+  envCube = rhi->CreateEnvCube(size);
+  return envCube != 0;
+}
+void DeferredRenderer::GenerateEnvMips() {
+  if (rhi == nullptr || envCube == 0) {
+    return;
+  }
+  rhi->GenerateCubeMips(envCube);
+  std::memcpy(lastView, savedLastView, sizeof(lastView));
+  std::memcpy(lastProj, savedLastProj, sizeof(lastProj));
+  std::memcpy(prevView, savedPrevView, sizeof(prevView));
+  std::memcpy(prevProj, savedPrevProj, sizeof(prevProj));
+}
+void DeferredRenderer::EndEnvFace(const float camPos[3]) {
+  if (camPos == nullptr) {
+    captureMode = false;
+    captureTarget = 0;
+    return;
+  }
+  float cp[3] = { camPos[0], camPos[1], camPos[2] };
+  EndInternal(cp, true);
 }
 void DeferredRenderer::SetFog(bool on, float density, const float color[3]) {
   fogOn = on;
@@ -1011,6 +1070,25 @@ void DeferredRenderer::BeginObjects(const float view[16], const float proj[16]) 
   std::memcpy(prevProj, lastProj, sizeof(prevProj));
   std::memcpy(lastView, view, sizeof(lastView));
   std::memcpy(lastProj, proj, sizeof(lastProj));
+  SetupGeometryPass();
+  begun = true;
+}
+void DeferredRenderer::BeginEnvFace(int face, const float view[16], const float proj[16]) {
+  begun = false;
+  if (!ready || rhi == nullptr || envCube == 0) {
+    return;
+  }
+  captureTarget = rhi->GetEnvCubeFace(envCube, face);
+  if (captureTarget == 0) {
+    return;
+  }
+  captureMode = true;
+  std::memcpy(lastView, view, sizeof(lastView));
+  std::memcpy(lastProj, proj, sizeof(lastProj));
+  SetupGeometryPass();
+  begun = true;
+}
+void DeferredRenderer::SetupGeometryPass() {
   shadowDraws.clear();
   decalDraws.clear();
   shadowMapsValid = false;
@@ -1062,7 +1140,6 @@ void DeferredRenderer::BeginObjects(const float view[16], const float proj[16]) 
   mc.params[3] = 0.0f;
   rhi->UpdateConstantBuffer(matCB, &mc, sizeof(mc));
   rhi->SetPixelConstantBuffer(0, matCB);
-  begun = true;
 }
 void DeferredRenderer::DrawObject(const float world[16]) {
   if (!begun || vb == 0 || ib == 0 || world == nullptr) {
@@ -1234,7 +1311,9 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     return;
   }
   begun = false;
-  RenderShadowMaps();
+  if (!captureMode) {
+    RenderShadowMaps();
+  }
   RenderDecals();
   float ssaoVP[16] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
   for (int cc = 0; cc < 4; ++cc) {
@@ -1246,7 +1325,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       ssaoVP[cc * 4 + rr] = s;
     }
   }
-  if (toTexture && ssrOn && ssrA != 0 && ssrPS != 0) {
+  if (!captureMode && toTexture && ssrOn && ssrA != 0 && ssrPS != 0) {
     SsrConstants sc;
     std::memcpy(sc.viewProj, ssaoVP, sizeof(sc.viewProj));
     sc.camPos[0] = camPos[0];
@@ -1286,7 +1365,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   } else if (ssrA != 0) {
     rhi->ClearRenderTarget(ssrA, 0.0f, 0.0f, 0.0f, 0.0f);
   }
-  if (toTexture && contactOn && contactA != 0 && contactPS != 0) {
+  if (!captureMode && toTexture && contactOn && contactA != 0 && contactPS != 0) {
     SsrConstants cc;
     std::memcpy(cc.viewProj, ssaoVP, sizeof(cc.viewProj));
     cc.camPos[0] = camPos[0];
@@ -1323,7 +1402,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   } else if (contactA != 0) {
     rhi->ClearRenderTarget(contactA, 1.0f, 1.0f, 1.0f, 1.0f);
   }
-  if (toTexture && ssaoOn && ssaoA != 0 && ssaoB != 0) {
+  if (!captureMode && toTexture && ssaoOn && ssaoA != 0 && ssaoB != 0) {
     float sq[24] = { 0.0f };
     sq[0] = ssaoRadius;
     sq[1] = ssaoIntensity;
@@ -1372,7 +1451,9 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelTexture(1, 0);
     rhi->SetPixelTexture(2, 0);
   }
-  if (toTexture) {
+  if (captureMode && captureTarget != 0) {
+    rhi->SetRenderTargets(1, &captureTarget, 0);
+  } else if (toTexture) {
     rhi->SetRenderTargets(1, &gLight, 0);
   } else {
     rhi->BindBackbuffer();
@@ -1546,8 +1627,8 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   lc.pointMeta[3] = shadowPointSize;
   lc.gradeInfo[0] = exposure;
   lc.gradeInfo[1] = acesOn ? 1.0f : 0.0f;
-  lc.gradeInfo[2] = 0.0f;
-  lc.gradeInfo[3] = 0.0f;
+  lc.gradeInfo[2] = envIntensity;
+  lc.gradeInfo[3] = envCube != 0 ? 1.0f : 0.0f;
   lc.camRight[0] = mainCam.camRight[0];
   lc.camRight[1] = mainCam.camRight[1];
   lc.camRight[2] = mainCam.camRight[2];
@@ -1610,6 +1691,11 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelTexture(7, ssrA);
   }
   rhi->SetPixelTexture(8, contactA);
+  if (captureMode) {
+    rhi->SetPixelTexture2D(9, 0);
+  } else {
+    rhi->SetPixelTexture2D(9, envCube);
+  }
   rhi->DrawFullscreenTriangle();
   rhi->SetPixelTexture(0, 0);
   rhi->SetPixelTexture(1, 0);
@@ -1620,6 +1706,12 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture(6, 0);
   rhi->SetPixelTexture(7, 0);
   rhi->SetPixelTexture(8, 0);
+  rhi->SetPixelTexture2D(9, 0);
+  if (captureMode) {
+    captureMode = false;
+    captureTarget = 0;
+    return;
+  }
   if (toTexture && ssgiOn && ssgiA != 0 && ssgiPS != 0) {
     SsrConstants sc;
     std::memcpy(sc.viewProj, ssaoVP, sizeof(sc.viewProj));

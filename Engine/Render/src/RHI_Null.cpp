@@ -373,6 +373,30 @@ public:
     }
     return static_cast<int>(it->second.resident.size());
   }
+  RHITexture CreateEnvCube(int size) override {
+    if (size <= 0) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    NullTexture t;
+    t.w = size;
+    t.h = size;
+    t.mips = 1;
+    textures[id] = t;
+    return id;
+  }
+  RHIRenderTarget GetEnvCubeFace(RHITexture cube, int face) override {
+    if (face < 0 || face > 5 || textures.find(cube) == textures.end()) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    shaders[id] = 1;
+    return id;
+  }
+  void GenerateCubeMips(RHITexture cube) override {
+    (void)cube;
+    Note(false);
+  }
   void DrawIndexed(uint32_t indexCount, uint32_t startIndex, int32_t baseVertex) override {
     (void)indexCount;
     (void)startIndex;

@@ -59,6 +59,7 @@ struct EditorApp {
   bool viewSsr;
   bool viewContact;
   bool viewSsgi;
+  float viewEnv;
   bool viewDof;
   float viewFocusDist;
   float viewFocusRange;
@@ -131,6 +132,8 @@ struct EditorApp {
   void DrawAssetBrowser();
   void DrawSettings();
   void DrawMeshSection(Entity* e);
+  void SubmitSceneDraws(const float cpos[3]);
+  void BakeEnvironment();
   void DrawMaterialSection(Entity* e);
   void DrawMaterialSlot(Entity* e, const char* label, int slot);
   void DrawDecalSection(Entity* e);
