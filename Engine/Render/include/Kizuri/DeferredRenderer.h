@@ -96,6 +96,7 @@ public:
   void SetDof(bool on, float focusDist, float focusRange);
   void SetMotionBlur(bool on, float scale);
   void SetFilm(float ca, float vignette, float grain);
+  void SetSsgi(bool on);
   void SetFog(bool on, float density, const float color[3]);
   bool Resize(int w, int h);
   void SetViewOffset(float x, float y);
@@ -209,6 +210,9 @@ private:
   RHIPixelShader filmPS;
   RHIConstBuffer filmCB;
   RHIRenderTarget filmA;
+  RHIPixelShader ssgiPS;
+  RHIRenderTarget ssgiA;
+  bool ssgiOn;
   float prevView[16];
   float prevProj[16];
   bool dofOn;

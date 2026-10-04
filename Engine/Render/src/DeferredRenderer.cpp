@@ -149,6 +149,9 @@ DeferredRenderer::DeferredRenderer()
   , filmPS(0)
   , filmCB(0)
   , filmA(0)
+  , ssgiPS(0)
+  , ssgiA(0)
+  , ssgiOn(true)
   , dofOn(false)
   , focusDist(10.0f)
   , focusRange(20.0f)
@@ -250,6 +253,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   std::string ssrPath = dir + "/SsrPS.hlsl";
   std::string contactPath = dir + "/ContactPS.hlsl";
   std::string filmPath = dir + "/FilmPS.hlsl";
+  std::string ssgiPath = dir + "/SsgiPS.hlsl";
   geoVS = rhi->CreateVertexShaderFromFile(geoVSPath.c_str(), "main");
   geoPS = rhi->CreatePixelShaderFromFile(geoPSPath.c_str(), "main");
   lightVS = rhi->CreateVertexShaderFromFile(lightVSPath.c_str(), "main");
@@ -289,6 +293,10 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   }
   filmPS = rhi->CreatePixelShaderFromFile(filmPath.c_str(), "main");
   if (filmPS == 0) {
+    return false;
+  }
+  ssgiPS = rhi->CreatePixelShaderFromFile(ssgiPath.c_str(), "main");
+  if (ssgiPS == 0) {
     return false;
   }
   layout = rhi->CreateInputLayoutPNUT(geoVS);
@@ -631,6 +639,9 @@ void DeferredRenderer::SetFilm(float ca, float vignette, float grain) {
   filmCa = ca < 0.0f ? 0.0f : (ca > 2.0f ? 2.0f : ca);
   filmVig = vignette < 0.0f ? 0.0f : (vignette > 1.0f ? 1.0f : vignette);
   filmGrain = grain < 0.0f ? 0.0f : (grain > 0.25f ? 0.25f : grain);
+}
+void DeferredRenderer::SetSsgi(bool on) {
+  ssgiOn = on;
 }
 void DeferredRenderer::SetFog(bool on, float density, const float color[3]) {
   fogOn = on;
@@ -1609,6 +1620,47 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture(6, 0);
   rhi->SetPixelTexture(7, 0);
   rhi->SetPixelTexture(8, 0);
+  if (toTexture && ssgiOn && ssgiA != 0 && ssgiPS != 0) {
+    SsrConstants sc;
+    std::memcpy(sc.viewProj, ssaoVP, sizeof(sc.viewProj));
+    sc.camPos[0] = camPos[0];
+    sc.camPos[1] = camPos[1];
+    sc.camPos[2] = camPos[2];
+    sc.camPos[3] = 1.0f;
+    sc.params[0] = 1.0f;
+    sc.params[1] = 1.5f;
+    sc.params[2] = 0.0f;
+    sc.params[3] = 1.0f;
+    sc.screen[0] = static_cast<float>(w);
+    sc.screen[1] = static_cast<float>(h);
+    sc.screen[2] = 0.0f;
+    sc.screen[3] = 0.0f;
+    rhi->UpdateConstantBuffer(ssrCB, &sc, sizeof(sc));
+    rhi->SetPixelConstantBuffer(0, ssrCB);
+    rhi->SetPixelSampler(0, sampler);
+    rhi->SetRenderTargets(1, &ssgiA, 0);
+    RHIViewport gvp;
+    gvp.x = 0.0f;
+    gvp.y = 0.0f;
+    gvp.w = static_cast<float>(w);
+    gvp.h = static_cast<float>(h);
+    gvp.minD = 0.0f;
+    gvp.maxD = 1.0f;
+    rhi->SetViewport(gvp);
+    rhi->SetVertexShader(lightVS);
+    rhi->SetPixelShader(ssgiPS);
+    rhi->SetPixelTexture(0, gPosition);
+    rhi->SetPixelTexture(1, gNormalRough);
+    rhi->SetPixelTexture(2, gAlbedo);
+    rhi->SetPixelTexture(3, gLight);
+    rhi->DrawFullscreenTriangle();
+    rhi->SetPixelTexture(0, 0);
+    rhi->SetPixelTexture(1, 0);
+    rhi->SetPixelTexture(2, 0);
+    rhi->SetPixelTexture(3, 0);
+  } else if (ssgiA != 0) {
+    rhi->ClearRenderTarget(ssgiA, 0.0f, 0.0f, 0.0f, 0.0f);
+  }
   if (toTexture) {
     float bp[4] = { 0.8f, 0.0f, 0.0f, 0.0f };
     rhi->UpdateConstantBuffer(bloomCB, &bp, sizeof(bp));
@@ -1656,7 +1708,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelTexture(1, 0);
     filmActive = false;
     RHIRenderTarget filmSrc = gViewport;
-    if (filmPS != 0 && filmA != 0 && (dofOn || motionOn || filmCa > 0.0f || filmVig > 0.0f || filmGrain > 0.0f)) {
+    if (filmPS != 0 && filmA != 0 && (dofOn || motionOn || filmCa > 0.0f || filmVig > 0.0f || filmGrain > 0.0f || ssgiOn)) {
       filmActive = true;
       PostConstants pc;
       for (int cc = 0; cc < 4; ++cc) {
@@ -1683,7 +1735,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       pc.toggles[0] = dofOn ? 1.0f : 0.0f;
       pc.toggles[1] = motionOn ? 1.0f : 0.0f;
       pc.toggles[2] = motionScale;
-      pc.toggles[3] = 0.0f;
+      pc.toggles[3] = ssgiOn ? 1.0f : 0.0f;
       rhi->UpdateConstantBuffer(filmCB, &pc, sizeof(pc));
       rhi->SetPixelConstantBuffer(0, filmCB);
       rhi->SetPixelSampler(0, sampler);
@@ -1699,9 +1751,11 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       rhi->SetPixelShader(filmPS);
       rhi->SetPixelTexture(0, gViewport);
       rhi->SetPixelTexture(1, gPosition);
+      rhi->SetPixelTexture(2, ssgiA);
       rhi->DrawFullscreenTriangle();
       rhi->SetPixelTexture(0, 0);
       rhi->SetPixelTexture(1, 0);
+      rhi->SetPixelTexture(2, 0);
       filmSrc = filmA;
     }
     ++frameIndex;
@@ -1789,7 +1843,8 @@ bool DeferredRenderer::CreateTargets() {
   ssrA = rhi->CreateRenderTarget(ssrW, ssrH, RHIFormat::RGBA8_UNORM);
   contactA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   filmA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
-  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0 && contactA != 0 && filmA != 0;
+  ssgiA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
+  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0 && contactA != 0 && filmA != 0 && ssgiA != 0;
 }
 void DeferredRenderer::DestroyTargets() {
   if (rhi == nullptr) {
@@ -1858,6 +1913,10 @@ void DeferredRenderer::DestroyTargets() {
   if (filmA != 0) {
     rhi->DestroyRenderTarget(filmA);
     filmA = 0;
+  }
+  if (ssgiA != 0) {
+    rhi->DestroyRenderTarget(ssgiA);
+    ssgiA = 0;
   }
 }
 }

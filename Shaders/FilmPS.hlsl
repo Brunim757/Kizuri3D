@@ -8,6 +8,7 @@ cbuffer PostCB : register(b0)
 };
 Texture2D FrameTX : register(t0);
 Texture2D PositionTX : register(t1);
+Texture2D SsgiTX : register(t2);
 SamplerState LinearSampler : register(s0);
 struct PSIn
 {
@@ -33,6 +34,9 @@ float Hash21(float2 p)
 float4 main(PSIn pin) : SV_Target
 {
     float3 col = FrameTX.Sample(LinearSampler, pin.uv).rgb;
+    if (Toggles.w > 0.5) {
+        col += SsgiTX.Sample(LinearSampler, pin.uv).rgb;
+    }
     float3 wpos = PositionTX.Sample(LinearSampler, pin.uv).xyz;
     float hasPos = dot(wpos, wpos) > 1e-8 ? 1.0 : 0.0;
     float2 px = float2(1.0 / max(Focus.z, 1.0), 1.0 / max(Focus.w, 1.0));

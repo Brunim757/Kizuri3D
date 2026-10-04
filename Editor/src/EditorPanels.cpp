@@ -94,6 +94,7 @@ void EditorApp::RenderScene() {
   renderer.SetDof(viewDof, viewFocusDist, viewFocusRange);
   renderer.SetMotionBlur(viewMotion, viewMotionScale);
   renderer.SetFilm(viewCa, viewVig, viewGrain);
+  renderer.SetSsgi(viewSsgi);
   renderer.SetFog(viewFog, viewFogDensity, viewFogColor);
   std::vector<EntityId> lightIds = scene.All();
   for (size_t i = 0; i < lightIds.size(); ++i) {
@@ -752,6 +753,7 @@ void EditorApp::DrawSettings() {
       ImGui::Separator();
       ImGui::Checkbox("SSR", &viewSsr);
       ImGui::Checkbox("Contact Shadows", &viewContact);
+      ImGui::Checkbox("SSGI", &viewSsgi);
       ImGui::Separator();
       ImGui::Checkbox("DoF", &viewDof);
       ImGui::SliderFloat("Focus Dist", &viewFocusDist, 1.0f, 100.0f);

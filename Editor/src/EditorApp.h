@@ -58,6 +58,7 @@ struct EditorApp {
   float viewSsaoRadius;
   bool viewSsr;
   bool viewContact;
+  bool viewSsgi;
   bool viewDof;
   float viewFocusDist;
   float viewFocusRange;

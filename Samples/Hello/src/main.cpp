@@ -481,6 +481,10 @@ bool TestDeferredNull() {  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API
   renderer.SetDof(false, 10.0f, 20.0f);
   renderer.SetMotionBlur(false, 1.0f);
   renderer.SetFilm(0.0f, 0.0f, 0.0f);
+  renderer.SetSsgi(true);
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  renderer.SetSsgi(false);
   renderer.BeginObjects(view, proj);
   renderer.EndObjectsToTexture(cam);
   if (!renderer.Resize(320, 200)) {
@@ -3236,7 +3240,7 @@ bool TestShaderCompile() {
     const char* file;
     const char* profile;
   };
-  Entry entries[17] = {
+  Entry entries[18] = {
     { "GeometryVS.hlsl", "vs_5_0" },
     { "GeometryPS.hlsl", "ps_5_0" },
     { "LightingVS.hlsl", "vs_5_0" },
@@ -3253,10 +3257,11 @@ bool TestShaderCompile() {
     { "DecalPS.hlsl", "ps_5_0" },
     { "SsrPS.hlsl", "ps_5_0" },
     { "ContactPS.hlsl", "ps_5_0" },
-    { "FilmPS.hlsl", "ps_5_0" }
+    { "FilmPS.hlsl", "ps_5_0" },
+    { "SsgiPS.hlsl", "ps_5_0" }
   };
   const char* dirs[4] = { "Shaders", "../Shaders", "../../Shaders", "build/bin/Release/Shaders" };
-  for (int e = 0; e < 17; ++e) {
+  for (int e = 0; e < 18; ++e) {
     bool found = false;
     for (int d = 0; d < 4; ++d) {
       std::string path = std::string(dirs[d]) + "/" + entries[e].file;
