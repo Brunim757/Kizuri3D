@@ -13,7 +13,7 @@ bool SimplifyRange(const uint32_t* indices, size_t count, const float* positions
     targetCount = 3;
   }
   std::vector<uint32_t> tmp(count);
-  size_t resultCount = meshopt_simplify(tmp.data(), indices, count, positions, vertexCount, sizeof(float) * 3, targetCount, targetError, nullptr, nullptr);
+  size_t resultCount = meshopt_simplify(tmp.data(), indices, count, positions, vertexCount, sizeof(float) * 3, targetCount, targetError, 0, nullptr);
   if (resultCount < 3 || resultCount % 3 != 0) {
     return false;
   }
