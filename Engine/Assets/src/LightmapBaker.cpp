@@ -634,17 +634,17 @@ bool BakeLightmapFor(Scene& scene, AssetDatabase& assets, EntityId target, int r
     errorOut = "No free lightmap name";
     return false;
   }
-  TextureAssetData tdata;
-  if (!CompressTexturePixels(rgba.data(), res, res, "", tdata, "lightmap", TexKind::Orm, "", 0)) {
+  TextureAssetData lmtex;
+  if (!CompressTexturePixels(rgba.data(), res, res, "", lmtex, "lightmap", TexKind::Orm, "", 0)) {
     errorOut = "Lightmap compress failed";
     return false;
   }
-  if (!EncodeTextureFile(tdata, texOut)) {
+  if (!EncodeTextureFile(lmtex, texOut)) {
     errorOut = "Lightmap encode failed";
     return false;
   }
   texPathOut = texOut;
-  texGuidOut = tdata.guid;
+  texGuidOut = lmtex.guid;
   return true;
 }
 }
