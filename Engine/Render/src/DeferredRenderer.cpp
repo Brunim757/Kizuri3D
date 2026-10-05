@@ -2094,10 +2094,8 @@ void DeferredRenderer::DestroyTargets() {
     rhi->DestroyRenderTarget(ssgiB);
     ssgiB = 0;
   }
-}
   if (fxaaA != 0) {
     rhi->DestroyRenderTarget(fxaaA);
     fxaaA = 0;
   }
-}
 }
