@@ -1076,6 +1076,9 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
       log->Add(LogLevel::Warning, "Skinned mesh imported in bind pose; skeleton arrives in Fase 8");
     }
   }
+  for (size_t bi = 0; bi < data->buffer_views_count; ++bi) {
+    data->buffer_views[bi].data = nullptr;
+  }
   cgltf_free(data);
   if (!ok || out.positions.empty() || out.indices.empty() || out.parts.empty()) {
     out = MeshAssetData();
