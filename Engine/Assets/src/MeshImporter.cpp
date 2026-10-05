@@ -247,12 +247,17 @@ bool ReadIndex(const cgltf_accessor* acc, size_t idx, uint32_t& v) {
 }
 bool ImportEmbeddedTexture(const cgltf_texture* ctex, const std::string& glbPath, uint64_t hash, int& texCounter, TexKind kind, std::string& guidOut) {
   guidOut.clear();
-  if (ctex == nullptr || ctex->image == nullptr) {
+  if (ctex == nullptr) {
+    return false;
+  }
+  bool isBasis = ctex->has_basisu != 0 && ctex->basisu_image != nullptr;
+  const cgltf_image* img = isBasis ? ctex->basisu_image : ctex->image;
+  if (img == nullptr) {
     return false;
   }
   std::vector<unsigned char> imgBytes;
   std::string imgName;
-  if (!ResolveGltfImage(ctex->image, glbPath, imgBytes, imgName)) {
+  if (!ResolveGltfImage(img, glbPath, imgBytes, imgName)) {
     return false;
   }
   std::filesystem::path glbFile(glbPath);
@@ -264,11 +269,25 @@ bool ImportEmbeddedTexture(const cgltf_texture* ctex, const std::string& glbPath
     keepTex = probe.guid;
   }
   TextureAssetData tdata;
-  if (!ImportTextureMemory(imgBytes.data(), imgBytes.size(), keepTex, tdata, imgName, kind, glbPath, hash)) {
-    return false;
+  if (isBasis) {
+    std::vector<unsigned char> rgba;
+    int w = 0;
+    int h = 0;
+    if (!DecodeBasisu(imgBytes.data(), imgBytes.size(), rgba, w, h)) {
+      return false;
+    }
+    imgBytes.clear();
+    imgBytes.shrink_to_fit();
+    if (!CompressTexturePixels(rgba.data(), w, h, keepTex, tdata, imgName, kind, glbPath, hash)) {
+      return false;
+    }
+  } else {
+    if (!ImportTextureMemory(imgBytes.data(), imgBytes.size(), keepTex, tdata, imgName, kind, glbPath, hash)) {
+      return false;
+    }
+    imgBytes.clear();
+    imgBytes.shrink_to_fit();
   }
-  imgBytes.clear();
-  imgBytes.shrink_to_fit();
   if (!EncodeTextureFile(tdata, texOut)) {
     return false;
   }
