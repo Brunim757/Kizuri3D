@@ -1167,6 +1167,34 @@ void EditorApp::DrawInspector() {
         undo.Execute(std::move(cmd), scene);
       }
     }
+    if (e->lod.farGuid.empty() && !e->meshGuid.empty()) {
+      if (ImGui::Button("Generate LOD")) {
+        const MeshRecord* base = assets.GetByGuid(e->meshGuid);
+        if (base == nullptr || !base->loaded) {
+          Announce(LogLevel::Warning, "Base mesh not loaded");
+        } else {
+          Kizuri::MeshAssetData lodMesh;
+          if (!Kizuri::GenerateLodMesh(base->data, 0.4f, 0.01f, lodMesh)) {
+            Announce(LogLevel::Error, "LOD generation failed");
+          } else {
+            std::filesystem::path bp(base->meshPath);
+            std::string lodName = bp.stem().string() + "_lod1.kzmesh";
+            std::string lodPath = (bp.parent_path() / lodName).string();
+            if (!Kizuri::EncodeMeshFile(lodMesh, lodPath)) {
+              Announce(LogLevel::Error, "LOD save failed");
+            } else {
+              assets.Scan();
+              LodData after = e->lod;
+              after.farGuid = lodMesh.guid;
+              std::unique_ptr<Command> cmd(new SetLodCmd(e->id, e->lod, after));
+              if (undo.Execute(std::move(cmd), scene)) {
+                log.Add(LogLevel::Info, "LOD generated");
+              }
+            }
+          }
+        }
+      }
+    }
   }
   if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal || !e->hasLod) {
     ImGui::Separator();

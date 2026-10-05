@@ -125,6 +125,14 @@ add_library(kizuri_mikktspace STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mikktspace/mikktspace.c
 )
 target_include_directories(kizuri_mikktspace PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mikktspace)
+add_library(kizuri_meshopt STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/meshopt/simplifier.cpp
+)
+target_include_directories(kizuri_meshopt PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/meshopt)
+add_library(kizuri_xatlas STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/xatlas/xatlas.cpp
+)
+target_include_directories(kizuri_xatlas PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/xatlas)
 add_library(kizuri_stb STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/stb_impl.cpp
 )

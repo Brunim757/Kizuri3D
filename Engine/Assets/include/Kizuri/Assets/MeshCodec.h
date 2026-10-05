@@ -41,4 +41,5 @@ bool DecodeMeshMemory(const void* bytes, size_t size, MeshAssetData& out);
 void ComputeAABB(const std::vector<float>& positions, float outMin[3], float outMax[3]);
 bool GenerateTangents(const std::vector<float>& positions, const std::vector<float>& normals, const std::vector<float>& uvs, const std::vector<uint32_t>& indices, std::vector<float>& tangentsOut);
 void OrthogonalizeTangents(const std::vector<float>& normals, std::vector<float>& tangents);
+bool GenerateLodMesh(const MeshAssetData& src, float targetRatio, float targetError, MeshAssetData& out);
 }

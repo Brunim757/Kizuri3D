@@ -2940,6 +2940,68 @@ bool TestMaterialLegacy() {
   }
   return true;
 }
+bool TestLodSimplify() {
+  Kizuri::MeshAssetData grid;
+  grid.guid = Kizuri::GenerateGuidString();
+  const int n = 9;
+  for (int y = 0; y < n; ++y) {
+    for (int x = 0; x < n; ++x) {
+      grid.positions.push_back(static_cast<float>(x));
+      grid.positions.push_back(0.0f);
+      grid.positions.push_back(static_cast<float>(y));
+      grid.normals.push_back(0.0f);
+      grid.normals.push_back(1.0f);
+      grid.normals.push_back(0.0f);
+      grid.uvs.push_back(static_cast<float>(x) / static_cast<float>(n - 1));
+      grid.uvs.push_back(static_cast<float>(y) / static_cast<float>(n - 1));
+    }
+  }
+  for (int y = 0; y < n - 1; ++y) {
+    for (int x = 0; x < n - 1; ++x) {
+      uint32_t a = static_cast<uint32_t>(y * n + x);
+      uint32_t b = a + 1;
+      uint32_t c = a + static_cast<uint32_t>(n);
+      uint32_t d = c + 1;
+      grid.indices.push_back(a);
+      grid.indices.push_back(c);
+      grid.indices.push_back(b);
+      grid.indices.push_back(b);
+      grid.indices.push_back(c);
+      grid.indices.push_back(d);
+    }
+  }
+  if (!Kizuri::GenerateTangents(grid.positions, grid.normals, grid.uvs, grid.indices, grid.tangents)) {
+    return false;
+  }
+  Kizuri::MeshAssetData lod;
+  if (!Kizuri::GenerateLodMesh(grid, 0.25f, 0.05f, lod)) {
+    return false;
+  }
+  if (lod.indices.size() >= grid.indices.size() || lod.indices.empty() || lod.indices.size() % 3 != 0) {
+    return false;
+  }
+  if (lod.guid.empty() || lod.guid == grid.guid) {
+    return false;
+  }
+  size_t nv = grid.positions.size() / 3;
+  for (size_t i = 0; i < lod.indices.size(); ++i) {
+    if (lod.indices[i] >= nv) {
+      return false;
+    }
+  }
+  if (lod.positions != grid.positions || lod.normals != grid.normals || lod.uvs != grid.uvs) {
+    return false;
+  }
+  std::vector<unsigned char> bytes;
+  if (!Kizuri::EncodeMeshMemory(lod, bytes)) {
+    return false;
+  }
+  Kizuri::MeshAssetData bad;
+  if (Kizuri::GenerateLodMesh(bad, 0.25f, 0.01f, lod)) {
+    return false;
+  }
+  return true;
+}
 bool TestLodDefaults() {
   Kizuri::LodData l;
   Kizuri::MakeDefaultLod(l);
@@ -4064,6 +4126,7 @@ int main() {
   failures += Check("DecalRoundTrip", TestDecalRoundTrip());
   failures += Check("DecalUndo", TestDecalUndo());
   failures += Check("LodDefaults", TestLodDefaults());
+  failures += Check("LodSimplify", TestLodSimplify());
   failures += Check("LodRoundTrip", TestLodRoundTrip());
   failures += Check("LodUndo", TestLodUndo());
   failures += Check("EntityForward", TestEntityForward());
