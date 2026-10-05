@@ -2099,3 +2099,4 @@ void DeferredRenderer::DestroyTargets() {
     fxaaA = 0;
   }
 }
+}
