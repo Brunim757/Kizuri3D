@@ -252,7 +252,6 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
             renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, part.indexOffset, part.indexCount, useMat, drawFades[li]);
           }
         }
-        drawn = true;
         anyDrawn = true;
       }
     }
