@@ -62,7 +62,11 @@ float4 main(PSIn pin) : SV_Target
             }
             float marchD = length(march - CamPos.xyz);
             float sceneD = length(scene - CamPos.xyz);
-            if (marchD > sceneD + 0.01) {
+            if (marchD > sceneD + 0.02) {
+                float3 sceneN = normalize(NormalRoughTX.SampleLevel(LinearSampler, suv, 0).xyz);
+                if (dot(sceneN, -rd) <= 0.2) {
+                    continue;
+                }
                 occ += 1.0 - (float) i / max(Params.x, 1.0) * 0.5;
                 break;
             }

@@ -60,6 +60,13 @@ float4 main(PSIn pin) : SV_Target
         if (sceneD + 0.1 < tapD) {
             continue;
         }
+        if (tapD - sceneD > 0.5) {
+            continue;
+        }
+        float3 sceneN = normalize(NormalRoughTX.SampleLevel(LinearSampler, suv, 0).xyz);
+        if (dot(sceneN, -rd) <= 0.0) {
+            continue;
+        }
         float3 li = LightTX.SampleLevel(LinearSampler, suv, 0).rgb;
         float wgt = saturate(dot(rd, N));
         acc += li * wgt;
