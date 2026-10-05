@@ -2,8 +2,10 @@
 #include "Kizuri/Assets/Guid.h"
 #include "Kizuri/Assets/TexCodec.h"
 #include "Kizuri/Assets/TextureImporter.h"
+#include "Kizuri/Assets/BasisuDecode.h"
 #include "Kizuri/Log.h"
 #include <cgltf.h>
+#include <meshoptimizer.h>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -87,11 +89,13 @@ bool ResolveGltfImage(const cgltf_image* img, const std::string& glbPath, std::v
     std::fclose(fp);
     return n == bytes.size();
   }
-  if (img->buffer_view != nullptr && img->buffer_view->buffer != nullptr) {
-    const unsigned char* base = static_cast<const unsigned char*>(img->buffer_view->buffer->data);
-    size_t off = img->buffer_view->offset;
+  if (img->buffer_view != nullptr) {
+    const unsigned char* base = static_cast<const unsigned char*>(cgltf_buffer_view_data(img->buffer_view));
     size_t sz = img->buffer_view->size;
-    bytes.assign(base + off, base + off + sz);
+    if (base == nullptr) {
+      return false;
+    }
+    bytes.assign(base, base + sz);
     return !bytes.empty();
   }
   return false;
@@ -142,12 +146,15 @@ bool ReadVec3(const cgltf_accessor* acc, size_t idx, float* v) {
   if (acc == nullptr || acc->type != cgltf_type_vec3) {
     return false;
   }
-  if (idx >= acc->count || acc->buffer_view == nullptr || acc->buffer_view->buffer == nullptr) {
+  if (idx >= acc->count || acc->buffer_view == nullptr) {
     return false;
   }
-  const unsigned char* base = static_cast<const unsigned char*>(acc->buffer_view->buffer->data);
+  const unsigned char* base = static_cast<const unsigned char*>(cgltf_buffer_view_data(acc->buffer_view));
+  if (base == nullptr) {
+    return false;
+  }
   size_t stride = acc->stride != 0 ? acc->stride : 12;
-  const unsigned char* e = base + acc->buffer_view->offset + acc->offset + idx * stride;
+  const unsigned char* e = base + acc->offset + idx * stride;
   size_t comp = 0;
   switch (acc->component_type) {
     case cgltf_component_type_r_32f: comp = 4; break;
@@ -166,12 +173,15 @@ bool ReadVec2(const cgltf_accessor* acc, size_t idx, float* v) {
   if (acc == nullptr || acc->type != cgltf_type_vec2) {
     return false;
   }
-  if (idx >= acc->count || acc->buffer_view == nullptr || acc->buffer_view->buffer == nullptr) {
+  if (idx >= acc->count || acc->buffer_view == nullptr) {
     return false;
   }
-  const unsigned char* base = static_cast<const unsigned char*>(acc->buffer_view->buffer->data);
+  const unsigned char* base = static_cast<const unsigned char*>(cgltf_buffer_view_data(acc->buffer_view));
+  if (base == nullptr) {
+    return false;
+  }
   size_t stride = acc->stride != 0 ? acc->stride : 8;
-  const unsigned char* e = base + acc->buffer_view->offset + acc->offset + idx * stride;
+  const unsigned char* e = base + acc->offset + idx * stride;
   size_t comp = 0;
   switch (acc->component_type) {
     case cgltf_component_type_r_32f: comp = 4; break;
@@ -190,12 +200,15 @@ bool ReadVec4(const cgltf_accessor* acc, size_t idx, float* v) {
   if (acc == nullptr || acc->type != cgltf_type_vec4) {
     return false;
   }
-  if (idx >= acc->count || acc->buffer_view == nullptr || acc->buffer_view->buffer == nullptr) {
+  if (idx >= acc->count || acc->buffer_view == nullptr) {
     return false;
   }
-  const unsigned char* base = static_cast<const unsigned char*>(acc->buffer_view->buffer->data);
+  const unsigned char* base = static_cast<const unsigned char*>(cgltf_buffer_view_data(acc->buffer_view));
+  if (base == nullptr) {
+    return false;
+  }
   size_t stride = acc->stride != 0 ? acc->stride : 16;
-  const unsigned char* e = base + acc->buffer_view->offset + acc->offset + idx * stride;
+  const unsigned char* e = base + acc->offset + idx * stride;
   size_t comp = 0;
   switch (acc->component_type) {
     case cgltf_component_type_r_32f: comp = 4; break;
@@ -211,14 +224,17 @@ bool ReadVec4(const cgltf_accessor* acc, size_t idx, float* v) {
   return true;
 }
 bool ReadIndex(const cgltf_accessor* acc, size_t idx, uint32_t& v) {
-  if (acc == nullptr || acc->type != cgltf_type_scalar || acc->buffer_view == nullptr || acc->buffer_view->buffer == nullptr) {
+  if (acc == nullptr || acc->type != cgltf_type_scalar || acc->buffer_view == nullptr) {
     return false;
   }
   if (idx >= acc->count) {
     return false;
   }
-  const unsigned char* base = static_cast<const unsigned char*>(acc->buffer_view->buffer->data);
-  size_t off = acc->buffer_view->offset + acc->offset + idx * acc->stride;
+  const unsigned char* base = static_cast<const unsigned char*>(cgltf_buffer_view_data(acc->buffer_view));
+  if (base == nullptr) {
+    return false;
+  }
+  size_t off = acc->offset + idx * acc->stride;
   if (acc->component_type == cgltf_component_type_r_16u) {
     v = *reinterpret_cast<const uint16_t*>(base + off);
     return true;
@@ -263,13 +279,21 @@ bool DecodeGltfImageRgba(const cgltf_texture* ctex, const std::string& glbPath, 
   rgba.clear();
   w = 0;
   h = 0;
-  if (ctex == nullptr || ctex->image == nullptr) {
+  if (ctex == nullptr) {
+    return false;
+  }
+  bool isBasis = ctex->has_basisu != 0 && ctex->basisu_image != nullptr;
+  const cgltf_image* img = isBasis ? ctex->basisu_image : ctex->image;
+  if (img == nullptr) {
     return false;
   }
   std::vector<unsigned char> bytes;
   std::string imgName;
-  if (!ResolveGltfImage(ctex->image, glbPath, bytes, imgName)) {
+  if (!ResolveGltfImage(img, glbPath, bytes, imgName)) {
     return false;
+  }
+  if (isBasis) {
+    return DecodeBasisu(bytes.data(), bytes.size(), rgba, w, h);
   }
   return DecodeTextureRgba(bytes.data(), bytes.size(), rgba, w, h);
 }
@@ -661,6 +685,68 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
   std::vector<long> matMap(data->materials_count, -1);
   if (cgltf_load_buffers(&options, data, glbPath.c_str()) == cgltf_result_success && data->meshes_count > 0) {
     ok = true;
+    std::vector<std::vector<unsigned char>> meshoptBlobs;
+    meshoptBlobs.reserve(data->buffer_views_count);
+    for (size_t bi = 0; bi < data->buffer_views_count && ok; ++bi) {
+      cgltf_buffer_view& bv = data->buffer_views[bi];
+      if (bv.has_meshopt_compression == 0) {
+        continue;
+      }
+      const cgltf_meshopt_compression& mc = bv.meshopt_compression;
+      if (mc.buffer == nullptr || mc.buffer->data == nullptr || mc.count == 0 || mc.stride == 0) {
+        ok = false;
+        break;
+      }
+      size_t srcOff = mc.offset;
+      if (srcOff + mc.size > mc.buffer->size) {
+        ok = false;
+        break;
+      }
+      const unsigned char* src = static_cast<const unsigned char*>(mc.buffer->data) + srcOff;
+      std::vector<unsigned char> dst(mc.count * mc.stride, 0);
+      int rc = -1;
+      if (mc.mode == cgltf_meshopt_compression_mode_attributes) {
+        rc = meshopt_decodeVertexBuffer(dst.data(), mc.count, mc.stride, src, mc.size);
+        if (rc == 0) {
+          if (mc.filter == cgltf_meshopt_compression_filter_octahedral) {
+            meshopt_decodeFilterOct(dst.data(), mc.count, mc.stride);
+          } else if (mc.filter == cgltf_meshopt_compression_filter_quaternion) {
+            meshopt_decodeFilterQuat(dst.data(), mc.count, mc.stride);
+          } else if (mc.filter == cgltf_meshopt_compression_filter_exponential) {
+            meshopt_decodeFilterExp(dst.data(), mc.count, mc.stride);
+          }
+        }
+      } else if (mc.mode == cgltf_meshopt_compression_mode_triangles) {
+        if (mc.stride != 2 && mc.stride != 4) {
+          ok = false;
+          break;
+        }
+        rc = meshopt_decodeIndexBuffer(dst.data(), mc.count, mc.stride, src, mc.size);
+      } else if (mc.mode == cgltf_meshopt_compression_mode_indices) {
+        if (mc.stride != 2 && mc.stride != 4) {
+          ok = false;
+          break;
+        }
+        rc = meshopt_decodeIndexSequence(dst.data(), mc.count, mc.stride, src, mc.size);
+      } else {
+        ok = false;
+        break;
+      }
+      if (rc != 0) {
+        ok = false;
+        break;
+      }
+      meshoptBlobs.push_back(dst);
+      bv.data = meshoptBlobs.back().data();
+      bv.size = meshoptBlobs.back().size();
+      bv.stride = mc.stride;
+    }
+    for (size_t ai = 0; ai < data->accessors_count && ok; ++ai) {
+      cgltf_accessor& acc = data->accessors[ai];
+      if (acc.buffer_view != nullptr && acc.buffer_view->data != nullptr && acc.stride == 0) {
+        acc.stride = acc.buffer_view->stride;
+      }
+    }
     for (size_t vi = 0; vi < data->variants_count; ++vi) {
       out.variantNames.push_back(data->variants[vi].name != nullptr ? data->variants[vi].name : "");
     }
@@ -813,12 +899,6 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
           }
         }
         if (posAcc == nullptr || posAcc->count == 0) {
-          continue;
-        }
-        if (posAcc->buffer_view != nullptr && posAcc->buffer_view->has_meshopt_compression != 0) {
-          if (log != nullptr) {
-            log->Add(LogLevel::Warning, "meshopt primitive skipped; decoder arrives in Lote 2");
-          }
           continue;
         }
         std::vector<float> primPos;

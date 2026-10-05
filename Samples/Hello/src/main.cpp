@@ -31,6 +31,7 @@
 #include "Kizuri/Assets/AssetDatabase.h"
 #include "Kizuri/Assets/TexCodec.h"
 #include "Kizuri/Assets/TextureImporter.h"
+#include <meshoptimizer.h>
 #include <DirectXMath.h>
 #include <filesystem>
 #include <TaskScheduler.h>
@@ -2797,6 +2798,102 @@ bool TestGltfInstancing() {
   fs::remove_all(dir, ec);
   return true;
 }
+bool TestMeshopt() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kzgltfmeshopt_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  float tri[9] = { -1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+  unsigned short idx[3] = { 0, 1, 2 };
+  std::vector<unsigned char> vbuf(meshopt_encodeVertexBufferBound(3, 12));
+  size_t vsize = meshopt_encodeVertexBuffer(vbuf.data(), vbuf.size(), tri, 3, 12);
+  std::vector<unsigned char> ibuf(meshopt_encodeIndexBufferBound(3, 3));
+  size_t isize = meshopt_encodeIndexBuffer(ibuf.data(), ibuf.size(), idx, 3);
+  if (vsize == 0 || isize == 0) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  {
+    FILE* fp = std::fopen((dir / "mesh.bin").string().c_str(), "wb");
+    std::fwrite(vbuf.data(), 1, vsize, fp);
+    std::fwrite(ibuf.data(), 1, isize, fp);
+    std::fclose(fp);
+  }
+  char gltf[2048];
+  std::snprintf(gltf, sizeof(gltf), "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"indices\":1}]}],\"buffers\":[{\"uri\":\"mesh.bin\",\"byteLength\":%zu}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":%zu,\"extensions\":{\"EXT_meshopt_compression\":{\"buffer\":0,\"byteOffset\":0,\"byteLength\":%zu,\"byteStride\":12,\"count\":3,\"mode\":\"ATTRIBUTES\",\"filter\":\"NONE\"}}},{\"buffer\":0,\"byteOffset\":%zu,\"byteLength\":%zu,\"extensions\":{\"EXT_meshopt_compression\":{\"buffer\":0,\"byteOffset\":%zu,\"byteLength\":%zu,\"byteStride\":2,\"count\":3,\"mode\":\"TRIANGLES\"}}}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"},{\"bufferView\":1,\"componentType\":5123,\"count\":3,\"type\":\"SCALAR\"}]}", vsize + isize, vsize, vsize, vsize, isize, vsize, isize);
+  {
+    FILE* fp = std::fopen((dir / "m.gltf").string().c_str(), "wb");
+    std::fwrite(gltf, 1, std::strlen(gltf), fp);
+    std::fclose(fp);
+  }
+  Kizuri::MeshAssetData data;
+  if (!Kizuri::ImportGltfMesh((dir / "m.gltf").string(), "", data, nullptr)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.positions.size() != 9 || data.indices.size() != 3) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (std::fabs(data.positions[0] + 1.0f) > 1e-5f || std::fabs(data.positions[3] - 1.0f) > 1e-5f || std::fabs(data.positions[7] - 1.0f) > 1e-5f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.indices[0] != 0 || data.indices[1] != 2 || data.indices[2] != 1) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  fs::remove_all(dir, ec);
+  return true;
+}
+bool TestBasisu() {
+  namespace fs = std::filesystem;
+  const char* candidates[3] = { "Samples/Assets/basis_test.basis", "Assets/basis_test.basis", "build/bin/Release/Assets/basis_test.basis" };
+  std::string basisPath;
+  for (int i = 0; i < 3; ++i) {
+    std::error_code tec;
+    if (fs::exists(candidates[i], tec)) {
+      basisPath = candidates[i];
+      break;
+    }
+  }
+  if (basisPath.empty()) {
+    return false;
+  }
+  fs::path dir = fs::temp_directory_path() / "kzgltfbasis_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  fs::copy_file(basisPath, dir / "t.basis", ec);
+  if (ec) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  float tri[9] = { -1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+  {
+    FILE* fp = std::fopen((dir / "tri.bin").string().c_str(), "wb");
+    std::fwrite(tri, 1, sizeof(tri), fp);
+    std::fclose(fp);
+  }
+  std::string gltf = "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"material\":0}]}],\"materials\":[{\"name\":\"B\",\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":0}}}],\"textures\":[{\"source\":0,\"extensions\":{\"KHR_texture_basisu\":{\"source\":0}}}],\"images\":[{\"uri\":\"t.basis\"}],\"buffers\":[{\"uri\":\"tri.bin\",\"byteLength\":36}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"}]}";
+  {
+    FILE* fp = std::fopen((dir / "b.gltf").string().c_str(), "wb");
+    std::fwrite(gltf.c_str(), 1, gltf.size(), fp);
+    std::fclose(fp);
+  }
+  Kizuri::MeshAssetData data;
+  if (!Kizuri::ImportGltfMesh((dir / "b.gltf").string(), "", data, nullptr)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.materials.size() != 1 || data.materials[0].albedoTexGuid.empty()) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  fs::remove_all(dir, ec);
+  return true;
+}
 bool TestMeshCodecExt() {
   Kizuri::MeshAssetData data;
   data.guid = "01234567-89ab-cdef-0123-456789abcdef";
@@ -4807,6 +4904,8 @@ int main() {
   failures += Check("GltfVariants", TestGltfVariants());
   failures += Check("GltfLights", TestGltfLights());
   failures += Check("GltfInstancing", TestGltfInstancing());
+  failures += Check("Meshopt", TestMeshopt());
+  failures += Check("Basisu", TestBasisu());
   failures += Check("MeshCodecExt", TestMeshCodecExt());
   failures += Check("GltfOrm", TestGltfOrm());
   failures += Check("RHIBuffers", TestRHIBuffers());

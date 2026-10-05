@@ -127,8 +127,19 @@ add_library(kizuri_mikktspace STATIC
 target_include_directories(kizuri_mikktspace PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mikktspace)
 add_library(kizuri_meshopt STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/meshopt/simplifier.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/meshopt/indexcodec.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/meshopt/vertexcodec.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/meshopt/vertexfilter.cpp
 )
 target_include_directories(kizuri_meshopt PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/meshopt)
+add_library(kizuri_basisu STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/basisu/basisu_transcoder.cpp
+)
+target_include_directories(kizuri_basisu PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/basisu)
+target_compile_definitions(kizuri_basisu PRIVATE BASISD_SUPPORT_KTX2_ZSTD=0)
+if(MSVC)
+  target_compile_definitions(kizuri_basisu PRIVATE BASISU_NO_ITERATOR_DEBUG_LEVEL)
+endif()
 add_library(kizuri_xatlas STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/xatlas/xatlas.cpp
 )
