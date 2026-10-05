@@ -118,7 +118,7 @@ add_library(kizuri_imguizmo STATIC
 target_include_directories(kizuri_imguizmo PUBLIC ${imguizmo_SOURCE_DIR}/src)
 target_link_libraries(kizuri_imguizmo PUBLIC kizuri_imgui)
 add_library(kizuri_cgltf STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/cgltf_impl.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cgltf_impl.cpp
 )
 target_include_directories(kizuri_cgltf PUBLIC ${cgltf_SOURCE_DIR})
 add_library(kizuri_mikktspace STATIC
@@ -134,10 +134,10 @@ add_library(kizuri_xatlas STATIC
 )
 target_include_directories(kizuri_xatlas PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/xatlas)
 add_library(kizuri_stb STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/stb_impl.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb_impl.cpp
 )
 target_include_directories(kizuri_stb PUBLIC ${stb_SOURCE_DIR})
 add_library(kizuri_miniaudio STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/miniaudio_impl.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio_impl.cpp
 )
 target_include_directories(kizuri_miniaudio PUBLIC ${miniaudio_SOURCE_DIR})

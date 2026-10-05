@@ -1,8 +1,8 @@
 #define A_GPU 1
 #define A_HLSL 1
-#include "../third_party/fsr1/ffx_a.h"
+#include "fsr/ffx_a.h"
 #define FSR_EASU_F 1
-#include "../third_party/fsr1/ffx_fsr1.h"
+#include "fsr/ffx_fsr1.h"
 Texture2D SrcTX : register(t0);
 SamplerState LinearSampler : register(s0);
 cbuffer FsrCB : register(b0)
