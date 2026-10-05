@@ -494,6 +494,41 @@ bool TestDeferredNull() {  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API
   renderer.SetFxaa(false);
   renderer.BeginObjects(view, proj);
   renderer.EndObjectsToTexture(cam);
+  Kizuri::RHITexture pcube = rhi->CreateEnvCube(32);
+  if (pcube == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  if (rhi->GetEnvCubeFace(pcube, 0) == 0 || rhi->GetEnvCubeFace(pcube, 6) != 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  rhi->GenerateCubeMips(pcube);
+  if (!renderer.BeginProbeCapture(pcube)) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  for (int f = 0; f < 6; ++f) {
+    renderer.BeginEnvFace(f, view, proj);
+    renderer.DrawObject(ident);
+    float cp[3] = { 0, 0, -5 };
+    renderer.EndEnvFace(cp);
+  }
+  renderer.GenerateEnvMips();
+  Kizuri::RHITexture cubes[4] = { pcube, 0, 0, 0 };
+  float bmin[4][4] = { { -5, -5, -5, 1 }, { 0, 0, 0, 0 }, { 0, 0, 0, 0 }, { 0, 0, 0, 0 } };
+  float bmax[4][4] = { { 5, 5, 5, 0 }, { 0, 0, 0, 0 }, { 0, 0, 0, 0 }, { 0, 0, 0, 0 } };
+  renderer.SetEnvProbes(4, cubes, bmin, bmax);
+  renderer.SetEnvProbes(0, nullptr, nullptr, nullptr);
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  rhi->DestroyTexture(pcube);
   renderer.SetEnvIntensity(1.0f);
   if (!renderer.BeginEnvCapture(64)) {
     renderer.Shutdown();
@@ -3321,6 +3356,84 @@ bool TestLightmapBake() {
   fs::remove_all(dir, ec);
   return true;
 }
+bool TestProbeDefaults() {
+  Kizuri::ProbeData p;
+  Kizuri::MakeDefaultProbe(p);
+  if (p.size[0] != 5.0f || p.size[1] != 5.0f || p.size[2] != 5.0f || p.intensity != 1.0f) {
+    return false;
+  }
+  Kizuri::Scene scene;
+  Kizuri::EntityId a = scene.CreateEntity("A");
+  if (scene.Get(a)->hasProbe) {
+    return false;
+  }
+  return true;
+}
+bool TestProbeRoundTrip() {
+  Kizuri::Scene scene;
+  Kizuri::EntityId p = scene.CreateEntity("P");
+  scene.Get(p)->hasProbe = true;
+  scene.Get(p)->probe.size[0] = 8.0f;
+  scene.Get(p)->probe.size[1] = 4.0f;
+  scene.Get(p)->probe.size[2] = 6.0f;
+  scene.Get(p)->probe.intensity = 0.5f;
+  const char* path = "test_probe_tmp.kzscene";
+  std::remove(path);
+  if (!Kizuri::SaveSceneToFile(scene, path)) {
+    return false;
+  }
+  Kizuri::Scene back;
+  if (!Kizuri::LoadSceneFromFile(back, path, nullptr)) {
+    std::remove(path);
+    return false;
+  }
+  std::remove(path);
+  std::vector<Kizuri::EntityId> all = back.All();
+  if (all.size() != 1) {
+    return false;
+  }
+  const Kizuri::Entity* rp = back.Get(all[0]);
+  if (rp == nullptr || !rp->hasProbe) {
+    return false;
+  }
+  if (rp->probe.size[0] != 8.0f || rp->probe.size[1] != 4.0f || rp->probe.size[2] != 6.0f || rp->probe.intensity != 0.5f) {
+    return false;
+  }
+  return true;
+}
+bool TestProbeUndo() {
+  Kizuri::Scene scene;
+  Kizuri::UndoStack undo;
+  Kizuri::EditQueue edits;
+  Kizuri::EntityId a = scene.CreateEntity("A");
+  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddProbeCmd(a));
+  if (!undo.Execute(std::move(add), scene) || !scene.Get(a)->hasProbe) {
+    return false;
+  }
+  Kizuri::ProbeData v = scene.Get(a)->probe;
+  v.size[0] = 10.0f;
+  edits.PushProbe(a, v);
+  if (edits.Pending() != 1 || edits.ApplyAll(scene, undo) != 1) {
+    return false;
+  }
+  if (scene.Get(a)->probe.size[0] != 10.0f) {
+    return false;
+  }
+  if (!undo.Undo(scene) || scene.Get(a)->probe.size[0] != 5.0f) {
+    return false;
+  }
+  if (!undo.Redo(scene) || scene.Get(a)->probe.size[0] != 10.0f) {
+    return false;
+  }
+  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveProbeCmd(a));
+  if (!undo.Execute(std::move(rem), scene) || scene.Get(a)->hasProbe) {
+    return false;
+  }
+  if (!undo.Undo(scene) || !scene.Get(a)->hasProbe) {
+    return false;
+  }
+  return true;
+}
 bool TestLightRoundTrip() {
   Kizuri::Scene scene;
   Kizuri::EntityId p = scene.CreateEntity("Point");
@@ -4373,6 +4486,9 @@ int main() {
   failures += Check("LightmapRoundTrip", TestLightmapRoundTrip());
   failures += Check("LightmapUndo", TestLightmapUndo());
   failures += Check("LightmapBake", TestLightmapBake());
+  failures += Check("ProbeDefaults", TestProbeDefaults());
+  failures += Check("ProbeRoundTrip", TestProbeRoundTrip());
+  failures += Check("ProbeUndo", TestProbeUndo());
   failures += Check("EntityForward", TestEntityForward());
   failures += Check("PBR-PointSpot", TestPBRPointSpot());
   failures += Check("LightGizmo", TestLightGizmo());

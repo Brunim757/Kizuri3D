@@ -33,6 +33,7 @@ struct EditorApp {
   bool gizmoJustEnded;
   std::unordered_map<EntityId, Transform, EntityIdHash> gizmoOrigins;
   std::unordered_map<EntityId, float, EntityIdHash> decalAge;
+  std::unordered_map<EntityId, RHITexture, EntityIdHash> envProbeCubes;
   bool rubberActive;
   float rubberX0;
   float rubberY0;
@@ -136,6 +137,9 @@ struct EditorApp {
   void SubmitSceneDraws(const float cpos[3]);
   void BakeEnvironment();
   void BakeLightmap(EntityId id);
+  void BakeFaces(float px, float py, float pz);
+  void BakeProbeEntity(EntityId id);
+  void BakeProbes();
   void DrawMaterialSection(Entity* e);
   void DrawMaterialSlot(Entity* e, const char* label, int slot);
   void DrawDecalSection(Entity* e);

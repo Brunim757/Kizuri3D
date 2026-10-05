@@ -98,6 +98,75 @@ void EditorApp::RenderScene() {
   renderer.SetSsgi(viewSsgi);
   renderer.SetFxaa(viewFxaa);
   renderer.SetEnvIntensity(viewEnv);
+  {
+    EntityId pickIds[64];
+    float pickDist[64];
+    int pickCount = 0;
+    std::vector<EntityId> allIds = scene.All();
+    for (size_t i = 0; i < allIds.size(); ++i) {
+      const Entity* pe = scene.Get(allIds[i]);
+      if (pe == nullptr || !pe->hasProbe) {
+        continue;
+      }
+      float pdx = pe->transform.position[0] - cpos[0];
+      float pdy = pe->transform.position[1] - cpos[1];
+      float pdz = pe->transform.position[2] - cpos[2];
+      float pd = pdx * pdx + pdy * pdy + pdz * pdz;
+      if (pickCount < 64) {
+        pickIds[pickCount] = pe->id;
+        pickDist[pickCount] = pd;
+        ++pickCount;
+      }
+    }
+    RHITexture cubes[4] = { 0, 0, 0, 0 };
+    float bmin[4][4] = { { 0, 0, 0, 0 }, { 0, 0, 0, 0 }, { 0, 0, 0, 0 }, { 0, 0, 0, 0 } };
+    float bmax[4][4] = { { 0, 0, 0, 0 }, { 0, 0, 0, 0 }, { 0, 0, 0, 0 }, { 0, 0, 0, 0 } };
+    int nprobe = 0;
+    for (int k = 0; k < 4; ++k) {
+      int best = -1;
+      for (int i = 0; i < pickCount; ++i) {
+        if (pickDist[i] < 0.0f) {
+          continue;
+        }
+        if (best < 0 || pickDist[i] < pickDist[best]) {
+          best = i;
+        }
+      }
+      if (best < 0) {
+        break;
+      }
+      pickDist[best] = -1.0f;
+      auto cit = envProbeCubes.find(pickIds[best]);
+      if (cit == envProbeCubes.end() || cit->second == 0) {
+        continue;
+      }
+      const Entity* pe = scene.Get(pickIds[best]);
+      if (pe == nullptr || !pe->hasProbe) {
+        continue;
+      }
+      cubes[nprobe] = cit->second;
+      bmin[nprobe][0] = pe->transform.position[0] - pe->probe.size[0] * 0.5f;
+      bmin[nprobe][1] = pe->transform.position[1] - pe->probe.size[1] * 0.5f;
+      bmin[nprobe][2] = pe->transform.position[2] - pe->probe.size[2] * 0.5f;
+      bmin[nprobe][3] = pe->probe.intensity;
+      bmax[nprobe][0] = pe->transform.position[0] + pe->probe.size[0] * 0.5f;
+      bmax[nprobe][1] = pe->transform.position[1] + pe->probe.size[1] * 0.5f;
+      bmax[nprobe][2] = pe->transform.position[2] + pe->probe.size[2] * 0.5f;
+      bmax[nprobe][3] = 0.0f;
+      ++nprobe;
+    }
+    renderer.SetEnvProbes(nprobe, cubes, bmin, bmax);
+    for (auto it = envProbeCubes.begin(); it != envProbeCubes.end();) {
+      if (!scene.Has(it->first)) {
+        if (it->second != 0) {
+          rhi->DestroyTexture(it->second);
+        }
+        it = envProbeCubes.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
   renderer.SetFog(viewFog, viewFogDensity, viewFogColor);
   renderer.SetEnvIntensity(viewEnv);
   SubmitSceneDraws(cpos);
@@ -318,6 +387,11 @@ void EditorApp::BakeEnvironment() {
     Announce(LogLevel::Error, "Environment capture failed");
     return;
   }
+  BakeFaces(px, py, pz);
+  renderer.GenerateEnvMips();
+  Announce(LogLevel::Success, "Environment baked");
+}
+void EditorApp::BakeFaces(float px, float py, float pz) {
   float dirs[6][3] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
   float ups[6][3] = { { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, -1 }, { 0, 0, 1 }, { 0, 1, 0 }, { 0, 1, 0 } };
   DirectX::XMMATRIX proj = DirectX::XMMatrixPerspectiveFovLH(1.5707963f, 1.0f, 0.1f, 200.0f);
@@ -353,8 +427,46 @@ void EditorApp::BakeEnvironment() {
     SubmitSceneDraws(eye);
     renderer.EndEnvFace(eye);
   }
+}
+void EditorApp::BakeProbeEntity(EntityId id) {
+  Entity* e = scene.Get(id);
+  if (e == nullptr || !e->hasProbe) {
+    return;
+  }
+  RHITexture cube = rhi->CreateEnvCube(64);
+  if (cube == 0) {
+    Announce(LogLevel::Error, "Probe cube failed");
+    return;
+  }
+  if (!renderer.BeginProbeCapture(cube)) {
+    rhi->DestroyTexture(cube);
+    Announce(LogLevel::Error, "Probe capture failed");
+    return;
+  }
+  BakeFaces(e->transform.position[0], e->transform.position[1], e->transform.position[2]);
   renderer.GenerateEnvMips();
-  Announce(LogLevel::Success, "Environment baked");
+  auto it = envProbeCubes.find(id);
+  if (it != envProbeCubes.end() && it->second != 0) {
+    rhi->DestroyTexture(it->second);
+  }
+  envProbeCubes[id] = cube;
+  log.Add(LogLevel::Info, std::string("Probe baked: ") + e->name);
+}
+void EditorApp::BakeProbes() {
+  int done = 0;
+  std::vector<EntityId> all = scene.All();
+  for (size_t i = 0; i < all.size(); ++i) {
+    const Entity* e = scene.Get(all[i]);
+    if (e != nullptr && e->hasProbe) {
+      BakeProbeEntity(all[i]);
+      ++done;
+    }
+  }
+  if (done == 0) {
+    Announce(LogLevel::Warning, "No probes in scene");
+  } else {
+    Announce(LogLevel::Success, std::string("Baked ") + std::to_string(done) + " probes");
+  }
 }
 void EditorApp::BakeLightmap(EntityId id) {
   std::string path;
@@ -861,6 +973,9 @@ void EditorApp::DrawSettings() {
       if (ImGui::Button("Bake Environment")) {
         BakeEnvironment();
       }
+      if (ImGui::Button("Bake Probes")) {
+        BakeProbes();
+      }
       ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Debug")) {
@@ -1283,7 +1398,36 @@ void EditorApp::DrawInspector() {
       BakeLightmap(e->id);
     }
   }
-  if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal || !e->hasLod || !e->hasLightmap) {
+  if (e->hasProbe) {
+    ImGui::Separator();
+    ImGui::Text("Reflection Probe");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Remove##probe")) {
+      std::unique_ptr<Command> cmd(new RemoveProbeCmd(e->id));
+      undo.Execute(std::move(cmd), scene);
+    }
+    ProbeData pr = e->probe;
+    bool prChanged = false;
+    if (ImGui::DragFloat3("Size", pr.size, 0.1f, 0.5f, 100.0f)) {
+      prChanged = true;
+    }
+    if (ImGui::DragFloat("Intensity", &pr.intensity, 0.05f, 0.0f, 4.0f)) {
+      prChanged = true;
+    }
+    if (prChanged) {
+      edits.PushProbe(e->id, pr);
+    }
+    auto pit = envProbeCubes.find(e->id);
+    if (pit == envProbeCubes.end() || pit->second == 0) {
+      ImGui::TextDisabled("Capture: (not baked)");
+    } else {
+      ImGui::Text("Capture: baked");
+    }
+    if (ImGui::Button("Bake Probe")) {
+      BakeProbeEntity(e->id);
+    }
+  }
+  if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal || !e->hasLod || !e->hasLightmap || !e->hasProbe) {
     ImGui::Separator();
     if (ImGui::Button("Add Component")) {
       ImGui::OpenPopup("AddComponent");
@@ -1311,6 +1455,10 @@ void EditorApp::DrawInspector() {
       }
       if (!e->hasLightmap && ImGui::MenuItem("Lightmap")) {
         std::unique_ptr<Command> cmd(new AddLightmapCmd(e->id));
+        undo.Execute(std::move(cmd), scene);
+      }
+      if (!e->hasProbe && ImGui::MenuItem("Probe")) {
+        std::unique_ptr<Command> cmd(new AddProbeCmd(e->id));
         undo.Execute(std::move(cmd), scene);
       }
       ImGui::EndPopup();

@@ -37,6 +37,8 @@ bool EntitySnapshot::Capture(const Scene& scene, EntityId root) {
     node.hasLod = e->hasLod;
     node.lightmap = e->lightmap;
     node.hasLightmap = e->hasLightmap;
+    node.probe = e->probe;
+    node.hasProbe = e->hasProbe;
     node.parent = par;
     long idx = static_cast<long>(nodes.size());
     nodes.push_back(node);
@@ -72,6 +74,8 @@ EntityId EntitySnapshot::Restore(Scene& scene, EntityId newParent) const {
       createdEntity->hasLod = nodes[i].hasLod;
       createdEntity->lightmap = nodes[i].lightmap;
       createdEntity->hasLightmap = nodes[i].hasLightmap;
+      createdEntity->probe = nodes[i].probe;
+      createdEntity->hasProbe = nodes[i].hasProbe;
     }
     created.push_back(id);
   }
@@ -727,6 +731,92 @@ bool RemoveLightmapCmd::Revert(Scene& scene) {
 }
 const char* RemoveLightmapCmd::Name() const {
   return "Remove Lightmap";
+}
+SetProbeCmd::SetProbeCmd(EntityId t, const ProbeData& b, const ProbeData& a)
+  : target(t)
+  , before(b)
+  , after(a) {
+}
+bool SetProbeCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasProbe) {
+    return false;
+  }
+  e->probe = after;
+  scene.MarkDirty();
+  return true;
+}
+bool SetProbeCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasProbe) {
+    return false;
+  }
+  e->probe = before;
+  scene.MarkDirty();
+  return true;
+}
+const char* SetProbeCmd::Name() const {
+  return "Set Probe";
+}
+AddProbeCmd::AddProbeCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultProbe(prevProbe);
+}
+bool AddProbeCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || e->hasProbe) {
+    return false;
+  }
+  prevProbe = e->probe;
+  prevHas = e->hasProbe;
+  e->hasProbe = true;
+  MakeDefaultProbe(e->probe);
+  scene.MarkDirty();
+  return true;
+}
+bool AddProbeCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->probe = prevProbe;
+  e->hasProbe = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* AddProbeCmd::Name() const {
+  return "Add Probe";
+}
+RemoveProbeCmd::RemoveProbeCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultProbe(prevProbe);
+}
+bool RemoveProbeCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasProbe) {
+    return false;
+  }
+  prevProbe = e->probe;
+  prevHas = e->hasProbe;
+  e->hasProbe = false;
+  MakeDefaultProbe(e->probe);
+  scene.MarkDirty();
+  return true;
+}
+bool RemoveProbeCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->probe = prevProbe;
+  e->hasProbe = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* RemoveProbeCmd::Name() const {
+  return "Remove Probe";
 }
 SetParentCmd::SetParentCmd(EntityId c, EntityId b, EntityId a)
   : child(c)

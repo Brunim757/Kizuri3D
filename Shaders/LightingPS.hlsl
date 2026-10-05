@@ -36,12 +36,18 @@ cbuffer LightCB : register(b0)
     row_major float4x4 SsaoVP;
     float4 FogInfo;
     float4 FogColor;
+    float4 ProbeBoxMin[4];
+    float4 ProbeBoxMax[4];
 };
 Texture2D SSAOTX : register(t6);
 Texture2D SsrTX : register(t7);
 Texture2D ContactTX : register(t8);
 TextureCube EnvTX : register(t9);
 Texture2D LightmapTX : register(t10);
+TextureCube ProbeCube0 : register(t11);
+TextureCube ProbeCube1 : register(t12);
+TextureCube ProbeCube2 : register(t13);
+TextureCube ProbeCube3 : register(t14);
 Texture2D ShadowAtlas : register(t4);
 TextureCube PointCube : register(t5);
 SamplerState ShadowSampler : register(s1);
@@ -452,6 +458,35 @@ float4 main(PSIn pin) : SV_Target
     float3 skyEnv = SkyGradient(R, normalize(SkySun.xyz), SkyColor.rgb, sint2);
     float3 cubeEnv = EnvTX.SampleLevel(LinearSampler, R, clamp(roughness, 0.0, 1.0) * 6.0).rgb * GradeInfo.z;
     float3 env = lerp(skyEnv, cubeEnv, clamp(GradeInfo.w, 0.0, 1.0));
+    float envInt = GradeInfo.z;
+    for (int pi = 0; pi < 4; ++pi) {
+        if (ProbeBoxMin[pi].w <= 0.0) {
+            continue;
+        }
+        float3 bmin = ProbeBoxMin[pi].xyz;
+        float3 bmax = ProbeBoxMax[pi].xyz;
+        if (wpos.x < bmin.x || wpos.x > bmax.x || wpos.y < bmin.y || wpos.y > bmax.y || wpos.z < bmin.z || wpos.z > bmax.z) {
+            continue;
+        }
+        float3 center = (bmin + bmax) * 0.5;
+        float3 f = ((R.x > 0.0 ? bmax.x : bmin.x) - wpos.x) / max(abs(R.x), 1e-4);
+        float3 g = ((R.y > 0.0 ? bmax.y : bmin.y) - wpos.y) / max(abs(R.y), 1e-4);
+        float3 h = ((R.z > 0.0 ? bmax.z : bmin.z) - wpos.z) / max(abs(R.z), 1e-4);
+        float tbox = min(min(f.x, g.y), h.z);
+        float3 pdir = wpos + R * tbox - center;
+        float3 prefl = float3(0.0, 0.0, 0.0);
+        if (pi == 0) {
+            prefl = ProbeCube0.SampleLevel(LinearSampler, pdir, clamp(roughness, 0.0, 1.0) * 6.0).rgb;
+        } else if (pi == 1) {
+            prefl = ProbeCube1.SampleLevel(LinearSampler, pdir, clamp(roughness, 0.0, 1.0) * 6.0).rgb;
+        } else if (pi == 2) {
+            prefl = ProbeCube2.SampleLevel(LinearSampler, pdir, clamp(roughness, 0.0, 1.0) * 6.0).rgb;
+        } else {
+            prefl = ProbeCube3.SampleLevel(LinearSampler, pdir, clamp(roughness, 0.0, 1.0) * 6.0).rgb;
+        }
+        env = prefl * envInt * ProbeBoxMin[pi].w;
+        break;
+    }
     float4 ssr = SsrTX.Sample(LinearSampler, pin.uv);
     float3 specAmb = lerp(env, ssr.rgb, clamp(ssr.a, 0.0, 1.0));
     float3 F0e = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);

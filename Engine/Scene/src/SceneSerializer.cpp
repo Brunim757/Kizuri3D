@@ -169,6 +169,10 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
       const LightmapData& l = e->lightmap;
       std::fprintf(fp, "LIGHTMAP %.9g \"%s\"\n", l.intensity, EscapeName(l.texGuid).c_str());
     }
+    if (e->hasProbe) {
+      const ProbeData& p = e->probe;
+      std::fprintf(fp, "PROBE %.9g %.9g %.9g %.9g\n", p.size[0], p.size[1], p.size[2], p.intensity);
+    }
   }
   std::fclose(fp);
   return true;
@@ -214,6 +218,8 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
     bool hasLod;
     LightmapData lightmap;
     bool hasLightmap;
+    ProbeData probe;
+    bool hasProbe;
   };
   std::vector<PendingEntity> pending;
   PendingEntity* current = nullptr;
@@ -234,12 +240,14 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       MakeDefaultDecal(pe.decal);
       MakeDefaultLod(pe.lod);
       MakeDefaultLightmap(pe.lightmap);
+      MakeDefaultProbe(pe.probe);
       pe.hasMesh = false;
       pe.hasLight = false;
       pe.hasMaterial = false;
       pe.hasDecal = false;
       pe.hasLod = false;
       pe.hasLightmap = false;
+      pe.hasProbe = false;
       pe.parentIdx = -1;
       size_t pos = 7;
       if (!ParseQuoted(s, pos, pe.name) || pe.name.empty()) {
@@ -425,6 +433,21 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
         current->hasLightmap = true;
         continue;
       }
+      if (field == "PROBE") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        float pv[4] = { 5.0f, 5.0f, 5.0f, 1.0f };
+        if (!ParseFloats(s, pos, pv, 4)) {
+          failed = true;
+          break;
+        }
+        MakeDefaultProbe(current->probe);
+        current->probe.size[0] = pv[0];
+        current->probe.size[1] = pv[1];
+        current->probe.size[2] = pv[2];
+        current->probe.intensity = pv[3];
+        current->hasProbe = true;
+        continue;
+      }
       const FieldDesc* fd = nullptr;
       for (size_t f = 0; f < tdesc->fields.size(); ++f) {
         if (tdesc->fields[f].name == field) {
@@ -491,6 +514,8 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       createdEntity->hasLod = pending[i].hasLod;
       createdEntity->lightmap = pending[i].lightmap;
       createdEntity->hasLightmap = pending[i].hasLightmap;
+      createdEntity->probe = pending[i].probe;
+      createdEntity->hasProbe = pending[i].hasProbe;
     }
     created.push_back(id);
   }

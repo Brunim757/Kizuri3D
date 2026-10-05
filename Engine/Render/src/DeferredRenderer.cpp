@@ -45,6 +45,8 @@ struct LightConstants {
   float ssaoVP[16];
   float fogInfo[4];
   float fogColor[4];
+  float probeBoxMin[4][4];
+  float probeBoxMax[4][4];
 };
 struct MatConstants {
   float albedo[4];
@@ -165,6 +167,8 @@ DeferredRenderer::DeferredRenderer()
   , captureTarget(0)
   , captureMode(false)
   , envIntensity(1.0f)
+  , captureCube(0)
+  , probeCount(0)
   , dofOn(false)
   , focusDist(10.0f)
   , focusRange(20.0f)
@@ -227,6 +231,17 @@ DeferredRenderer::DeferredRenderer()
   shadowPointPos[0] = 0.0f;
   shadowPointPos[1] = 0.0f;
   shadowPointPos[2] = 0.0f;
+  for (int i = 0; i < 4; ++i) {
+    probeCubes[i] = 0;
+    probeBoxMin[i][0] = 0.0f;
+    probeBoxMin[i][1] = 0.0f;
+    probeBoxMin[i][2] = 0.0f;
+    probeBoxMin[i][3] = 0.0f;
+    probeBoxMax[i][0] = 0.0f;
+    probeBoxMax[i][1] = 0.0f;
+    probeBoxMax[i][2] = 0.0f;
+    probeBoxMax[i][3] = 0.0f;
+  }
   for (int i = 0; i < 16; ++i) {
     prevView[i] = (i % 5 == 0) ? 1.0f : 0.0f;
     prevProj[i] = (i % 5 == 0) ? 1.0f : 0.0f;
@@ -707,6 +722,36 @@ void DeferredRenderer::SetEnvIntensity(float intensity) {
     envIntensity = 4.0f;
   }
 }
+void DeferredRenderer::SetEnvProbes(int count, const RHITexture* cubes, const float (*boxMin)[4], const float (*boxMax)[4]) {
+  probeCount = 0;
+  if (count < 0) {
+    count = 0;
+  }
+  if (count > 4) {
+    count = 4;
+  }
+  for (int i = 0; i < 4; ++i) {
+    probeCubes[i] = 0;
+  }
+  if (cubes == nullptr || boxMin == nullptr || boxMax == nullptr) {
+    return;
+  }
+  for (int i = 0; i < count; ++i) {
+    if (cubes[i] == 0) {
+      continue;
+    }
+    probeCubes[probeCount] = cubes[i];
+    probeBoxMin[probeCount][0] = boxMin[i][0];
+    probeBoxMin[probeCount][1] = boxMin[i][1];
+    probeBoxMin[probeCount][2] = boxMin[i][2];
+    probeBoxMin[probeCount][3] = boxMin[i][3];
+    probeBoxMax[probeCount][0] = boxMax[i][0];
+    probeBoxMax[probeCount][1] = boxMax[i][1];
+    probeBoxMax[probeCount][2] = boxMax[i][2];
+    probeBoxMax[probeCount][3] = boxMax[i][3];
+    ++probeCount;
+  }
+}
 bool DeferredRenderer::BeginEnvCapture(int size) {
   if (rhi == nullptr || size <= 0) {
     return false;
@@ -722,13 +767,23 @@ bool DeferredRenderer::BeginEnvCapture(int size) {
   std::memcpy(savedPrevView, prevView, sizeof(savedPrevView));
   std::memcpy(savedPrevProj, prevProj, sizeof(savedPrevProj));
   envCube = rhi->CreateEnvCube(size);
+  captureCube = envCube;
   return envCube != 0;
 }
+bool DeferredRenderer::BeginProbeCapture(RHITexture cube) {
+  if (rhi == nullptr || cube == 0) {
+    return false;
+  }
+  captureTarget = 0;
+  captureMode = false;
+  captureCube = cube;
+  return true;
+}
 void DeferredRenderer::GenerateEnvMips() {
-  if (rhi == nullptr || envCube == 0) {
+  if (rhi == nullptr || captureCube == 0) {
     return;
   }
-  rhi->GenerateCubeMips(envCube);
+  rhi->GenerateCubeMips(captureCube);
   std::memcpy(lastView, savedLastView, sizeof(lastView));
   std::memcpy(lastProj, savedLastProj, sizeof(lastProj));
   std::memcpy(prevView, savedPrevView, sizeof(prevView));
@@ -1118,10 +1173,10 @@ void DeferredRenderer::BeginObjects(const float view[16], const float proj[16]) 
 }
 void DeferredRenderer::BeginEnvFace(int face, const float view[16], const float proj[16]) {
   begun = false;
-  if (!ready || rhi == nullptr || envCube == 0) {
+  if (!ready || rhi == nullptr || captureCube == 0) {
     return;
   }
-  captureTarget = rhi->GetEnvCubeFace(envCube, face);
+  captureTarget = rhi->GetEnvCubeFace(captureCube, face);
   if (captureTarget == 0) {
     return;
   }
@@ -1732,6 +1787,16 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   lc.fogColor[1] = fogColor[1];
   lc.fogColor[2] = fogColor[2];
   lc.fogColor[3] = 0.0f;
+  for (int pi = 0; pi < 4; ++pi) {
+    lc.probeBoxMin[pi][0] = probeBoxMin[pi][0];
+    lc.probeBoxMin[pi][1] = probeBoxMin[pi][1];
+    lc.probeBoxMin[pi][2] = probeBoxMin[pi][2];
+    lc.probeBoxMin[pi][3] = pi < probeCount ? probeBoxMin[pi][3] : 0.0f;
+    lc.probeBoxMax[pi][0] = probeBoxMax[pi][0];
+    lc.probeBoxMax[pi][1] = probeBoxMax[pi][1];
+    lc.probeBoxMax[pi][2] = probeBoxMax[pi][2];
+    lc.probeBoxMax[pi][3] = 0.0f;
+  }
   rhi->UpdateConstantBuffer(lightCB, &lc, sizeof(lc));
   rhi->SetPixelConstantBuffer(0, lightCB);
   if (shadowMapsValid) {
@@ -1752,6 +1817,10 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelTexture2D(9, envCube);
   }
   rhi->SetPixelTexture(10, gLightmap);
+  rhi->SetPixelTexture2D(11, probeCubes[0]);
+  rhi->SetPixelTexture2D(12, probeCubes[1]);
+  rhi->SetPixelTexture2D(13, probeCubes[2]);
+  rhi->SetPixelTexture2D(14, probeCubes[3]);
   rhi->DrawFullscreenTriangle();
   rhi->SetPixelTexture(0, 0);
   rhi->SetPixelTexture(1, 0);
@@ -1764,6 +1833,10 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture(8, 0);
   rhi->SetPixelTexture2D(9, 0);
   rhi->SetPixelTexture(10, 0);
+  rhi->SetPixelTexture2D(11, 0);
+  rhi->SetPixelTexture2D(12, 0);
+  rhi->SetPixelTexture2D(13, 0);
+  rhi->SetPixelTexture2D(14, 0);
   if (captureMode) {
     captureMode = false;
     captureTarget = 0;

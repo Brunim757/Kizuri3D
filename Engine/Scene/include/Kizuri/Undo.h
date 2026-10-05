@@ -25,6 +25,8 @@ struct SnapshotNode {
   bool hasLod;
   LightmapData lightmap;
   bool hasLightmap;
+  ProbeData probe;
+  bool hasProbe;
   long parent;
 };
 struct EntitySnapshot {
@@ -287,6 +289,39 @@ public:
 private:
   EntityId target;
   LightmapData prevLightmap;
+  bool prevHas;
+};
+class SetProbeCmd : public Command {
+public:
+  SetProbeCmd(EntityId target, const ProbeData& before, const ProbeData& after);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  ProbeData before;
+  ProbeData after;
+};
+class AddProbeCmd : public Command {
+public:
+  explicit AddProbeCmd(EntityId target);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  ProbeData prevProbe;
+  bool prevHas;
+};
+class RemoveProbeCmd : public Command {
+public:
+  explicit RemoveProbeCmd(EntityId target);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  ProbeData prevProbe;
   bool prevHas;
 };
 class SetParentCmd : public Command {

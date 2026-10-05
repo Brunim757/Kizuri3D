@@ -56,6 +56,15 @@ void EditQueue::PushLightmap(EntityId target, const LightmapData& value) {
   e.value = value;
   lightmapEdits.push_back(e);
 }
+void EditQueue::PushProbe(EntityId target, const ProbeData& value) {
+  if (!target.IsValid()) {
+    return;
+  }
+  ProbeEdit e;
+  e.target = target;
+  e.value = value;
+  probeEdits.push_back(e);
+}
 bool MaterialEqual(const MaterialData& a, const MaterialData& b) {
   return a.albedo[0] == b.albedo[0] && a.albedo[1] == b.albedo[1] && a.albedo[2] == b.albedo[2] && a.metallic == b.metallic && a.roughness == b.roughness && a.albedoTex == b.albedoTex && a.normalTex == b.normalTex && a.ormTex == b.ormTex && a.heightTex == b.heightTex;
 }
@@ -68,8 +77,11 @@ bool LodEqual(const LodData& a, const LodData& b) {
 bool LightmapEqual(const LightmapData& a, const LightmapData& b) {
   return a.texGuid == b.texGuid && a.intensity == b.intensity;
 }
+bool ProbeEqual(const ProbeData& a, const ProbeData& b) {
+  return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.intensity == b.intensity;
+}
 size_t EditQueue::Pending() const {
-  return edits.size() + lightEdits.size() + materialEdits.size() + decalEdits.size() + lodEdits.size() + lightmapEdits.size();
+  return edits.size() + lightEdits.size() + materialEdits.size() + decalEdits.size() + lodEdits.size() + lightmapEdits.size() + probeEdits.size();
 }
 size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
   size_t applied = 0;
@@ -217,6 +229,30 @@ size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
     }
   }
   lightmapEdits.clear();
+  for (size_t i = 0; i < probeEdits.size(); ++i) {
+    bool last = true;
+    for (size_t j = i + 1; j < probeEdits.size(); ++j) {
+      if (probeEdits[j].target == probeEdits[i].target) {
+        last = false;
+        break;
+      }
+    }
+    if (!last) {
+      continue;
+    }
+    const Entity* e = scene.Get(probeEdits[i].target);
+    if (e == nullptr || !e->hasProbe) {
+      continue;
+    }
+    if (ProbeEqual(e->probe, probeEdits[i].value)) {
+      continue;
+    }
+    std::unique_ptr<Command> cmd(new SetProbeCmd(probeEdits[i].target, e->probe, probeEdits[i].value));
+    if (undo.Execute(std::move(cmd), scene)) {
+      ++applied;
+    }
+  }
+  probeEdits.clear();
   return applied;
 }
 void EditQueue::Clear() {
@@ -226,5 +262,6 @@ void EditQueue::Clear() {
   decalEdits.clear();
   lodEdits.clear();
   lightmapEdits.clear();
+  probeEdits.clear();
 }
 }
