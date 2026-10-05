@@ -2559,7 +2559,346 @@ bool TestGltfOrm() {
   fs::remove_all(dir, ec);
   return true;
 }
-bool TestUnwrapUV2() {
+bool TestGltfQuantized() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kzgltfquant_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  uint16_t qp[9] = { 0, 0, 0, 65535, 0, 0, 0, 65535, 0 };
+  {
+    FILE* fp = std::fopen((dir / "q.bin").string().c_str(), "wb");
+    std::fwrite(qp, 1, sizeof(qp), fp);
+    std::fclose(fp);
+  }
+  std::string gltf = "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0}}]}],\"buffers\":[{\"uri\":\"q.bin\",\"byteLength\":18}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":18}],\"accessors\":[{\"bufferView\":0,\"componentType\":5123,\"normalized\":true,\"count\":3,\"type\":\"VEC3\"}]}";
+  {
+    FILE* fp = std::fopen((dir / "q.gltf").string().c_str(), "wb");
+    std::fwrite(gltf.c_str(), 1, gltf.size(), fp);
+    std::fclose(fp);
+  }
+  Kizuri::MeshAssetData data;
+  if (!Kizuri::ImportGltfMesh((dir / "q.gltf").string(), "", data, nullptr)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.positions.size() != 9) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.positions[0] != 0.0f || data.positions[3] != 1.0f || data.positions[7] != 1.0f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  fs::remove_all(dir, ec);
+  return true;
+}
+bool TestGltfMaterialExt() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kzgltfmatext_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  WriteTestBMP((dir / "alb.bmp").string(), 4, 4, false);
+  float tri[9] = { -1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+  {
+    FILE* fp = std::fopen((dir / "tri.bin").string().c_str(), "wb");
+    std::fwrite(tri, 1, sizeof(tri), fp);
+    std::fclose(fp);
+  }
+  std::string gltf = "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"material\":0}]}],\"materials\":[{\"name\":\"E\",\"emissiveFactor\":[1,0.5,0],\"doubleSided\":true,\"alphaMode\":\"MASK\",\"alphaCutoff\":0.4,\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":0,\"extensions\":{\"KHR_texture_transform\":{\"offset\":[0.5,0],\"scale\":[2,2]}}}},\"extensions\":{\"KHR_materials_unlit\":{},\"KHR_materials_emissive_strength\":{\"emissiveStrength\":2.0}}}],\"textures\":[{\"source\":0}],\"images\":[{\"uri\":\"alb.bmp\"}],\"buffers\":[{\"uri\":\"tri.bin\",\"byteLength\":36}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"}]}";
+  {
+    FILE* fp = std::fopen((dir / "ext.gltf").string().c_str(), "wb");
+    std::fwrite(gltf.c_str(), 1, gltf.size(), fp);
+    std::fclose(fp);
+  }
+  Kizuri::MeshAssetData data;
+  if (!Kizuri::ImportGltfMesh((dir / "ext.gltf").string(), "", data, nullptr)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.positions.size() != 9 || data.materials.size() != 1) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  const Kizuri::MeshMaterialData& mm = data.materials[0];
+  if (mm.emissive[0] != 1.0f || mm.emissive[1] != 0.5f || mm.emissive[2] != 0.0f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (std::fabs(mm.emissiveStrength - 2.0f) > 1e-4f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (!mm.unlit || !mm.doubleSided || mm.alphaMode != 1 || mm.alphaCutoff != 0.4f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (mm.xforms[0].offsetU != 0.5f || mm.xforms[0].scaleU != 2.0f || mm.xforms[0].scaleV != 2.0f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (mm.albedoTexGuid.empty()) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  fs::remove_all(dir, ec);
+  return true;
+}
+bool TestGltfSpecGloss() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kzgltfsg_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  float tri[9] = { -1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+  {
+    FILE* fp = std::fopen((dir / "tri.bin").string().c_str(), "wb");
+    std::fwrite(tri, 1, sizeof(tri), fp);
+    std::fclose(fp);
+  }
+  std::string gltf = "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"material\":0}]}],\"materials\":[{\"name\":\"S\",\"extensions\":{\"KHR_materials_pbrSpecularGlossiness\":{\"diffuseFactor\":[0.9,0.1,0.1,1],\"glossinessFactor\":0.8}}}],\"buffers\":[{\"uri\":\"tri.bin\",\"byteLength\":36}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"}]}";
+  {
+    FILE* fp = std::fopen((dir / "sg.gltf").string().c_str(), "wb");
+    std::fwrite(gltf.c_str(), 1, gltf.size(), fp);
+    std::fclose(fp);
+  }
+  Kizuri::MeshAssetData data;
+  if (!Kizuri::ImportGltfMesh((dir / "sg.gltf").string(), "", data, nullptr)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.materials.size() != 1) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  const Kizuri::MeshMaterialData& mm = data.materials[0];
+  if (std::fabs(mm.albedo[0] - 0.9f) > 1e-4f || std::fabs(mm.albedo[1] - 0.1f) > 1e-4f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (std::fabs(mm.roughness - 0.2f) > 1e-3f || mm.metallic != 0.0f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  fs::remove_all(dir, ec);
+  return true;
+}
+bool TestGltfVariants() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kzgltfvar_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  float tri[9] = { -1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+  {
+    FILE* fp = std::fopen((dir / "tri.bin").string().c_str(), "wb");
+    std::fwrite(tri, 1, sizeof(tri), fp);
+    std::fclose(fp);
+  }
+  std::string gltf = "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"material\":0,\"extensions\":{\"KHR_materials_variants\":{\"mappings\":[{\"material\":1,\"variants\":[0]}]}}}]}],\"materials\":[{\"name\":\"Red\",\"pbrMetallicRoughness\":{\"baseColorFactor\":[1,0,0,1]}},{\"name\":\"Blue\",\"pbrMetallicRoughness\":{\"baseColorFactor\":[0,0,1,1]}}],\"extensions\":{\"KHR_materials_variants\":{\"variants\":[{\"name\":\"Sport\"}]}},\"buffers\":[{\"uri\":\"tri.bin\",\"byteLength\":36}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"}]}";
+  {
+    FILE* fp = std::fopen((dir / "var.gltf").string().c_str(), "wb");
+    std::fwrite(gltf.c_str(), 1, gltf.size(), fp);
+    std::fclose(fp);
+  }
+  Kizuri::MeshAssetData data;
+  if (!Kizuri::ImportGltfMesh((dir / "var.gltf").string(), "", data, nullptr)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.variantNames.size() != 1 || data.variantNames[0] != "Sport") {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.variantAssigns.size() != 1 || data.variantAssigns[0].variant != 0 || data.variantAssigns[0].material != 1) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.materials.size() != 2) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  fs::remove_all(dir, ec);
+  return true;
+}
+bool TestGltfLights() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kzgltflight_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  float tri[9] = { -1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+  {
+    FILE* fp = std::fopen((dir / "tri.bin").string().c_str(), "wb");
+    std::fwrite(tri, 1, sizeof(tri), fp);
+    std::fclose(fp);
+  }
+  std::string gltf = "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0,1]}],\"nodes\":[{\"mesh\":0},{\"translation\":[1,2,3],\"extensions\":{\"KHR_lights_punctual\":{\"light\":0}}}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0}}]}],\"extensions\":{\"KHR_lights_punctual\":{\"lights\":[{\"name\":\"L\",\"type\":\"point\",\"color\":[1,1,1],\"intensity\":5.0,\"range\":10.0}]}},\"buffers\":[{\"uri\":\"tri.bin\",\"byteLength\":36}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"}]}";
+  {
+    FILE* fp = std::fopen((dir / "li.gltf").string().c_str(), "wb");
+    std::fwrite(gltf.c_str(), 1, gltf.size(), fp);
+    std::fclose(fp);
+  }
+  Kizuri::MeshAssetData data;
+  if (!Kizuri::ImportGltfMesh((dir / "li.gltf").string(), "", data, nullptr)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.lights.size() != 1) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  const Kizuri::MeshLightData& ld = data.lights[0];
+  if (ld.type != 0 || ld.intensity != 5.0f || ld.range != 10.0f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (ld.matrix[12] != 1.0f || ld.matrix[13] != 2.0f || ld.matrix[14] != 3.0f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  fs::remove_all(dir, ec);
+  return true;
+}
+bool TestGltfInstancing() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kzgltfinst_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  float tri[9] = { -1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+  float tr[6] = { 10.0f, 0.0f, 0.0f, 0.0f, 10.0f, 0.0f };
+  {
+    FILE* fp = std::fopen((dir / "inst.bin").string().c_str(), "wb");
+    std::fwrite(tri, 1, sizeof(tri), fp);
+    std::fwrite(tr, 1, sizeof(tr), fp);
+    std::fclose(fp);
+  }
+  std::string gltf = "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0,\"extensions\":{\"EXT_mesh_gpu_instancing\":{\"attributes\":{\"TRANSLATION\":1}}}}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0}}]}],\"buffers\":[{\"uri\":\"inst.bin\",\"byteLength\":60}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":24}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"},{\"bufferView\":1,\"componentType\":5126,\"count\":2,\"type\":\"VEC3\"}]}";
+  {
+    FILE* fp = std::fopen((dir / "inst.gltf").string().c_str(), "wb");
+    std::fwrite(gltf.c_str(), 1, gltf.size(), fp);
+    std::fclose(fp);
+  }
+  Kizuri::MeshAssetData data;
+  if (!Kizuri::ImportGltfMesh((dir / "inst.gltf").string(), "", data, nullptr)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.positions.size() != 27) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.positions[9] != 9.0f || data.positions[19] != 9.0f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  fs::remove_all(dir, ec);
+  return true;
+}
+bool TestMeshCodecExt() {
+  Kizuri::MeshAssetData data;
+  data.guid = "01234567-89ab-cdef-0123-456789abcdef";
+  data.positions = { -0.5f, -0.5f, 0.0f, 0.5f, -0.5f, 0.0f, 0.0f, 0.5f, 0.0f };
+  data.normals = { 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f };
+  data.uvs = { 0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 1.0f };
+  data.indices = { 0, 1, 2 };
+  if (!Kizuri::GenerateTangents(data.positions, data.normals, data.uvs, data.indices, data.tangents)) {
+    return false;
+  }
+  Kizuri::MeshMaterialData mat;
+  mat.name = "Ext";
+  mat.emissive[0] = 1.0f;
+  mat.emissive[1] = 0.5f;
+  mat.emissiveStrength = 2.0f;
+  mat.emissiveTexGuid = "emi-guid";
+  mat.unlit = true;
+  mat.doubleSided = true;
+  mat.alphaMode = 1;
+  mat.alphaCutoff = 0.4f;
+  mat.xforms[0].offsetU = 0.5f;
+  mat.xforms[0].scaleU = 2.0f;
+  mat.xforms[0].scaleV = 2.0f;
+  mat.ior = 1.45f;
+  mat.specularColor[0] = 0.9f;
+  mat.specularStrength = 0.8f;
+  mat.clearcoat = 0.5f;
+  mat.clearcoatRoughness = 0.1f;
+  mat.sheenColor[2] = 1.0f;
+  mat.sheenRoughness = 0.3f;
+  mat.transmission = 0.7f;
+  mat.thickness = 0.05f;
+  mat.attenuationColor[0] = 0.8f;
+  mat.attenuationDistance = 1.5f;
+  mat.iridescence = 0.6f;
+  mat.anisotropy = 0.4f;
+  mat.dispersion = 0.02f;
+  data.materials.push_back(mat);
+  Kizuri::MeshPartData part;
+  part.indexOffset = 0;
+  part.indexCount = 3;
+  part.material = 0;
+  data.parts.push_back(part);
+  data.aabbMin[0] = -0.5f;
+  data.aabbMin[1] = -0.5f;
+  data.aabbMin[2] = 0.0f;
+  data.aabbMax[0] = 0.5f;
+  data.aabbMax[1] = 0.5f;
+  data.aabbMax[2] = 0.0f;
+  data.variantNames.push_back("Sport");
+  Kizuri::MeshVariantAssign va;
+  va.part = 0;
+  va.variant = 0;
+  va.material = 0;
+  data.variantAssigns.push_back(va);
+  Kizuri::MeshLightData li;
+  li.name = "L";
+  li.type = 1;
+  li.intensity = 5.0f;
+  li.outerCone = 0.6f;
+  data.lights.push_back(li);
+  std::vector<unsigned char> bytes;
+  if (!Kizuri::EncodeMeshMemory(data, bytes) || bytes.empty()) {
+    return false;
+  }
+  Kizuri::MeshAssetData back;
+  if (!Kizuri::DecodeMeshMemory(bytes.data(), bytes.size(), back)) {
+    return false;
+  }
+  if (back.materials.size() != 1) {
+    return false;
+  }
+  const Kizuri::MeshMaterialData& bm = back.materials[0];
+  if (bm.emissive[0] != 1.0f || bm.emissive[1] != 0.5f || bm.emissiveStrength != 2.0f || bm.emissiveTexGuid != "emi-guid") {
+    return false;
+  }
+  if (!bm.unlit || !bm.doubleSided || bm.alphaMode != 1 || bm.alphaCutoff != 0.4f) {
+    return false;
+  }
+  if (bm.xforms[0].offsetU != 0.5f || bm.xforms[0].scaleU != 2.0f) {
+    return false;
+  }
+  if (bm.ior != 1.45f || bm.specularColor[0] != 0.9f || bm.specularStrength != 0.8f) {
+    return false;
+  }
+  if (bm.clearcoat != 0.5f || bm.clearcoatRoughness != 0.1f || bm.sheenColor[2] != 1.0f || bm.sheenRoughness != 0.3f) {
+    return false;
+  }
+  if (bm.transmission != 0.7f || bm.thickness != 0.05f || bm.attenuationColor[0] != 0.8f || bm.attenuationDistance != 1.5f) {
+    return false;
+  }
+  if (bm.iridescence != 0.6f || bm.anisotropy != 0.4f || bm.dispersion != 0.02f) {
+    return false;
+  }
+  if (back.variantNames.size() != 1 || back.variantNames[0] != "Sport" || back.variantAssigns.size() != 1 || back.variantAssigns[0].material != 0) {
+    return false;
+  }
+  if (back.lights.size() != 1 || back.lights[0].type != 1 || back.lights[0].intensity != 5.0f || back.lights[0].outerCone != 0.6f) {
+    return false;
+  }
+  return true;
+}
   std::vector<float> pos = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0 };
   std::vector<float> nrm = { 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1 };
   std::vector<float> uv = { 0, 0, 1, 0, 1, 1, 0, 1 };
@@ -4461,6 +4800,13 @@ int main() {
   failures += Check("GltfUv2", TestGltfUv2());
   failures += Check("GltfMaterialIndex", TestGltfMaterialIndex());
   failures += Check("GltfNodeTransform", TestGltfNodeTransform());
+  failures += Check("GltfQuantized", TestGltfQuantized());
+  failures += Check("GltfMaterialExt", TestGltfMaterialExt());
+  failures += Check("GltfSpecGloss", TestGltfSpecGloss());
+  failures += Check("GltfVariants", TestGltfVariants());
+  failures += Check("GltfLights", TestGltfLights());
+  failures += Check("GltfInstancing", TestGltfInstancing());
+  failures += Check("MeshCodecExt", TestMeshCodecExt());
   failures += Check("GltfOrm", TestGltfOrm());
   failures += Check("RHIBuffers", TestRHIBuffers());
   failures += Check("MeshStaging", TestMeshStaging());

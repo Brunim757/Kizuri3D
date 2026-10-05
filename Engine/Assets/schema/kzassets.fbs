@@ -8,6 +8,14 @@ struct AABB {
   min:Vec3;
   max:Vec3;
 }
+struct UvXform {
+  offsetU:float;
+  offsetV:float;
+  scaleU:float;
+  scaleV:float;
+  rotation:float;
+  uvSet:int;
+}
 table MaterialSlot {
   name:string;
   albedoR:float;
@@ -19,11 +27,78 @@ table MaterialSlot {
   normalTexGuid:string;
   ormTexGuid:string;
   heightTexGuid:string;
+  emissiveR:float = 0.0;
+  emissiveG:float = 0.0;
+  emissiveB:float = 0.0;
+  emissiveStrength:float = 1.0;
+  emissiveTexGuid:string;
+  unlit:bool = false;
+  doubleSided:bool = false;
+  alphaMode:int = 0;
+  alphaCutoff:float = 0.5;
+  xforms:[UvXform];
+  ior:float = 1.5;
+  specularR:float = 1.0;
+  specularG:float = 1.0;
+  specularB:float = 1.0;
+  specularStrength:float = 1.0;
+  specularTexGuid:string;
+  specularColorTexGuid:string;
+  clearcoat:float = 0.0;
+  clearcoatRoughness:float = 0.0;
+  clearcoatTexGuid:string;
+  clearcoatRoughnessTexGuid:string;
+  clearcoatNormalTexGuid:string;
+  sheenColorR:float = 0.0;
+  sheenColorG:float = 0.0;
+  sheenColorB:float = 0.0;
+  sheenRoughness:float = 0.0;
+  sheenColorTexGuid:string;
+  sheenRoughnessTexGuid:string;
+  transmission:float = 0.0;
+  transmissionTexGuid:string;
+  thickness:float = 0.0;
+  thicknessTexGuid:string;
+  attenuationR:float = 1.0;
+  attenuationG:float = 1.0;
+  attenuationB:float = 1.0;
+  attenuationDistance:float = 0.0;
+  iridescence:float = 0.0;
+  iridescenceIor:float = 1.3;
+  iridescenceThicknessMin:float = 100.0;
+  iridescenceThicknessMax:float = 400.0;
+  iridescenceTexGuid:string;
+  iridescenceThicknessTexGuid:string;
+  anisotropy:float = 0.0;
+  anisotropyRotation:float = 0.0;
+  anisotropyTexGuid:string;
+  dispersion:float = 0.0;
 }
 struct MeshPart {
   indexOffset:uint;
   indexCount:uint;
   material:uint;
+}
+table VariantAssign {
+  part:uint;
+  variant:uint;
+  material:uint;
+}
+table GltfLight {
+  name:string;
+  type:int;
+  colorR:float;
+  colorG:float;
+  colorB:float;
+  intensity:float;
+  range:float;
+  innerCone:float;
+  outerCone:float;
+  matrix:[float];
+}
+table GpuInstance {
+  mesh:uint;
+  matrices:[float];
 }
 table MeshAsset {
   guid:string;
@@ -40,5 +115,9 @@ table MeshAsset {
   sourcePath:string;
   sourceHash:ulong;
   sourceTimestamp:long;
+  variantNames:[string];
+  variantAssigns:[VariantAssign];
+  lights:[GltfLight];
+  gpuInstances:[GpuInstance];
 }
 root_type MeshAsset;

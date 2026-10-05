@@ -96,46 +96,118 @@ bool ResolveGltfImage(const cgltf_image* img, const std::string& glbPath, std::v
   }
   return false;
 }
+bool ReadFloatComp(const unsigned char* p, cgltf_component_type ct, bool normalized, float& v) {
+  switch (ct) {
+    case cgltf_component_type_r_32f: {
+      float f = 0.0f;
+      std::memcpy(&f, p, 4);
+      v = f;
+      return true;
+    }
+    case cgltf_component_type_r_32u: {
+      uint32_t u = 0;
+      std::memcpy(&u, p, 4);
+      v = normalized ? static_cast<float>(u) / 4294967295.0f : static_cast<float>(u);
+      return true;
+    }
+    case cgltf_component_type_r_16u: {
+      uint16_t u = 0;
+      std::memcpy(&u, p, 2);
+      v = normalized ? static_cast<float>(u) / 65535.0f : static_cast<float>(u);
+      return true;
+    }
+    case cgltf_component_type_r_8u: {
+      v = normalized ? static_cast<float>(*p) / 255.0f : static_cast<float>(*p);
+      return true;
+    }
+    case cgltf_component_type_r_16: {
+      int16_t s = 0;
+      std::memcpy(&s, p, 2);
+      float f = static_cast<float>(s) / 32767.0f;
+      v = normalized ? (f < -1.0f ? -1.0f : (f > 1.0f ? 1.0f : f)) : static_cast<float>(s);
+      return true;
+    }
+    case cgltf_component_type_r_8: {
+      int8_t s = 0;
+      std::memcpy(&s, p, 1);
+      float f = static_cast<float>(s) / 127.0f;
+      v = normalized ? (f < -1.0f ? -1.0f : (f > 1.0f ? 1.0f : f)) : static_cast<float>(s);
+      return true;
+    }
+    default:
+      return false;
+  }
+}
 bool ReadVec3(const cgltf_accessor* acc, size_t idx, float* v) {
-  if (acc == nullptr || acc->type != cgltf_type_vec3 || acc->component_type != cgltf_component_type_r_32f) {
+  if (acc == nullptr || acc->type != cgltf_type_vec3) {
     return false;
   }
   if (idx >= acc->count || acc->buffer_view == nullptr || acc->buffer_view->buffer == nullptr) {
     return false;
   }
   const unsigned char* base = static_cast<const unsigned char*>(acc->buffer_view->buffer->data);
-  const float* f = reinterpret_cast<const float*>(base + acc->buffer_view->offset + acc->offset + idx * acc->stride);
-  v[0] = f[0];
-  v[1] = f[1];
-  v[2] = f[2];
+  size_t stride = acc->stride != 0 ? acc->stride : 12;
+  const unsigned char* e = base + acc->buffer_view->offset + acc->offset + idx * stride;
+  size_t comp = 0;
+  switch (acc->component_type) {
+    case cgltf_component_type_r_32f: comp = 4; break;
+    case cgltf_component_type_r_16u: case cgltf_component_type_r_16: comp = 2; break;
+    case cgltf_component_type_r_8u: case cgltf_component_type_r_8: comp = 1; break;
+    default: return false;
+  }
+  for (int c = 0; c < 3; ++c) {
+    if (!ReadFloatComp(e + c * comp, acc->component_type, acc->normalized != 0, v[c])) {
+      return false;
+    }
+  }
   return true;
 }
 bool ReadVec2(const cgltf_accessor* acc, size_t idx, float* v) {
-  if (acc == nullptr || acc->type != cgltf_type_vec2 || acc->component_type != cgltf_component_type_r_32f) {
+  if (acc == nullptr || acc->type != cgltf_type_vec2) {
     return false;
   }
   if (idx >= acc->count || acc->buffer_view == nullptr || acc->buffer_view->buffer == nullptr) {
     return false;
   }
   const unsigned char* base = static_cast<const unsigned char*>(acc->buffer_view->buffer->data);
-  const float* f = reinterpret_cast<const float*>(base + acc->buffer_view->offset + acc->offset + idx * acc->stride);
-  v[0] = f[0];
-  v[1] = f[1];
+  size_t stride = acc->stride != 0 ? acc->stride : 8;
+  const unsigned char* e = base + acc->buffer_view->offset + acc->offset + idx * stride;
+  size_t comp = 0;
+  switch (acc->component_type) {
+    case cgltf_component_type_r_32f: comp = 4; break;
+    case cgltf_component_type_r_16u: case cgltf_component_type_r_16: comp = 2; break;
+    case cgltf_component_type_r_8u: case cgltf_component_type_r_8: comp = 1; break;
+    default: return false;
+  }
+  for (int c = 0; c < 2; ++c) {
+    if (!ReadFloatComp(e + c * comp, acc->component_type, acc->normalized != 0, v[c])) {
+      return false;
+    }
+  }
   return true;
 }
 bool ReadVec4(const cgltf_accessor* acc, size_t idx, float* v) {
-  if (acc == nullptr || acc->type != cgltf_type_vec4 || acc->component_type != cgltf_component_type_r_32f) {
+  if (acc == nullptr || acc->type != cgltf_type_vec4) {
     return false;
   }
   if (idx >= acc->count || acc->buffer_view == nullptr || acc->buffer_view->buffer == nullptr) {
     return false;
   }
   const unsigned char* base = static_cast<const unsigned char*>(acc->buffer_view->buffer->data);
-  const float* f = reinterpret_cast<const float*>(base + acc->buffer_view->offset + acc->offset + idx * acc->stride);
-  v[0] = f[0];
-  v[1] = f[1];
-  v[2] = f[2];
-  v[3] = f[3];
+  size_t stride = acc->stride != 0 ? acc->stride : 16;
+  const unsigned char* e = base + acc->buffer_view->offset + acc->offset + idx * stride;
+  size_t comp = 0;
+  switch (acc->component_type) {
+    case cgltf_component_type_r_32f: comp = 4; break;
+    case cgltf_component_type_r_16u: case cgltf_component_type_r_16: comp = 2; break;
+    case cgltf_component_type_r_8u: case cgltf_component_type_r_8: comp = 1; break;
+    default: return false;
+  }
+  for (int c = 0; c < 4; ++c) {
+    if (!ReadFloatComp(e + c * comp, acc->component_type, acc->normalized != 0, v[c])) {
+      return false;
+    }
+  }
   return true;
 }
 bool ReadIndex(const cgltf_accessor* acc, size_t idx, uint32_t& v) {
@@ -328,6 +400,245 @@ void InvertNormalMatrix(const float m[16], float nm[9]) {
   nm[7] = (r[1] * r[6] - r[0] * r[7]) * inv;
   nm[8] = (r[0] * r[4] - r[1] * r[3]) * inv;
 }
+void ReadTextureXform(const cgltf_texture_view& view, MeshMaterialData& md, int slot) {
+  if (slot < 0 || slot > 4) {
+    return;
+  }
+  MeshUvXform& x = md.xforms[slot];
+  x.offsetU = 0.0f;
+  x.offsetV = 0.0f;
+  x.scaleU = 1.0f;
+  x.scaleV = 1.0f;
+  x.rotation = 0.0f;
+  x.uvSet = view.texcoord >= 0 && view.texcoord <= 8 ? view.texcoord : 0;
+  if (view.has_transform == 0) {
+    return;
+  }
+  x.offsetU = view.transform.offset[0];
+  x.offsetV = view.transform.offset[1];
+  x.scaleU = view.transform.scale[0];
+  x.scaleV = view.transform.scale[1];
+  x.rotation = view.transform.rotation;
+  if (view.transform.has_texcoord != 0 && view.transform.texcoord >= 0 && view.transform.texcoord <= 8) {
+    x.uvSet = view.transform.texcoord;
+  }
+}
+void ParseMaterial(const cgltf_material* cmat, const std::string& glbPath, uint64_t hash, int& texCounter, MeshMaterialData& md, LogStore* log) {
+  md.name = cmat->name != nullptr ? cmat->name : "Material";
+  md.doubleSided = cmat->double_sided != 0;
+  if (cmat->alpha_mode == cgltf_alpha_mode_mask) {
+    md.alphaMode = 1;
+  } else if (cmat->alpha_mode == cgltf_alpha_mode_blend) {
+    md.alphaMode = 2;
+  } else {
+    md.alphaMode = 0;
+  }
+  md.alphaCutoff = cmat->alpha_cutoff;
+  md.emissive[0] = cmat->emissive_factor[0];
+  md.emissive[1] = cmat->emissive_factor[1];
+  md.emissive[2] = cmat->emissive_factor[2];
+  md.emissiveStrength = cmat->has_emissive_strength != 0 ? cmat->emissive_strength.emissive_strength : 1.0f;
+  md.unlit = cmat->unlit != 0;
+  if (cmat->has_pbr_specular_glossiness != 0) {
+    const cgltf_pbr_specular_glossiness& sg = cmat->pbr_specular_glossiness;
+    md.albedo[0] = sg.diffuse_factor[0];
+    md.albedo[1] = sg.diffuse_factor[1];
+    md.albedo[2] = sg.diffuse_factor[2];
+    float gloss = sg.glossiness_factor;
+    if (gloss < 0.0f) {
+      gloss = 0.0f;
+    }
+    if (gloss > 1.0f) {
+      gloss = 1.0f;
+    }
+    md.roughness = 1.0f - gloss;
+    md.metallic = 0.0f;
+    ImportEmbeddedTexture(sg.diffuse_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.albedoTexGuid);
+    ImportEmbeddedTexture(cmat->normal_texture.texture, glbPath, hash, texCounter, TexKind::Normal, md.normalTexGuid);
+    ReadTextureXform(sg.diffuse_texture, md, 0);
+    ReadTextureXform(cmat->normal_texture, md, 1);
+    const cgltf_texture* sgTex = sg.specular_glossiness_texture.texture;
+    if (sgTex != nullptr) {
+      std::vector<unsigned char> rgba;
+      int w = 0;
+      int h = 0;
+      if (DecodeGltfImageRgba(sgTex, glbPath, rgba, w, h)) {
+        double lumSum = 0.0;
+        size_t lumCount = static_cast<size_t>(w) * static_cast<size_t>(h);
+        for (size_t li = 0; li < lumCount; ++li) {
+          lumSum += (static_cast<double>(rgba[li * 4 + 0]) + static_cast<double>(rgba[li * 4 + 1]) + static_cast<double>(rgba[li * 4 + 2])) / (3.0 * 255.0);
+        }
+        float avgLum = lumCount > 0 ? static_cast<float>(lumSum / static_cast<double>(lumCount)) : 0.0f;
+        if (avgLum > 0.15f) {
+          md.metallic = (avgLum - 0.04f) / 0.96f;
+          if (md.metallic < 0.0f) {
+            md.metallic = 0.0f;
+          }
+          if (md.metallic > 1.0f) {
+            md.metallic = 1.0f;
+          }
+          if (log != nullptr) {
+            log->Add(LogLevel::Warning, "spec-gloss metallic inferred from specular texture");
+          }
+        }
+        std::vector<unsigned char> orm(static_cast<size_t>(w) * static_cast<size_t>(h) * 4);
+        for (int y = 0; y < h; ++y) {
+          for (int x = 0; x < w; ++x) {
+            size_t s = (static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)) * 4;
+            orm[s + 0] = 255;
+            orm[s + 1] = static_cast<unsigned char>(md.roughness * 255.0f + 0.5f);
+            orm[s + 2] = static_cast<unsigned char>(md.metallic * 255.0f + 0.5f);
+            orm[s + 3] = 255;
+          }
+        }
+        std::filesystem::path glbFile(glbPath);
+        std::string texName = glbFile.stem().string() + "_tex" + std::to_string(texCounter++) + ".kztex";
+        std::string texOut = (glbFile.parent_path() / texName).string();
+        TextureAssetData tdata;
+        if (CompressTexturePixels(orm.data(), w, h, "", tdata, "orm", TexKind::Orm, glbPath, hash) && EncodeTextureFile(tdata, texOut)) {
+          md.ormTexGuid = tdata.guid;
+        }
+      }
+    }
+  } else if (cmat->has_pbr_metallic_roughness != 0) {
+    const cgltf_pbr_metallic_roughness& mr = cmat->pbr_metallic_roughness;
+    md.albedo[0] = mr.base_color_factor[0];
+    md.albedo[1] = mr.base_color_factor[1];
+    md.albedo[2] = mr.base_color_factor[2];
+    md.metallic = mr.metallic_factor;
+    md.roughness = mr.roughness_factor;
+    ImportEmbeddedTexture(mr.base_color_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.albedoTexGuid);
+    ImportEmbeddedTexture(cmat->normal_texture.texture, glbPath, hash, texCounter, TexKind::Normal, md.normalTexGuid);
+    ImportOrmTextures(cmat, glbPath, hash, texCounter, md, md.ormTexGuid);
+    ReadTextureXform(mr.base_color_texture, md, 0);
+    ReadTextureXform(cmat->normal_texture, md, 1);
+    ReadTextureXform(mr.metallic_roughness_texture, md, 2);
+  }
+  ImportEmbeddedTexture(cmat->emissive_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.emissiveTexGuid);
+  ReadTextureXform(cmat->emissive_texture, md, 4);
+  if (cmat->has_ior != 0) {
+    md.ior = cmat->ior.ior;
+  }
+  if (cmat->has_specular != 0) {
+    md.specularColor[0] = cmat->specular.specular_color_factor[0];
+    md.specularColor[1] = cmat->specular.specular_color_factor[1];
+    md.specularColor[2] = cmat->specular.specular_color_factor[2];
+    md.specularStrength = cmat->specular.specular_factor;
+    ImportEmbeddedTexture(cmat->specular.specular_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.specularTexGuid);
+    ImportEmbeddedTexture(cmat->specular.specular_color_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.specularColorTexGuid);
+  }
+  if (cmat->has_clearcoat != 0) {
+    md.clearcoat = cmat->clearcoat.clearcoat_factor;
+    md.clearcoatRoughness = cmat->clearcoat.clearcoat_roughness_factor;
+    ImportEmbeddedTexture(cmat->clearcoat.clearcoat_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.clearcoatTexGuid);
+    ImportEmbeddedTexture(cmat->clearcoat.clearcoat_roughness_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.clearcoatRoughnessTexGuid);
+    ImportEmbeddedTexture(cmat->clearcoat.clearcoat_normal_texture.texture, glbPath, hash, texCounter, TexKind::Normal, md.clearcoatNormalTexGuid);
+  }
+  if (cmat->has_sheen != 0) {
+    md.sheenColor[0] = cmat->sheen.sheen_color_factor[0];
+    md.sheenColor[1] = cmat->sheen.sheen_color_factor[1];
+    md.sheenColor[2] = cmat->sheen.sheen_color_factor[2];
+    md.sheenRoughness = cmat->sheen.sheen_roughness_factor;
+    ImportEmbeddedTexture(cmat->sheen.sheen_color_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.sheenColorTexGuid);
+    ImportEmbeddedTexture(cmat->sheen.sheen_roughness_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.sheenRoughnessTexGuid);
+  }
+  if (cmat->has_transmission != 0) {
+    md.transmission = cmat->transmission.transmission_factor;
+    ImportEmbeddedTexture(cmat->transmission.transmission_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.transmissionTexGuid);
+  }
+  if (cmat->has_volume != 0) {
+    md.thickness = cmat->volume.thickness_factor;
+    md.attenuationColor[0] = cmat->volume.attenuation_color[0];
+    md.attenuationColor[1] = cmat->volume.attenuation_color[1];
+    md.attenuationColor[2] = cmat->volume.attenuation_color[2];
+    md.attenuationDistance = cmat->volume.attenuation_distance;
+    ImportEmbeddedTexture(cmat->volume.thickness_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.thicknessTexGuid);
+  }
+  if (cmat->has_iridescence != 0) {
+    md.iridescence = cmat->iridescence.iridescence_factor;
+    md.iridescenceIor = cmat->iridescence.iridescence_ior;
+    md.iridescenceThicknessMin = cmat->iridescence.iridescence_thickness_min;
+    md.iridescenceThicknessMax = cmat->iridescence.iridescence_thickness_max;
+    ImportEmbeddedTexture(cmat->iridescence.iridescence_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.iridescenceTexGuid);
+    ImportEmbeddedTexture(cmat->iridescence.iridescence_thickness_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.iridescenceThicknessTexGuid);
+  }
+  if (cmat->has_diffuse_transmission != 0) {
+    if (log != nullptr) {
+      log->Add(LogLevel::Warning, "diffuse transmission folded into transmission lobe");
+    }
+    float dt = cmat->diffuse_transmission.diffuse_transmission_factor;
+    if (dt > md.transmission) {
+      md.transmission = dt;
+    }
+    if (md.transmissionTexGuid.empty()) {
+      ImportEmbeddedTexture(cmat->diffuse_transmission.diffuse_transmission_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.transmissionTexGuid);
+    }
+  }
+  if (cmat->has_anisotropy != 0) {
+    md.anisotropy = cmat->anisotropy.anisotropy_strength;
+    md.anisotropyRotation = cmat->anisotropy.anisotropy_rotation;
+    ImportEmbeddedTexture(cmat->anisotropy.anisotropy_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.anisotropyTexGuid);
+  }
+  if (cmat->has_dispersion != 0) {
+    md.dispersion = cmat->dispersion.dispersion;
+  }
+}
+uint32_t ParseMaterialCached(cgltf_data* data, const cgltf_material* cmat, const std::string& glbPath, uint64_t hash, int& texCounter, MeshAssetData& out, std::vector<long>& matMap, LogStore* log) {
+  long gi = static_cast<long>(cmat - data->materials);
+  if (gi >= 0 && static_cast<size_t>(gi) < matMap.size() && matMap[static_cast<size_t>(gi)] >= 0) {
+    return static_cast<uint32_t>(matMap[static_cast<size_t>(gi)]);
+  }
+  MeshMaterialData md;
+  ParseMaterial(cmat, glbPath, hash, texCounter, md, log);
+  uint32_t idx = static_cast<uint32_t>(out.materials.size());
+  out.materials.push_back(md);
+  if (gi >= 0 && static_cast<size_t>(gi) < matMap.size()) {
+    matMap[static_cast<size_t>(gi)] = static_cast<long>(idx);
+  }
+  return idx;
+}
+void ComposeTRS(const float t[3], const float q[4], const float s[3], float out[16]) {
+  float x = q[0];
+  float y = q[1];
+  float z = q[2];
+  float w = q[3];
+  float xx = x * x;
+  float yy = y * y;
+  float zz = z * z;
+  float xy = x * y;
+  float xz = x * z;
+  float yz = y * z;
+  float wx = w * x;
+  float wy = w * y;
+  float wz = w * z;
+  out[0] = (1.0f - 2.0f * (yy + zz)) * s[0];
+  out[1] = (2.0f * (xy + wz)) * s[0];
+  out[2] = (2.0f * (xz - wy)) * s[0];
+  out[3] = 0.0f;
+  out[4] = (2.0f * (xy - wz)) * s[1];
+  out[5] = (1.0f - 2.0f * (xx + zz)) * s[1];
+  out[6] = (2.0f * (yz + wx)) * s[1];
+  out[7] = 0.0f;
+  out[8] = (2.0f * (xz + wy)) * s[2];
+  out[9] = (2.0f * (yz - wx)) * s[2];
+  out[10] = (1.0f - 2.0f * (xx + yy)) * s[2];
+  out[11] = 0.0f;
+  out[12] = t[0];
+  out[13] = t[1];
+  out[14] = t[2];
+  out[15] = 1.0f;
+}
+void MulMat4(const float a[16], const float b[16], float out[16]) {
+  float r[16];
+  for (int c = 0; c < 4; ++c) {
+    for (int rr = 0; rr < 4; ++rr) {
+      r[c * 4 + rr] = a[0 * 4 + rr] * b[c * 4 + 0] + a[1 * 4 + rr] * b[c * 4 + 1] + a[2 * 4 + rr] * b[c * 4 + 2] + a[3 * 4 + rr] * b[c * 4 + 3];
+    }
+  }
+  for (int k = 0; k < 16; ++k) {
+    out[k] = r[k];
+  }
+}
 }
 bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, MeshAssetData& out, LogStore* log) {
   out = MeshAssetData();
@@ -350,6 +661,9 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
   std::vector<long> matMap(data->materials_count, -1);
   if (cgltf_load_buffers(&options, data, glbPath.c_str()) == cgltf_result_success && data->meshes_count > 0) {
     ok = true;
+    for (size_t vi = 0; vi < data->variants_count; ++vi) {
+      out.variantNames.push_back(data->variants[vi].name != nullptr ? data->variants[vi].name : "");
+    }
     struct MeshInstance {
       size_t meshIndex;
       float m[16];
@@ -382,6 +696,88 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
       inst.m[15] = 1.0f;
       instances.push_back(inst);
     }
+    for (size_t ni = 0; ni < data->nodes_count && ok; ++ni) {
+      const cgltf_node& node = data->nodes[ni];
+      if (node.has_mesh_gpu_instancing == 0 || node.mesh == nullptr) {
+        continue;
+      }
+      const cgltf_accessor* tAcc = nullptr;
+      const cgltf_accessor* rAcc = nullptr;
+      const cgltf_accessor* sAcc = nullptr;
+      for (size_t ai = 0; ai < node.mesh_gpu_instancing.attributes_count; ++ai) {
+        const char* an = node.mesh_gpu_instancing.attributes[ai].name;
+        if (std::strcmp(an, "TRANSLATION") == 0) {
+          tAcc = node.mesh_gpu_instancing.attributes[ai].data;
+        } else if (std::strcmp(an, "ROTATION") == 0) {
+          rAcc = node.mesh_gpu_instancing.attributes[ai].data;
+        } else if (std::strcmp(an, "SCALE") == 0) {
+          sAcc = node.mesh_gpu_instancing.attributes[ai].data;
+        }
+      }
+      size_t n = 0;
+      if (tAcc != nullptr) {
+        n = tAcc->count;
+      }
+      if (rAcc != nullptr && (n == 0 || rAcc->count < n)) {
+        n = rAcc->count;
+      }
+      if (sAcc != nullptr && (n == 0 || sAcc->count < n)) {
+        n = sAcc->count;
+      }
+      if (n == 0) {
+        continue;
+      }
+      float nodeM[16];
+      cgltf_node_transform_world(&node, nodeM);
+      for (size_t gi2 = 0; gi2 < n; ++gi2) {
+        float t[3] = { 0, 0, 0 };
+        float q[4] = { 0, 0, 0, 1 };
+        float s[3] = { 1, 1, 1 };
+        if (tAcc != nullptr && !ReadVec3(tAcc, gi2, t)) {
+          ok = false;
+          break;
+        }
+        if (rAcc != nullptr && !ReadVec4(rAcc, gi2, q)) {
+          ok = false;
+          break;
+        }
+        if (sAcc != nullptr && !ReadVec3(sAcc, gi2, s)) {
+          ok = false;
+          break;
+        }
+        float local[16];
+        ComposeTRS(t, q, s, local);
+        MeshInstance inst;
+        inst.meshIndex = static_cast<size_t>(node.mesh - data->meshes);
+        MulMat4(nodeM, local, inst.m);
+        instances.push_back(inst);
+      }
+    }
+    for (size_t ni = 0; ni < data->nodes_count && ok; ++ni) {
+      const cgltf_node& node = data->nodes[ni];
+      if (node.light == nullptr) {
+        continue;
+      }
+      const cgltf_light* cl = node.light;
+      MeshLightData ld;
+      ld.name = cl->name != nullptr ? cl->name : (node.name != nullptr ? node.name : "Light");
+      if (cl->type == cgltf_light_type_spot) {
+        ld.type = 1;
+      } else if (cl->type == cgltf_light_type_directional) {
+        ld.type = 2;
+      } else {
+        ld.type = 0;
+      }
+      ld.color[0] = cl->color[0];
+      ld.color[1] = cl->color[1];
+      ld.color[2] = cl->color[2];
+      ld.intensity = cl->intensity;
+      ld.range = cl->range;
+      ld.innerCone = cl->spot_inner_cone_angle;
+      ld.outerCone = cl->spot_outer_cone_angle;
+      cgltf_node_transform_world(&node, ld.matrix);
+      out.lights.push_back(ld);
+    }
     for (size_t ii = 0; ii < instances.size() && ok; ++ii) {
       const cgltf_mesh& mesh = data->meshes[instances[ii].meshIndex];
       float nm[9];
@@ -390,6 +786,12 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
       for (size_t pi = 0; pi < mesh.primitives_count && ok; ++pi) {
         const cgltf_primitive& prim = mesh.primitives[pi];
         if (prim.type != cgltf_primitive_type_triangles) {
+          continue;
+        }
+        if (prim.has_draco_mesh_compression != 0) {
+          if (log != nullptr) {
+            log->Add(LogLevel::Warning, "draco primitive skipped; decoder arrives in Lote 2");
+          }
           continue;
         }
         const cgltf_accessor* posAcc = nullptr;
@@ -411,6 +813,12 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
           }
         }
         if (posAcc == nullptr || posAcc->count == 0) {
+          continue;
+        }
+        if (posAcc->buffer_view != nullptr && posAcc->buffer_view->has_meshopt_compression != 0) {
+          if (log != nullptr) {
+            log->Add(LogLevel::Warning, "meshopt primitive skipped; decoder arrives in Lote 2");
+          }
           continue;
         }
         std::vector<float> primPos;
@@ -543,6 +951,7 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
           ok = false;
           break;
         }
+        uint32_t partIdx = static_cast<uint32_t>(out.parts.size());
         out.positions.insert(out.positions.end(), usePos.begin(), usePos.end());
         out.normals.insert(out.normals.end(), useNrm.begin(), useNrm.end());
         out.uvs.insert(out.uvs.end(), useUv.begin(), useUv.end());
@@ -556,39 +965,23 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
         }
         uint32_t matIndex = 0;
         if (prim.material != nullptr && prim.material >= data->materials && prim.material < data->materials + data->materials_count) {
-          long gi = static_cast<long>(prim.material - data->materials);
-          if (matMap[static_cast<size_t>(gi)] < 0) {
-            MeshMaterialData md;
-            md.name = prim.material->name != nullptr ? prim.material->name : "Material";
-            md.albedo[0] = 1.0f;
-            md.albedo[1] = 1.0f;
-            md.albedo[2] = 1.0f;
-            md.metallic = 0.0f;
-            md.roughness = 0.5f;
-            md.albedoTexGuid = "";
-            if (prim.material->has_pbr_metallic_roughness) {
-              md.albedo[0] = prim.material->pbr_metallic_roughness.base_color_factor[0];
-              md.albedo[1] = prim.material->pbr_metallic_roughness.base_color_factor[1];
-              md.albedo[2] = prim.material->pbr_metallic_roughness.base_color_factor[2];
-              md.metallic = prim.material->pbr_metallic_roughness.metallic_factor;
-              md.roughness = prim.material->pbr_metallic_roughness.roughness_factor;
-              ImportEmbeddedTexture(prim.material->pbr_metallic_roughness.base_color_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.albedoTexGuid);
-              ImportEmbeddedTexture(prim.material->normal_texture.texture, glbPath, hash, texCounter, TexKind::Normal, md.normalTexGuid);
-              ImportOrmTextures(prim.material, glbPath, hash, texCounter, md, md.ormTexGuid);
-            }
-            matMap[static_cast<size_t>(gi)] = static_cast<long>(out.materials.size());
-            out.materials.push_back(md);
-          }
-          matIndex = static_cast<uint32_t>(matMap[static_cast<size_t>(gi)]);
+          matIndex = ParseMaterialCached(data, prim.material, glbPath, hash, texCounter, out, matMap, log);
         } else if (out.materials.empty()) {
           MeshMaterialData md;
           md.name = "Default";
-          md.albedo[0] = 1.0f;
-          md.albedo[1] = 1.0f;
-          md.albedo[2] = 1.0f;
-          md.metallic = 0.0f;
-          md.roughness = 0.5f;
           out.materials.push_back(md);
+        }
+        for (size_t mi2 = 0; mi2 < prim.mappings_count && !useIdx.empty(); ++mi2) {
+          const cgltf_material_mapping& mp = prim.mappings[mi2];
+          if (mp.material == nullptr || mp.material < data->materials || mp.material >= data->materials + data->materials_count) {
+            continue;
+          }
+          uint32_t mapped = ParseMaterialCached(data, mp.material, glbPath, hash, texCounter, out, matMap, log);
+          MeshVariantAssign va;
+          va.part = partIdx;
+          va.variant = static_cast<uint32_t>(mp.variant);
+          va.material = mapped;
+          out.variantAssigns.push_back(va);
         }
         MeshPartData part;
         part.indexOffset = static_cast<uint32_t>(out.indices.size()) - static_cast<uint32_t>(useIdx.size());
