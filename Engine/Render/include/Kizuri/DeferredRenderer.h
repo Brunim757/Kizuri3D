@@ -219,6 +219,8 @@ private:
   RHIPixelShader ssgiPS;
   RHIRenderTarget ssgiA;
   bool ssgiOn;
+  RHIPixelShader ssgiBlurPS;
+  RHIRenderTarget ssgiB;
   RHIPixelShader fxaaPS;
   RHIConstBuffer fxaaCB;
   RHIRenderTarget fxaaA;
