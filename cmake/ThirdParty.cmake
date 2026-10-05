@@ -87,7 +87,10 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/compat)
 FetchContent_MakeAvailable(draco libwebp)
 add_library(kizuri_draco INTERFACE)
 target_link_libraries(kizuri_draco INTERFACE draco)
-target_include_directories(kizuri_draco INTERFACE ${draco_SOURCE_DIR}/src ${draco_BINARY_DIR})
+target_include_directories(kizuri_draco INTERFACE ${draco_SOURCE_DIR}/src ${CMAKE_BINARY_DIR})
+add_library(kizuri_webp INTERFACE)
+target_link_libraries(kizuri_webp INTERFACE webpdecoder)
+target_include_directories(kizuri_webp INTERFACE ${libwebp_SOURCE_DIR}/src)
 FetchContent_Declare(
   imgui
   GIT_REPOSITORY https://github.com/ocornut/imgui.git
