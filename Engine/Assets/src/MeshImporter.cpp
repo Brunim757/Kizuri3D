@@ -413,11 +413,11 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
         if (posAcc == nullptr || posAcc->count == 0) {
           continue;
         }
-        std::vector<float> out.positions;
+        std::vector<float> primPos;
         std::vector<float> primNrm;
         std::vector<float> primUv;
         std::vector<float> primTan;
-        out.positions.reserve(posAcc->count * 3);
+        primPos.reserve(posAcc->count * 3);
         primNrm.reserve(posAcc->count * 3);
         primUv.reserve(posAcc->count * 2);
         primTan.reserve(posAcc->count * 4);
