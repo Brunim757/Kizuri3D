@@ -143,7 +143,7 @@ void EditorApp::UploadDefaultCube() {
     return;
   }
   std::vector<float> interleaved;
-  interleaved.reserve(vertexCount * 12);
+  interleaved.reserve(vertexCount * 14);
   for (size_t i = 0; i < vertexCount; ++i) {
     interleaved.push_back(cubeMesh.positions[i * 3 + 0]);
     interleaved.push_back(cubeMesh.positions[i * 3 + 1]);
@@ -164,8 +164,15 @@ void EditorApp::UploadDefaultCube() {
       interleaved.push_back(0.0f);
       interleaved.push_back(1.0f);
     }
+    if (cubeMesh.uv2s.size() == vertexCount * 2) {
+      interleaved.push_back(cubeMesh.uv2s[i * 2 + 0]);
+      interleaved.push_back(cubeMesh.uv2s[i * 2 + 1]);
+    } else {
+      interleaved.push_back(0.0f);
+      interleaved.push_back(0.0f);
+    }
   }
-  defaultVB = rhi->CreateBuffer(static_cast<uint64_t>(interleaved.size() * sizeof(float)), 48, false, interleaved.data());
+  defaultVB = rhi->CreateBuffer(static_cast<uint64_t>(interleaved.size() * sizeof(float)), 56, false, interleaved.data());
   defaultIB = rhi->CreateBuffer(static_cast<uint64_t>(cubeMesh.indices.size() * 4), 4, true, cubeMesh.indices.data());
   if (defaultVB == 0 || defaultIB == 0) {
     if (defaultVB != 0) {
@@ -348,6 +355,7 @@ bool EditorApp::Initialize() {
     if (!Kizuri::GenerateTangents(cubeMesh.positions, cubeMesh.normals, cubeMesh.uvs, cubeMesh.indices, cubeMesh.tangents)) {
       Announce(LogLevel::Error, std::string("Cube tangents failed: ") + cubePath);
     }
+    cubeMesh.uv2s.assign(cubeMesh.positions.size() / 3 * 2, 0.0f);
     cubeReady = true;
     log.Add(LogLevel::Info, std::string("Mesh loaded: ") + cubePath);
   } else {
@@ -360,7 +368,8 @@ bool EditorApp::Initialize() {
   }
   if (cubeReady) {
     const float* cubeTan = cubeMesh.tangents.size() == cubeMesh.positions.size() / 3 * 4 ? cubeMesh.tangents.data() : nullptr;
-    renderer.SetMesh(cubeMesh.positions.data(), cubeMesh.normals.data(), cubeMesh.uvs.data(), cubeMesh.positions.size() / 3, cubeMesh.indices.data(), cubeMesh.indices.size(), cubeTan);
+    const float* cubeUv2 = cubeMesh.uv2s.size() == cubeMesh.positions.size() / 3 * 2 ? cubeMesh.uv2s.data() : nullptr;
+    renderer.SetMesh(cubeMesh.positions.data(), cubeMesh.normals.data(), cubeMesh.uvs.data(), cubeMesh.positions.size() / 3, cubeMesh.indices.data(), cubeMesh.indices.size(), cubeTan, cubeUv2);
   }
   DeferredMaterial mat;
   mat.albedo[0] = 0.75f;

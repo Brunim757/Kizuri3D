@@ -61,9 +61,10 @@ void ComputeAABB(const std::vector<float>& positions, float outMin[3], float out
   }
 }
 bool AppendMeshFlatBuffer(const MeshAssetData& data, size_t vertexCount, flatbuffers::FlatBufferBuilder& builder) {
-  std::vector<unsigned char> verts(vertexCount * 32);
+  bool hasUv2 = data.uv2s.size() == vertexCount * 2;
+  std::vector<unsigned char> verts(vertexCount * 40);
   for (size_t i = 0; i < vertexCount; ++i) {
-    float* dst = reinterpret_cast<float*>(&verts[i * 32]);
+    float* dst = reinterpret_cast<float*>(&verts[i * 40]);
     dst[0] = data.positions[i * 3 + 0];
     dst[1] = data.positions[i * 3 + 1];
     dst[2] = data.positions[i * 3 + 2];
@@ -72,6 +73,8 @@ bool AppendMeshFlatBuffer(const MeshAssetData& data, size_t vertexCount, flatbuf
     dst[5] = data.normals[i * 3 + 2];
     dst[6] = data.uvs[i * 2 + 0];
     dst[7] = data.uvs[i * 2 + 1];
+    dst[8] = hasUv2 ? data.uv2s[i * 2 + 0] : 0.0f;
+    dst[9] = hasUv2 ? data.uv2s[i * 2 + 1] : 0.0f;
   }
   std::vector<unsigned char> idx(data.indices.size() * 4);
   std::memcpy(idx.data(), data.indices.data(), idx.size());
@@ -108,7 +111,7 @@ bool AppendMeshFlatBuffer(const MeshAssetData& data, size_t vertexCount, flatbuf
   KizuriAssets::Vec3 bmin(data.aabbMin[0], data.aabbMin[1], data.aabbMin[2]);
   KizuriAssets::Vec3 bmax(data.aabbMax[0], data.aabbMax[1], data.aabbMax[2]);
   KizuriAssets::AABB bounds(bmin, bmax);
-  auto mesh = KizuriAssets::CreateMeshAsset(builder, fbGuid, fbVerts, static_cast<uint32_t>(vertexCount), 32, fbTans, fbIdx, static_cast<uint32_t>(data.indices.size()), &bounds, fbMatsVec, fbPartsVec, data.hasSource, fbSourcePath, data.sourceHash, static_cast<int64_t>(data.sourceTimestamp));
+  auto mesh = KizuriAssets::CreateMeshAsset(builder, fbGuid, fbVerts, static_cast<uint32_t>(vertexCount), 40, fbTans, fbIdx, static_cast<uint32_t>(data.indices.size()), &bounds, fbMatsVec, fbPartsVec, data.hasSource, fbSourcePath, data.sourceHash, static_cast<int64_t>(data.sourceTimestamp));
   builder.Finish(mesh);
   return true;
 }
@@ -118,6 +121,9 @@ bool ValidateMeshData(const MeshAssetData& data, size_t& vertexCount) {
   }
   vertexCount = data.positions.size() / 3;
   if (data.normals.size() != data.positions.size() || data.uvs.size() != vertexCount * 2 || data.tangents.size() != vertexCount * 4) {
+    return false;
+  }
+  if (!data.uv2s.empty() && data.uv2s.size() != vertexCount * 2) {
     return false;
   }
   return true;
@@ -179,10 +185,11 @@ bool DecodeMeshMemory(const void* bytes, size_t size, MeshAssetData& out) {
   if (mesh->guid() == nullptr || mesh->vertexData() == nullptr || mesh->indexData() == nullptr) {
     return false;
   }
-  if (mesh->vertexStride() != 32 || mesh->vertexCount() == 0 || mesh->indexCount() == 0) {
+  if (mesh->vertexStride() != 32 && mesh->vertexStride() != 40) {
     return false;
   }
-  if (mesh->vertexData()->size() != mesh->vertexCount() * 32 || mesh->indexData()->size() != mesh->indexCount() * 4) {
+  size_t vstride = mesh->vertexStride() / 4;
+  if (mesh->vertexData()->size() != mesh->vertexCount() * mesh->vertexStride() || mesh->indexData()->size() != mesh->indexCount() * 4) {
     return false;
   }
   out.guid = mesh->guid()->str();
@@ -191,16 +198,24 @@ bool DecodeMeshMemory(const void* bytes, size_t size, MeshAssetData& out) {
   out.normals.resize(vertexCount * 3);
   out.uvs.resize(vertexCount * 2);
   out.tangents.resize(vertexCount * 4);
+  out.uv2s.resize(vertexCount * 2);
   const float* vdata = reinterpret_cast<const float*>(mesh->vertexData()->data());
   for (size_t i = 0; i < vertexCount; ++i) {
-    out.positions[i * 3 + 0] = vdata[i * 8 + 0];
-    out.positions[i * 3 + 1] = vdata[i * 8 + 1];
-    out.positions[i * 3 + 2] = vdata[i * 8 + 2];
-    out.normals[i * 3 + 0] = vdata[i * 8 + 3];
-    out.normals[i * 3 + 1] = vdata[i * 8 + 4];
-    out.normals[i * 3 + 2] = vdata[i * 8 + 5];
-    out.uvs[i * 2 + 0] = vdata[i * 8 + 6];
-    out.uvs[i * 2 + 1] = vdata[i * 8 + 7];
+    out.positions[i * 3 + 0] = vdata[i * vstride + 0];
+    out.positions[i * 3 + 1] = vdata[i * vstride + 1];
+    out.positions[i * 3 + 2] = vdata[i * vstride + 2];
+    out.normals[i * 3 + 0] = vdata[i * vstride + 3];
+    out.normals[i * 3 + 1] = vdata[i * vstride + 4];
+    out.normals[i * 3 + 2] = vdata[i * vstride + 5];
+    out.uvs[i * 2 + 0] = vdata[i * vstride + 6];
+    out.uvs[i * 2 + 1] = vdata[i * vstride + 7];
+    if (vstride >= 10) {
+      out.uv2s[i * 2 + 0] = vdata[i * vstride + 8];
+      out.uv2s[i * 2 + 1] = vdata[i * vstride + 9];
+    } else {
+      out.uv2s[i * 2 + 0] = 0.0f;
+      out.uv2s[i * 2 + 1] = 0.0f;
+    }
   }
   size_t indexCount = mesh->indexCount();
   out.indices.resize(indexCount);

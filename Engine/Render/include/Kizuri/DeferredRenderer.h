@@ -78,7 +78,7 @@ public:
   ~DeferredRenderer();
   bool Initialize(IRHI* rhi, int w, int h, const char* shaderDir);
   void Shutdown();
-  bool SetMesh(const float* positions, const float* normals, const float* uvs, size_t vertexCount, const uint32_t* indices, size_t indexCount, const float* tangents = nullptr);
+  bool SetMesh(const float* positions, const float* normals, const float* uvs, size_t vertexCount, const uint32_t* indices, size_t indexCount, const float* tangents = nullptr, const float* uv2 = nullptr);
   void SetMaterial(const DeferredMaterial& mat);
   void SetLight(const DeferredLight& light);
   void ClearLights();

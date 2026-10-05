@@ -1237,11 +1237,11 @@ bool AssetDatabase::EnsureMeshGpu(const std::string& guid, size_t maxBytes) {
   if (vertexCount == 0 || record->data.indices.empty()) {
     return false;
   }
-  size_t vbBytes = vertexCount * 48;
+  size_t vbBytes = vertexCount * 56;
   size_t ibBytes = record->data.indices.size() * 4;
   if (record->gpuVB == 0) {
     record->stageInterleaved.clear();
-    record->stageInterleaved.reserve(vertexCount * 12);
+    record->stageInterleaved.reserve(vertexCount * 14);
     for (size_t i = 0; i < vertexCount; ++i) {
       record->stageInterleaved.push_back(record->data.positions[i * 3 + 0]);
       record->stageInterleaved.push_back(record->data.positions[i * 3 + 1]);
@@ -1255,8 +1255,16 @@ bool AssetDatabase::EnsureMeshGpu(const std::string& guid, size_t maxBytes) {
       record->stageInterleaved.push_back(record->data.tangents[i * 4 + 1]);
       record->stageInterleaved.push_back(record->data.tangents[i * 4 + 2]);
       record->stageInterleaved.push_back(record->data.tangents[i * 4 + 3]);
+      float uv2u = 0.0f;
+      float uv2v = 0.0f;
+      if (record->data.uv2s.size() == vertexCount * 2) {
+        uv2u = record->data.uv2s[i * 2 + 0];
+        uv2v = record->data.uv2s[i * 2 + 1];
+      }
+      record->stageInterleaved.push_back(uv2u);
+      record->stageInterleaved.push_back(uv2v);
     }
-    RHIBuffer vb = gpuRhi->CreateBufferEmpty(static_cast<uint64_t>(vbBytes), 48, false);
+    RHIBuffer vb = gpuRhi->CreateBufferEmpty(static_cast<uint64_t>(vbBytes), 56, false);
     if (vb == 0) {
       record->stageInterleaved.clear();
       return false;

@@ -379,15 +379,15 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (!rhi->UpdateTextureMip(neutralAlbedo, 0, 1, 1, 4, whitePx, 4) || !rhi->UpdateTextureMip(neutralNormal, 0, 1, 1, 4, nrmPx, 4) || !rhi->UpdateTextureMip(neutralOrm, 0, 1, 1, 4, ormPx, 4)) {
     return false;
   }
-  float decalBox[8 * 12] = {
-    -0.5f, -0.5f, -0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-    0.5f, -0.5f, -0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-    0.5f, 0.5f, -0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-    -0.5f, 0.5f, -0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-    -0.5f, -0.5f, 0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-    0.5f, -0.5f, 0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-    0.5f, 0.5f, 0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-    -0.5f, 0.5f, 0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1
+  float decalBox[8 * 14] = {
+    -0.5f, -0.5f, -0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+    0.5f, -0.5f, -0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+    0.5f, 0.5f, -0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+    -0.5f, 0.5f, -0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+    -0.5f, -0.5f, 0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+    0.5f, -0.5f, 0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+    0.5f, 0.5f, 0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+    -0.5f, 0.5f, 0.5f, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0
   };
   uint32_t decalIdx[36] = {
     0, 1, 2, 0, 2, 3,
@@ -397,7 +397,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
     3, 2, 6, 3, 6, 7,
     4, 5, 1, 4, 1, 0
   };
-  decalVB = rhi->CreateBuffer(sizeof(decalBox), 48, false, decalBox);
+  decalVB = rhi->CreateBuffer(sizeof(decalBox), 56, false, decalBox);
   decalIB = rhi->CreateBuffer(sizeof(decalIdx), 4, true, decalIdx);
   if (decalVB == 0 || decalIB == 0) {
     return false;
@@ -510,7 +510,7 @@ void DeferredRenderer::Shutdown() {
   rhi = nullptr;
   ready = false;
 }
-bool DeferredRenderer::SetMesh(const float* positions, const float* normals, const float* uvs, size_t vertexCount, const uint32_t* indices, size_t idxCount, const float* tangents) {
+bool DeferredRenderer::SetMesh(const float* positions, const float* normals, const float* uvs, size_t vertexCount, const uint32_t* indices, size_t idxCount, const float* tangents, const float* uv2) {
   if (rhi == nullptr || positions == nullptr || normals == nullptr || indices == nullptr) {
     return false;
   }
@@ -518,7 +518,7 @@ bool DeferredRenderer::SetMesh(const float* positions, const float* normals, con
     return false;
   }
   std::vector<float> interleaved;
-  interleaved.reserve(vertexCount * 12);
+  interleaved.reserve(vertexCount * 14);
   for (size_t i = 0; i < vertexCount; ++i) {
     interleaved.push_back(positions[i * 3 + 0]);
     interleaved.push_back(positions[i * 3 + 1]);
@@ -555,10 +555,18 @@ bool DeferredRenderer::SetMesh(const float* positions, const float* normals, con
     interleaved.push_back(ty);
     interleaved.push_back(tz);
     interleaved.push_back(tw);
+    float llu = 0.0f;
+    float llv = 0.0f;
+    if (uv2 != nullptr) {
+      llu = uv2[i * 2 + 0];
+      llv = uv2[i * 2 + 1];
+    }
+    interleaved.push_back(llu);
+    interleaved.push_back(llv);
   }
   uint64_t vbSize = static_cast<uint64_t>(interleaved.size() * sizeof(float));
   uint64_t ibSize = static_cast<uint64_t>(idxCount * sizeof(uint32_t));
-  RHIBuffer nvb = rhi->CreateBuffer(vbSize, 48, false, interleaved.data());
+  RHIBuffer nvb = rhi->CreateBuffer(vbSize, 56, false, interleaved.data());
   RHIBuffer nib = rhi->CreateBuffer(ibSize, 4, true, indices);
   if (nvb == 0 || nib == 0) {
     return false;

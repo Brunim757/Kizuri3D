@@ -16,6 +16,7 @@ struct PSIn
     float2 uv : TEXCOORD1;
     float4 wtan : TEXCOORD2;
     float3 vts : TEXCOORD3;
+    float2 luv : TEXCOORD4;
 };
 struct PSOut
 {

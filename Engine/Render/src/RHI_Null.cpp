@@ -198,14 +198,6 @@ public:
     Note(false);
     curPS = ps;
   }
-  RHIInputLayout CreateInputLayoutPNU(RHIVertexShader vs) override {
-    if (vs == 0) {
-      return 0;
-    }
-    uint64_t id = nextId++;
-    shaders[id] = 1;
-    return id;
-  }
   RHIInputLayout CreateInputLayoutPNUT(RHIVertexShader vs) override {
     if (vs == 0) {
       return 0;

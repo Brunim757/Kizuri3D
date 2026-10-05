@@ -96,7 +96,6 @@ public:
   virtual RHIPixelShader CreatePixelShaderFromFile(const char* path, const char* entry) = 0;
   virtual void SetVertexShader(RHIVertexShader vs) = 0;
   virtual void SetPixelShader(RHIPixelShader ps) = 0;
-  virtual RHIInputLayout CreateInputLayoutPNU(RHIVertexShader vs) = 0;
   virtual RHIInputLayout CreateInputLayoutPNUT(RHIVertexShader vs) = 0;
   virtual void SetInputLayout(RHIInputLayout layout) = 0;
   virtual void SetViewport(const RHIViewport& vp) = 0;

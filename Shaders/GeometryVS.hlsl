@@ -10,6 +10,7 @@ struct VSIn
     float3 nrm : NORMAL;
     float2 uv : TEXCOORD0;
     float4 tan : TANGENT;
+    float2 uv2 : TEXCOORD1;
 };
 struct VSOut
 {
@@ -19,6 +20,7 @@ struct VSOut
     float2 uv : TEXCOORD1;
     float4 wtan : TEXCOORD2;
     float3 vts : TEXCOORD3;
+    float2 luv : TEXCOORD4;
 };
 VSOut main(VSIn vin)
 {
@@ -30,6 +32,7 @@ VSOut main(VSIn vin)
     float4 vp = mul(wp, View);
     vout.pos = mul(vp, Proj);
     vout.uv = vin.uv;
+    vout.luv = vin.uv2;
     float3 wt = normalize(mul(vin.tan.xyz, wrot));
     vout.wtan = float4(wt, vin.tan.w);
     float3 wb = cross(vout.wnrm, wt) * vin.tan.w;

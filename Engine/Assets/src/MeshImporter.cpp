@@ -396,6 +396,7 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
         const cgltf_accessor* nrmAcc = nullptr;
         const cgltf_accessor* uvAcc = nullptr;
         const cgltf_accessor* tanAcc = nullptr;
+        const cgltf_accessor* uv2Acc = nullptr;
         for (size_t ai = 0; ai < prim.attributes_count; ++ai) {
           if (std::strcmp(prim.attributes[ai].name, "POSITION") == 0) {
             posAcc = prim.attributes[ai].data;
@@ -405,21 +406,21 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
             uvAcc = prim.attributes[ai].data;
           } else if (std::strcmp(prim.attributes[ai].name, "TANGENT") == 0) {
             tanAcc = prim.attributes[ai].data;
+          } else if (std::strcmp(prim.attributes[ai].name, "TEXCOORD_1") == 0) {
+            uv2Acc = prim.attributes[ai].data;
           }
         }
         if (posAcc == nullptr || posAcc->count == 0) {
           continue;
         }
-        uint32_t baseVertex = static_cast<uint32_t>(out.positions.size() / 3);
-        out.positions.reserve(out.positions.size() + posAcc->count * 3);
-        out.normals.reserve(out.normals.size() + posAcc->count * 3);
-        out.uvs.reserve(out.uvs.size() + posAcc->count * 2);
-        out.tangents.reserve(out.tangents.size() + posAcc->count * 4);
-        if (prim.indices != nullptr) {
-          out.indices.reserve(out.indices.size() + prim.indices->count);
-        } else {
-          out.indices.reserve(out.indices.size() + posAcc->count);
-        }
+        std::vector<float> out.positions;
+        std::vector<float> primNrm;
+        std::vector<float> primUv;
+        std::vector<float> primTan;
+        out.positions.reserve(posAcc->count * 3);
+        primNrm.reserve(posAcc->count * 3);
+        primUv.reserve(posAcc->count * 2);
+        primTan.reserve(posAcc->count * 4);
         for (size_t vi = 0; vi < posAcc->count && ok; ++vi) {
           float p[3] = { 0, 0, 0 };
           float n[3] = { 0, 1, 0 };
@@ -457,21 +458,101 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
             wn1 /= nl;
             wn2 /= nl;
           }
-          out.positions.push_back(wp0);
-          out.positions.push_back(wp1);
-          out.positions.push_back(-wp2);
-          out.normals.push_back(wn0);
-          out.normals.push_back(wn1);
-          out.normals.push_back(-wn2);
-          out.uvs.push_back(uv[0]);
-          out.uvs.push_back(uv[1]);
-          out.tangents.push_back(tg[0]);
-          out.tangents.push_back(tg[1]);
-          out.tangents.push_back(-tg[2]);
-          out.tangents.push_back(-tg[3]);
+          primPos.push_back(wp0);
+          primPos.push_back(wp1);
+          primPos.push_back(-wp2);
+          primNrm.push_back(wn0);
+          primNrm.push_back(wn1);
+          primNrm.push_back(-wn2);
+          primUv.push_back(uv[0]);
+          primUv.push_back(uv[1]);
+          primTan.push_back(tg[0]);
+          primTan.push_back(tg[1]);
+          primTan.push_back(-tg[2]);
+          primTan.push_back(-tg[3]);
         }
         if (!ok) {
           break;
+        }
+        std::vector<uint32_t> primIdx;
+        if (prim.indices != nullptr) {
+          if (prim.indices->count % 3 != 0) {
+            ok = false;
+            break;
+          }
+          primIdx.reserve(prim.indices->count);
+          for (size_t ii = 0; ii < prim.indices->count; ++ii) {
+            uint32_t idx = 0;
+            if (!ReadIndex(prim.indices, ii, idx)) {
+              ok = false;
+              break;
+            }
+            primIdx.push_back(idx);
+          }
+        } else {
+          if (posAcc->count % 3 != 0) {
+            ok = false;
+            break;
+          }
+          primIdx.reserve(posAcc->count);
+          for (size_t vi = 0; vi < posAcc->count; ++vi) {
+            primIdx.push_back(static_cast<uint32_t>(vi));
+          }
+        }
+        if (!ok) {
+          break;
+        }
+        std::vector<float> primUv2;
+        std::vector<float> usePos = primPos;
+        std::vector<float> useNrm = primNrm;
+        std::vector<float> useUv = primUv;
+        std::vector<float> useTan = primTan;
+        std::vector<uint32_t> useIdx = primIdx;
+        if (uv2Acc != nullptr) {
+          primUv2.reserve(posAcc->count * 2);
+          for (size_t vi = 0; vi < posAcc->count && ok; ++vi) {
+            float uvv[2] = { 0, 0 };
+            if (!ReadVec2(uv2Acc, vi, uvv)) {
+              ok = false;
+              break;
+            }
+            primUv2.push_back(uvv[0]);
+            primUv2.push_back(uvv[1]);
+          }
+          if (!ok) {
+            break;
+          }
+        } else {
+          std::vector<float> uPos;
+          std::vector<float> uNrm;
+          std::vector<float> uUv;
+          std::vector<float> uTan;
+          std::vector<uint32_t> uIdx;
+          if (UnwrapPrim(primPos, primNrm, primUv, primTan, primIdx, uPos, uNrm, uUv, uTan, uIdx, primUv2)) {
+            usePos = uPos;
+            useNrm = uNrm;
+            useUv = uUv;
+            useTan = uTan;
+            useIdx = uIdx;
+          } else {
+            primUv2.assign(posAcc->count * 2, 0.0f);
+          }
+        }
+        uint32_t baseVertex = static_cast<uint32_t>(out.positions.size() / 3);
+        if (useIdx.size() % 3 != 0) {
+          ok = false;
+          break;
+        }
+        out.positions.insert(out.positions.end(), usePos.begin(), usePos.end());
+        out.normals.insert(out.normals.end(), useNrm.begin(), useNrm.end());
+        out.uvs.insert(out.uvs.end(), useUv.begin(), useUv.end());
+        out.tangents.insert(out.tangents.end(), useTan.begin(), useTan.end());
+        out.uv2s.insert(out.uv2s.end(), primUv2.begin(), primUv2.end());
+        out.indices.reserve(out.indices.size() + useIdx.size());
+        for (size_t ii = 0; ii < useIdx.size(); ii += 3) {
+          out.indices.push_back(baseVertex + useIdx[ii]);
+          out.indices.push_back(baseVertex + useIdx[ii + 2]);
+          out.indices.push_back(baseVertex + useIdx[ii + 1]);
         }
         uint32_t matIndex = 0;
         if (prim.material != nullptr && prim.material >= data->materials && prim.material < data->materials + data->materials_count) {
@@ -510,38 +591,9 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
           out.materials.push_back(md);
         }
         MeshPartData part;
-        part.indexOffset = static_cast<uint32_t>(out.indices.size());
+        part.indexOffset = static_cast<uint32_t>(out.indices.size()) - static_cast<uint32_t>(useIdx.size());
         part.material = matIndex;
-        if (prim.indices != nullptr) {
-          if (prim.indices->count % 3 != 0) {
-            ok = false;
-            break;
-          }
-          for (size_t ii = 0; ii < prim.indices->count; ii += 3) {
-            uint32_t i0 = 0;
-            uint32_t i1 = 0;
-            uint32_t i2 = 0;
-            if (!ReadIndex(prim.indices, ii, i0) || !ReadIndex(prim.indices, ii + 1, i1) || !ReadIndex(prim.indices, ii + 2, i2)) {
-              ok = false;
-              break;
-            }
-            out.indices.push_back(baseVertex + i0);
-            out.indices.push_back(baseVertex + i2);
-            out.indices.push_back(baseVertex + i1);
-          }
-        } else {
-          uint32_t vc = static_cast<uint32_t>(posAcc->count);
-          if (vc % 3 != 0) {
-            ok = false;
-            break;
-          }
-          for (uint32_t vi = 0; vi < vc; vi += 3) {
-            out.indices.push_back(baseVertex + vi);
-            out.indices.push_back(baseVertex + vi + 2);
-            out.indices.push_back(baseVertex + vi + 1);
-          }
-        }
-        part.indexCount = static_cast<uint32_t>(out.indices.size()) - part.indexOffset;
+        part.indexCount = static_cast<uint32_t>(useIdx.size());
         if (part.indexCount > 0) {
           out.parts.push_back(part);
         }

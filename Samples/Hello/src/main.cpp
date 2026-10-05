@@ -1458,6 +1458,7 @@ bool TestMeshCodec() {
   data.normals = { 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f };
   data.uvs = { 0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 1.0f };
   data.indices = { 0, 1, 2 };
+  data.uv2s = { 0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 0.25f };
   if (!Kizuri::GenerateTangents(data.positions, data.normals, data.uvs, data.indices, data.tangents)) {
     return false;
   }
@@ -1502,6 +1503,9 @@ bool TestMeshCodec() {
     return false;
   }
   if (back.guid != data.guid || back.positions != data.positions || back.normals != data.normals || back.uvs != data.uvs || back.indices != data.indices) {
+    return false;
+  }
+  if (back.uv2s != data.uv2s) {
     return false;
   }
   if (back.tangents != data.tangents) {
@@ -2519,6 +2523,79 @@ bool TestGltfOrm() {
   fs::remove_all(dir, ec);
   return true;
 }
+bool TestUnwrapUV2() {
+  std::vector<float> pos = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0 };
+  std::vector<float> nrm = { 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1 };
+  std::vector<float> uv = { 0, 0, 1, 0, 1, 1, 0, 1 };
+  std::vector<float> tan;
+  if (!Kizuri::GenerateTangents(pos, nrm, uv, std::vector<uint32_t>{ 0, 1, 2, 0, 2, 3 }, tan)) {
+    return false;
+  }
+  std::vector<float> oPos;
+  std::vector<float> oNrm;
+  std::vector<float> oUv;
+  std::vector<float> oTan;
+  std::vector<uint32_t> oIdx;
+  std::vector<float> oUv2;
+  if (!Kizuri::UnwrapPrim(pos, nrm, uv, tan, std::vector<uint32_t>{ 0, 1, 2, 0, 2, 3 }, oPos, oNrm, oUv, oTan, oIdx, oUv2)) {
+    return false;
+  }
+  if (oPos.empty() || oIdx.size() % 3 != 0 || oUv2.size() != oPos.size() / 3 * 2) {
+    return false;
+  }
+  for (size_t i = 0; i < oUv2.size(); ++i) {
+    if (oUv2[i] < 0.0f || oUv2[i] > 1.0f) {
+      return false;
+    }
+  }
+  for (size_t i = 0; i < oIdx.size(); ++i) {
+    if (oIdx[i] >= oPos.size() / 3) {
+      return false;
+    }
+  }
+  std::vector<float> bad;
+  std::vector<uint32_t> badIdx;
+  if (Kizuri::UnwrapPrim(pos, nrm, uv, tan, std::vector<uint32_t>{ 0, 1 }, oPos, oNrm, oUv, oTan, badIdx, bad)) {
+    return false;
+  }
+  return true;
+}
+bool TestGltfUv2() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kzgltfuv2_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  float tri[9] = { -1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+  float uv1[6] = { 0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f };
+  {
+    FILE* fp = std::fopen((dir / "tri.bin").string().c_str(), "wb");
+    std::fwrite(tri, 1, sizeof(tri), fp);
+    std::fwrite(uv1, 1, sizeof(uv1), fp);
+    std::fclose(fp);
+  }
+  std::string gltf = "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0,\"TEXCOORD_1\":1},\"material\":0}]}],\"materials\":[{\"name\":\"M\"}],\"buffers\":[{\"uri\":\"tri.bin\",\"byteLength\":60}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":24}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"},{\"bufferView\":1,\"componentType\":5126,\"count\":3,\"type\":\"VEC2\"}]}";
+  {
+    FILE* fp = std::fopen((dir / "uv2.gltf").string().c_str(), "wb");
+    std::fwrite(gltf.c_str(), 1, gltf.size(), fp);
+    std::fclose(fp);
+  }
+  Kizuri::MeshAssetData data;
+  if (!Kizuri::ImportGltfMesh((dir / "uv2.gltf").string(), "", data, nullptr)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.uv2s.size() != 6) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (std::fabs(data.uv2s[0] - 0.1f) > 1e-5f || std::fabs(data.uv2s[5] - 0.6f) > 1e-5f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  fs::remove_all(dir, ec);
+  return true;
+}
 bool TestGltfTextured() {
   namespace fs = std::filesystem;
   fs::path dir = fs::temp_directory_path() / "kzgltftex_test";
@@ -2579,6 +2656,16 @@ bool TestGltfTextured() {
   if (nrmTex.format != Kizuri::TexFormat::Bc5 || nrmTex.srgb) {
     fs::remove_all(dir, ec);
     return false;
+  }
+  if (data.uv2s.size() != 6) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  for (size_t i = 0; i < data.uv2s.size(); ++i) {
+    if (data.uv2s[i] < 0.0f || data.uv2s[i] > 1.0f) {
+      fs::remove_all(dir, ec);
+      return false;
+    }
   }
   fs::remove_all(dir, ec);
   return true;
@@ -4106,6 +4193,8 @@ int main() {
   failures += Check("RHITextures", TestRHITextures());
   failures += Check("TexStreaming", TestTexStreaming());
   failures += Check("GltfTextured", TestGltfTextured());
+  failures += Check("UnwrapUV2", TestUnwrapUV2());
+  failures += Check("GltfUv2", TestGltfUv2());
   failures += Check("GltfMaterialIndex", TestGltfMaterialIndex());
   failures += Check("GltfNodeTransform", TestGltfNodeTransform());
   failures += Check("GltfOrm", TestGltfOrm());
