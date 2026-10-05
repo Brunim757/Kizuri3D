@@ -135,6 +135,7 @@ struct EditorApp {
   void DrawMeshSection(Entity* e);
   void SubmitSceneDraws(const float cpos[3]);
   void BakeEnvironment();
+  void BakeLightmap(EntityId id);
   void DrawMaterialSection(Entity* e);
   void DrawMaterialSlot(Entity* e, const char* label, int slot);
   void DrawDecalSection(Entity* e);

@@ -49,6 +49,7 @@ struct LightConstants {
 struct MatConstants {
   float albedo[4];
   float params[4];
+  float extra[4];
 };
 struct SsrConstants {
   float viewProj[16];
@@ -72,6 +73,7 @@ DeferredRenderer::DeferredRenderer()
   , gNormalRough(0)
   , gMetallic(0)
   , gPosition(0)
+  , gLightmap(0)
   , gDepth(0)
   , gViewport(0)
   , vb(0)
@@ -196,6 +198,8 @@ DeferredRenderer::DeferredRenderer()
   material.normalTex = 0;
   material.ormTex = 0;
   material.heightTex = 0;
+  material.lightmapTex = 0;
+  material.lightmapIntensity = 1.0f;
   material.texFlags = 0;
   light.direction[0] = 0.4f;
   light.direction[1] = -1.0f;
@@ -1133,12 +1137,13 @@ void DeferredRenderer::SetupGeometryPass() {
   shadowMapsValid = false;
   ssaoValid = false;
   ssrValid = false;
-  RHIRenderTarget mrts[4] = { gAlbedo, gNormalRough, gMetallic, gPosition };
-  rhi->SetRenderTargets(4, mrts, gDepth);
+  RHIRenderTarget mrts[5] = { gAlbedo, gNormalRough, gMetallic, gPosition, gLightmap };
+  rhi->SetRenderTargets(5, mrts, gDepth);
   rhi->ClearRenderTarget(gAlbedo, 0.02f, 0.02f, 0.03f, 1.0f);
   rhi->ClearRenderTarget(gNormalRough, 0.5f, 0.5f, 1.0f, 1.0f);
   rhi->ClearRenderTarget(gMetallic, 0.0f, 0.0f, 0.0f, 1.0f);
   rhi->ClearRenderTarget(gPosition, 0.0f, 0.0f, 0.0f, 1.0f);
+  rhi->ClearRenderTarget(gLightmap, 0.0f, 0.0f, 0.0f, 0.0f);
   rhi->ClearDepth(gDepth);
   RHIViewport vp;
   vp.x = viewX;
@@ -1177,6 +1182,10 @@ void DeferredRenderer::SetupGeometryPass() {
   mc.params[1] = material.metallic;
   mc.params[2] = 0.0f;
   mc.params[3] = 0.0f;
+  mc.extra[0] = 1.0f;
+  mc.extra[1] = 0.0f;
+  mc.extra[2] = 0.0f;
+  mc.extra[3] = 0.0f;
   rhi->UpdateConstantBuffer(matCB, &mc, sizeof(mc));
   rhi->SetPixelConstantBuffer(0, matCB);
 }
@@ -1224,19 +1233,26 @@ void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuff
   mc.params[1] = use.metallic;
   mc.params[2] = static_cast<float>(use.texFlags);
   mc.params[3] = lodFade < 0.0f ? 0.0f : (lodFade > 1.0f ? 1.0f : lodFade);
+  mc.extra[0] = use.lightmapIntensity;
+  mc.extra[1] = 0.0f;
+  mc.extra[2] = 0.0f;
+  mc.extra[3] = 0.0f;
   rhi->UpdateConstantBuffer(matCB, &mc, sizeof(mc));
   RHITexture alb = (use.texFlags & 1u) != 0 && use.albedoTex != 0 ? use.albedoTex : neutralAlbedo;
   RHITexture nrm = (use.texFlags & 2u) != 0 && use.normalTex != 0 ? use.normalTex : neutralNormal;
   RHITexture orm = (use.texFlags & 4u) != 0 && use.ormTex != 0 ? use.ormTex : neutralOrm;
   RHITexture hgt = (use.texFlags & 8u) != 0 && use.heightTex != 0 ? use.heightTex : 0;
+  RHITexture lmt = (use.texFlags & 16u) != 0 && use.lightmapTex != 0 ? use.lightmapTex : 0;
   rhi->SetPixelTexture2D(0, alb);
   rhi->SetPixelTexture2D(1, nrm);
   rhi->SetPixelTexture2D(2, orm);
   rhi->SetPixelTexture2D(3, hgt);
+  rhi->SetPixelTexture2D(4, lmt);
   rhi->SetPixelSampler(0, geoSampler);
   rhi->SetPixelSampler(1, geoSampler);
   rhi->SetPixelSampler(2, geoSampler);
   rhi->SetPixelSampler(3, geoSampler);
+  rhi->SetPixelSampler(4, geoSampler);
   rhi->SetVertexBuffer(vb, 0);
   rhi->SetIndexBuffer(ib);
   rhi->DrawIndexed(count, start, 0);
@@ -1735,6 +1751,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   } else {
     rhi->SetPixelTexture2D(9, envCube);
   }
+  rhi->SetPixelTexture(10, gLightmap);
   rhi->DrawFullscreenTriangle();
   rhi->SetPixelTexture(0, 0);
   rhi->SetPixelTexture(1, 0);
@@ -1746,6 +1763,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture(7, 0);
   rhi->SetPixelTexture(8, 0);
   rhi->SetPixelTexture2D(9, 0);
+  rhi->SetPixelTexture(10, 0);
   if (captureMode) {
     captureMode = false;
     captureTarget = 0;
@@ -1981,6 +1999,7 @@ bool DeferredRenderer::CreateTargets() {
   gNormalRough = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA16F);
   gMetallic = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   gPosition = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA16F);
+  gLightmap = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA16F);
   gDepth = rhi->CreateRenderTarget(w, h, RHIFormat::D24S8);
   gViewport = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   gLight = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
@@ -2016,7 +2035,7 @@ bool DeferredRenderer::CreateTargets() {
   ssgiA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   ssgiB = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   fxaaA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
-  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0;
+  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0;
 }
 void DeferredRenderer::DestroyTargets() {
   if (rhi == nullptr) {
@@ -2037,6 +2056,10 @@ void DeferredRenderer::DestroyTargets() {
   if (gPosition != 0) {
     rhi->DestroyRenderTarget(gPosition);
     gPosition = 0;
+  }
+  if (gLightmap != 0) {
+    rhi->DestroyRenderTarget(gLightmap);
+    gLightmap = 0;
   }
   if (gDepth != 0) {
     rhi->DestroyRenderTarget(gDepth);

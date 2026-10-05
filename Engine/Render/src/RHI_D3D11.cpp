@@ -759,8 +759,8 @@ public:
     curDepth = depthRT;
     lastCube = 0;
     lastCubeFace = -1;
-    ID3D11RenderTargetView* rtvs[4] = { nullptr, nullptr, nullptr, nullptr };
-    uint32_t n = count > 4 ? 4 : count;
+    ID3D11RenderTargetView* rtvs[8] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+    uint32_t n = count > 8 ? 8 : count;
     for (uint32_t i = 0; i < n; ++i) {
       auto it = targets.find(colorRTs[i]);
       rtvs[i] = (it == targets.end()) ? nullptr : it->second.rtv.Get();

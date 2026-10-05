@@ -2,11 +2,13 @@ cbuffer MatCB : register(b0)
 {
     float4 Albedo;
     float4 Params;
+    float4 Extra;
 };
 Texture2D AlbedoTex : register(t0);
 Texture2D NormalTex : register(t1);
 Texture2D OrmTex : register(t2);
 Texture2D HeightTex : register(t3);
+Texture2D LightmapTex : register(t4);
 SamplerState GeoSamp : register(s0);
 struct PSIn
 {
@@ -24,6 +26,7 @@ struct PSOut
     float4 nrmRough : SV_Target1;
     float4 metallic : SV_Target2;
     float4 wpos : SV_Target3;
+    float4 lightmap : SV_Target4;
 };
 PSOut main(PSIn pin)
 {
@@ -89,5 +92,10 @@ PSOut main(PSIn pin)
     pout.nrmRough = float4(n, rough);
     pout.metallic = float4(metal, 0.0, 0.0, 1.0);
     pout.wpos = float4(pin.wpos, 1.0);
+    float3 lmIrr = float3(0.0, 0.0, 0.0);
+    if ((flags & 16u) != 0u) {
+        lmIrr = LightmapTex.Sample(GeoSamp, pin.luv).rgb;
+    }
+    pout.lightmap = float4(lmIrr, Extra.x);
     return pout;
 }

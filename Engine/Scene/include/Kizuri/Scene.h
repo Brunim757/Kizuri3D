@@ -57,6 +57,10 @@ struct LodData {
   float nearDist;
   float farDist;
 };
+struct LightmapData {
+  std::string texGuid;
+  float intensity;
+};
 struct Entity {
   EntityId id;
   std::string name;
@@ -71,6 +75,8 @@ struct Entity {
   bool hasDecal;
   LodData lod;
   bool hasLod;
+  LightmapData lightmap;
+  bool hasLightmap;
   EntityId parent;
   std::vector<EntityId> children;
 };
@@ -108,6 +114,7 @@ void MakeDefaultLight(LightData& l);
 void MakeDefaultMaterial(MaterialData& m);
 void MakeDefaultDecal(DecalData& d);
 void MakeDefaultLod(LodData& l);
+void MakeDefaultLightmap(LightmapData& l);
 void EntityForward(const Transform& t, float dir[3]);
 void ComposeMatrix(const Transform& t, float m[16]);
 bool InvertMatrix4(const float m[16], float invOut[16]);

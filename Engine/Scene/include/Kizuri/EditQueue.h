@@ -23,6 +23,10 @@ struct LodEdit {
   EntityId target;
   LodData value;
 };
+struct LightmapEdit {
+  EntityId target;
+  LightmapData value;
+};
 class EditQueue {
 public:
   void PushTransform(EntityId target, const Transform& value);
@@ -30,6 +34,7 @@ public:
   void PushMaterial(EntityId target, const MaterialData& value);
   void PushDecal(EntityId target, const DecalData& value);
   void PushLod(EntityId target, const LodData& value);
+  void PushLightmap(EntityId target, const LightmapData& value);
   size_t Pending() const;
   size_t ApplyAll(Scene& scene, UndoStack& undo);
   void Clear();
@@ -39,5 +44,6 @@ private:
   std::vector<MaterialEdit> materialEdits;
   std::vector<DecalEdit> decalEdits;
   std::vector<LodEdit> lodEdits;
+  std::vector<LightmapEdit> lightmapEdits;
 };
 }

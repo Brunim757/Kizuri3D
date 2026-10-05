@@ -47,6 +47,15 @@ void EditQueue::PushLod(EntityId target, const LodData& value) {
   e.value = value;
   lodEdits.push_back(e);
 }
+void EditQueue::PushLightmap(EntityId target, const LightmapData& value) {
+  if (!target.IsValid()) {
+    return;
+  }
+  LightmapEdit e;
+  e.target = target;
+  e.value = value;
+  lightmapEdits.push_back(e);
+}
 bool MaterialEqual(const MaterialData& a, const MaterialData& b) {
   return a.albedo[0] == b.albedo[0] && a.albedo[1] == b.albedo[1] && a.albedo[2] == b.albedo[2] && a.metallic == b.metallic && a.roughness == b.roughness && a.albedoTex == b.albedoTex && a.normalTex == b.normalTex && a.ormTex == b.ormTex && a.heightTex == b.heightTex;
 }
@@ -56,8 +65,11 @@ bool DecalEqual(const DecalData& a, const DecalData& b) {
 bool LodEqual(const LodData& a, const LodData& b) {
   return a.farGuid == b.farGuid && a.nearDist == b.nearDist && a.farDist == b.farDist;
 }
+bool LightmapEqual(const LightmapData& a, const LightmapData& b) {
+  return a.texGuid == b.texGuid && a.intensity == b.intensity;
+}
 size_t EditQueue::Pending() const {
-  return edits.size() + lightEdits.size() + materialEdits.size() + decalEdits.size() + lodEdits.size();
+  return edits.size() + lightEdits.size() + materialEdits.size() + decalEdits.size() + lodEdits.size() + lightmapEdits.size();
 }
 size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
   size_t applied = 0;
@@ -181,6 +193,30 @@ size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
     }
   }
   lodEdits.clear();
+  for (size_t i = 0; i < lightmapEdits.size(); ++i) {
+    bool last = true;
+    for (size_t j = i + 1; j < lightmapEdits.size(); ++j) {
+      if (lightmapEdits[j].target == lightmapEdits[i].target) {
+        last = false;
+        break;
+      }
+    }
+    if (!last) {
+      continue;
+    }
+    const Entity* e = scene.Get(lightmapEdits[i].target);
+    if (e == nullptr || !e->hasLightmap) {
+      continue;
+    }
+    if (LightmapEqual(e->lightmap, lightmapEdits[i].value)) {
+      continue;
+    }
+    std::unique_ptr<Command> cmd(new SetLightmapCmd(lightmapEdits[i].target, e->lightmap, lightmapEdits[i].value));
+    if (undo.Execute(std::move(cmd), scene)) {
+      ++applied;
+    }
+  }
+  lightmapEdits.clear();
   return applied;
 }
 void EditQueue::Clear() {
@@ -189,5 +225,6 @@ void EditQueue::Clear() {
   materialEdits.clear();
   decalEdits.clear();
   lodEdits.clear();
+  lightmapEdits.clear();
 }
 }

@@ -23,6 +23,8 @@ struct SnapshotNode {
   bool hasDecal;
   LodData lod;
   bool hasLod;
+  LightmapData lightmap;
+  bool hasLightmap;
   long parent;
 };
 struct EntitySnapshot {
@@ -252,6 +254,39 @@ public:
 private:
   EntityId target;
   LodData prevLod;
+  bool prevHas;
+};
+class SetLightmapCmd : public Command {
+public:
+  SetLightmapCmd(EntityId target, const LightmapData& before, const LightmapData& after);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  LightmapData before;
+  LightmapData after;
+};
+class AddLightmapCmd : public Command {
+public:
+  explicit AddLightmapCmd(EntityId target);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  LightmapData prevLightmap;
+  bool prevHas;
+};
+class RemoveLightmapCmd : public Command {
+public:
+  explicit RemoveLightmapCmd(EntityId target);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  LightmapData prevLightmap;
   bool prevHas;
 };
 class SetParentCmd : public Command {

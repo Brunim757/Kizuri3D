@@ -35,6 +35,8 @@ bool EntitySnapshot::Capture(const Scene& scene, EntityId root) {
     node.hasDecal = e->hasDecal;
     node.lod = e->lod;
     node.hasLod = e->hasLod;
+    node.lightmap = e->lightmap;
+    node.hasLightmap = e->hasLightmap;
     node.parent = par;
     long idx = static_cast<long>(nodes.size());
     nodes.push_back(node);
@@ -68,6 +70,8 @@ EntityId EntitySnapshot::Restore(Scene& scene, EntityId newParent) const {
       createdEntity->hasDecal = nodes[i].hasDecal;
       createdEntity->lod = nodes[i].lod;
       createdEntity->hasLod = nodes[i].hasLod;
+      createdEntity->lightmap = nodes[i].lightmap;
+      createdEntity->hasLightmap = nodes[i].hasLightmap;
     }
     created.push_back(id);
   }
@@ -637,6 +641,92 @@ bool RemoveLodCmd::Revert(Scene& scene) {
 }
 const char* RemoveLodCmd::Name() const {
   return "Remove LOD";
+}
+SetLightmapCmd::SetLightmapCmd(EntityId t, const LightmapData& b, const LightmapData& a)
+  : target(t)
+  , before(b)
+  , after(a) {
+}
+bool SetLightmapCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasLightmap) {
+    return false;
+  }
+  e->lightmap = after;
+  scene.MarkDirty();
+  return true;
+}
+bool SetLightmapCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasLightmap) {
+    return false;
+  }
+  e->lightmap = before;
+  scene.MarkDirty();
+  return true;
+}
+const char* SetLightmapCmd::Name() const {
+  return "Set Lightmap";
+}
+AddLightmapCmd::AddLightmapCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultLightmap(prevLightmap);
+}
+bool AddLightmapCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || e->hasLightmap) {
+    return false;
+  }
+  prevLightmap = e->lightmap;
+  prevHas = e->hasLightmap;
+  e->hasLightmap = true;
+  MakeDefaultLightmap(e->lightmap);
+  scene.MarkDirty();
+  return true;
+}
+bool AddLightmapCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->lightmap = prevLightmap;
+  e->hasLightmap = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* AddLightmapCmd::Name() const {
+  return "Add Lightmap";
+}
+RemoveLightmapCmd::RemoveLightmapCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultLightmap(prevLightmap);
+}
+bool RemoveLightmapCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasLightmap) {
+    return false;
+  }
+  prevLightmap = e->lightmap;
+  prevHas = e->hasLightmap;
+  e->hasLightmap = false;
+  MakeDefaultLightmap(e->lightmap);
+  scene.MarkDirty();
+  return true;
+}
+bool RemoveLightmapCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->lightmap = prevLightmap;
+  e->hasLightmap = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* RemoveLightmapCmd::Name() const {
+  return "Remove Lightmap";
 }
 SetParentCmd::SetParentCmd(EntityId c, EntityId b, EntityId a)
   : child(c)

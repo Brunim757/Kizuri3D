@@ -255,6 +255,9 @@ void EditorApp::PumpAssets() {
     if (e->hasDecal) {
       assets.RequestTexture(e->decal.texGuid, dist);
     }
+    if (e->hasLightmap) {
+      assets.RequestTexture(e->lightmap.texGuid, dist);
+    }
   }
   assets.UpdateStreaming(camPos, uses);
   assets.DrainUploads(rhi, 262144);

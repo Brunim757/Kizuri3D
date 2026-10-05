@@ -1,6 +1,7 @@
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include "EditorApp.h"
+#include "Kizuri/Assets/LightmapBaker.h"
 #include "FileDialog.h"
 #include "Kizuri/DebugDraw.h"
 #include "Kizuri/Input.h"
@@ -240,9 +241,18 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
               partMat.texFlags = flags;
               useMat = &partMat;
             }
+            if (e->hasLightmap && !e->lightmap.texGuid.empty() && useMat != nullptr) {
+              RHITexture lmTex = 0;
+              if (ResolveMaterialSlot(assets, e->lightmap.texGuid, 16u, lmTex) != 0) {
+                partMat.lightmapTex = lmTex;
+                partMat.lightmapIntensity = e->lightmap.intensity;
+                partMat.texFlags |= 16u;
+              }
+            }
             renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, part.indexOffset, part.indexCount, useMat, drawFades[li]);
           }
         }
+        drawn = true;
         anyDrawn = true;
       }
     }
@@ -346,6 +356,27 @@ void EditorApp::BakeEnvironment() {
   }
   renderer.GenerateEnvMips();
   Announce(LogLevel::Success, "Environment baked");
+}
+void EditorApp::BakeLightmap(EntityId id) {
+  std::string path;
+  std::string guid;
+  std::string err;
+  if (!BakeLightmapFor(scene, assets, id, 128, path, guid, err)) {
+    Announce(LogLevel::Error, std::string("Lightmap bake failed: ") + err);
+    return;
+  }
+  assets.Scan();
+  Entity* e = scene.Get(id);
+  if (e == nullptr || !e->hasLightmap) {
+    Announce(LogLevel::Warning, "Baked, but entity lost Lightmap component");
+    return;
+  }
+  LightmapData after = e->lightmap;
+  after.texGuid = guid;
+  std::unique_ptr<Command> cmd(new SetLightmapCmd(id, e->lightmap, after));
+  if (undo.Execute(std::move(cmd), scene)) {
+    log.Add(LogLevel::Info, std::string("Lightmap baked: ") + path);
+  }
 }
 void EditorApp::HandleViewportClick() {
   DirectX::XMMATRIX view = camera.View();
@@ -1196,7 +1227,64 @@ void EditorApp::DrawInspector() {
       }
     }
   }
-  if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal || !e->hasLod) {
+  if (e->hasLightmap) {
+    ImGui::Separator();
+    ImGui::Text("Lightmap");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Remove##lightmap")) {
+      std::unique_ptr<Command> cmd(new RemoveLightmapCmd(e->id));
+      undo.Execute(std::move(cmd), scene);
+    }
+    LightmapData lm = e->lightmap;
+    bool lmChanged = false;
+    if (ImGui::DragFloat("Intensity", &lm.intensity, 0.05f, 0.0f, 4.0f)) {
+      lmChanged = true;
+    }
+    if (lmChanged) {
+      edits.PushLightmap(e->id, lm);
+    }
+    if (lm.texGuid.empty()) {
+      ImGui::TextDisabled("Texture: (none)");
+    } else {
+      const TextureRecord* tr = assets.GetTexByGuid(lm.texGuid);
+      if (tr == nullptr) {
+        ImGui::TextDisabled("Texture: (missing)");
+      } else {
+        std::filesystem::path tp(tr->texPath);
+        ImGui::Text("Texture: %s", tp.filename().string().c_str());
+      }
+    }
+    if (ImGui::BeginDragDropTarget()) {
+      const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("KZ_TEX");
+      if (payload != nullptr && payload->Data != nullptr && payload->DataSize > 0) {
+        std::string guid(static_cast<const char*>(payload->Data));
+        if (assets.GetTexByGuid(guid) == nullptr) {
+          Announce(LogLevel::Warning, "Dropped texture not found");
+        } else if (guid != lm.texGuid) {
+          LightmapData after = e->lightmap;
+          after.texGuid = guid;
+          std::unique_ptr<Command> cmd(new SetLightmapCmd(e->id, e->lightmap, after));
+          if (undo.Execute(std::move(cmd), scene)) {
+            log.Add(LogLevel::Info, "Lightmap texture assigned");
+          }
+        }
+      }
+      ImGui::EndDragDropTarget();
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Clear##lightmaptex")) {
+      if (!e->lightmap.texGuid.empty()) {
+        LightmapData after = e->lightmap;
+        after.texGuid.clear();
+        std::unique_ptr<Command> cmd(new SetLightmapCmd(e->id, e->lightmap, after));
+        undo.Execute(std::move(cmd), scene);
+      }
+    }
+    if (ImGui::Button("Bake Lightmap")) {
+      BakeLightmap(e->id);
+    }
+  }
+  if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal || !e->hasLod || !e->hasLightmap) {
     ImGui::Separator();
     if (ImGui::Button("Add Component")) {
       ImGui::OpenPopup("AddComponent");
@@ -1220,6 +1308,10 @@ void EditorApp::DrawInspector() {
       }
       if (!e->hasLod && ImGui::MenuItem("LOD")) {
         std::unique_ptr<Command> cmd(new AddLodCmd(e->id));
+        undo.Execute(std::move(cmd), scene);
+      }
+      if (!e->hasLightmap && ImGui::MenuItem("Lightmap")) {
+        std::unique_ptr<Command> cmd(new AddLightmapCmd(e->id));
         undo.Execute(std::move(cmd), scene);
       }
       ImGui::EndPopup();

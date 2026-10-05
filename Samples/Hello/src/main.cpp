@@ -3171,6 +3171,155 @@ bool TestLodUndo() {
   }
   return true;
 }
+bool TestLightmapDefaults() {
+  Kizuri::LightmapData l;
+  Kizuri::MakeDefaultLightmap(l);
+  if (!l.texGuid.empty() || l.intensity != 1.0f) {
+    return false;
+  }
+  Kizuri::Scene scene;
+  Kizuri::EntityId a = scene.CreateEntity("A");
+  if (scene.Get(a)->hasLightmap) {
+    return false;
+  }
+  return true;
+}
+bool TestLightmapRoundTrip() {
+  Kizuri::Scene scene;
+  Kizuri::EntityId l = scene.CreateEntity("Lm");
+  scene.Get(l)->hasLightmap = true;
+  scene.Get(l)->lightmap.texGuid = "lm-guid";
+  scene.Get(l)->lightmap.intensity = 2.0f;
+  const char* path = "test_lightmap_tmp.kzscene";
+  std::remove(path);
+  if (!Kizuri::SaveSceneToFile(scene, path)) {
+    return false;
+  }
+  Kizuri::Scene back;
+  if (!Kizuri::LoadSceneFromFile(back, path, nullptr)) {
+    std::remove(path);
+    return false;
+  }
+  std::remove(path);
+  std::vector<Kizuri::EntityId> all = back.All();
+  if (all.size() != 1) {
+    return false;
+  }
+  const Kizuri::Entity* rl = back.Get(all[0]);
+  if (rl == nullptr || !rl->hasLightmap) {
+    return false;
+  }
+  if (rl->lightmap.texGuid != "lm-guid" || rl->lightmap.intensity != 2.0f) {
+    return false;
+  }
+  return true;
+}
+bool TestLightmapUndo() {
+  Kizuri::Scene scene;
+  Kizuri::UndoStack undo;
+  Kizuri::EditQueue edits;
+  Kizuri::EntityId a = scene.CreateEntity("A");
+  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddLightmapCmd(a));
+  if (!undo.Execute(std::move(add), scene) || !scene.Get(a)->hasLightmap) {
+    return false;
+  }
+  Kizuri::LightmapData v = scene.Get(a)->lightmap;
+  v.texGuid = "lm-1";
+  v.intensity = 0.5f;
+  edits.PushLightmap(a, v);
+  if (edits.Pending() != 1 || edits.ApplyAll(scene, undo) != 1) {
+    return false;
+  }
+  if (scene.Get(a)->lightmap.texGuid != "lm-1" || scene.Get(a)->lightmap.intensity != 0.5f) {
+    return false;
+  }
+  if (!undo.Undo(scene) || !scene.Get(a)->lightmap.texGuid.empty()) {
+    return false;
+  }
+  if (!undo.Redo(scene) || scene.Get(a)->lightmap.intensity != 0.5f) {
+    return false;
+  }
+  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveLightmapCmd(a));
+  if (!undo.Execute(std::move(rem), scene) || scene.Get(a)->hasLightmap) {
+    return false;
+  }
+  if (!undo.Undo(scene) || !scene.Get(a)->hasLightmap) {
+    return false;
+  }
+  return true;
+}
+bool TestLightmapBake() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kzlm_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  Kizuri::MeshAssetData floor;
+  floor.guid = Kizuri::GenerateGuidString();
+  floor.positions = { -5, 0, -5, 5, 0, -5, 5, 0, 5, -5, 0, 5 };
+  floor.normals = { 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0 };
+  floor.uvs = { 0, 0, 1, 0, 1, 1, 0, 1 };
+  floor.uv2s = { 0, 0, 1, 0, 1, 1, 0, 1 };
+  floor.indices = { 0, 1, 2, 0, 2, 3 };
+  if (!Kizuri::GenerateTangents(floor.positions, floor.normals, floor.uvs, floor.indices, floor.tangents)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  Kizuri::MeshPartData part;
+  part.indexOffset = 0;
+  part.indexCount = 6;
+  part.material = 0;
+  floor.parts.push_back(part);
+  floor.hasSource = false;
+  if (!Kizuri::EncodeMeshFile(floor, (dir / "floor.kzmesh").string())) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  Kizuri::AssetDatabase db;
+  db.SetAssetsDir(dir.string());
+  db.Scan();
+  db.DrainBlocking();
+  if (db.AllGuids().size() != 1) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  Kizuri::Scene scene;
+  Kizuri::EntityId f = scene.CreateEntity("Floor");
+  scene.Get(f)->hasMesh = true;
+  scene.Get(f)->meshGuid = db.AllGuids()[0];
+  Kizuri::EntityId sun = scene.CreateEntity("Sun");
+  scene.Get(sun)->hasLight = true;
+  Kizuri::MakeDefaultLight(scene.Get(sun)->light);
+  scene.Get(sun)->light.type = static_cast<int>(Kizuri::LightType::Directional);
+  scene.Get(sun)->light.intensity = 2.0f;
+  std::string texPath;
+  std::string texGuid;
+  std::string err;
+  if (!Kizuri::BakeLightmapFor(scene, db, f, 16, texPath, texGuid, err)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (texGuid.empty() || !fs::exists(texPath, ec)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  Kizuri::TextureAssetData tex;
+  if (!Kizuri::DecodeTextureFile(texPath, tex) || tex.guid != texGuid) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (tex.format != Kizuri::TexFormat::Bc1 || tex.srgb || tex.width != 16) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  Kizuri::EntityId bad = scene.CreateEntity("Bad");
+  if (Kizuri::BakeLightmapFor(scene, db, bad, 16, texPath, texGuid, err)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  fs::remove_all(dir, ec);
+  return true;
+}
 bool TestLightRoundTrip() {
   Kizuri::Scene scene;
   Kizuri::EntityId p = scene.CreateEntity("Point");
@@ -4219,6 +4368,10 @@ int main() {
   failures += Check("LodSimplify", TestLodSimplify());
   failures += Check("LodRoundTrip", TestLodRoundTrip());
   failures += Check("LodUndo", TestLodUndo());
+  failures += Check("LightmapDefaults", TestLightmapDefaults());
+  failures += Check("LightmapRoundTrip", TestLightmapRoundTrip());
+  failures += Check("LightmapUndo", TestLightmapUndo());
+  failures += Check("LightmapBake", TestLightmapBake());
   failures += Check("EntityForward", TestEntityForward());
   failures += Check("PBR-PointSpot", TestPBRPointSpot());
   failures += Check("LightGizmo", TestLightGizmo());

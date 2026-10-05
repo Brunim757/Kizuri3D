@@ -11,6 +11,8 @@ struct DeferredMaterial {
   RHITexture normalTex = 0;
   RHITexture ormTex = 0;
   RHITexture heightTex = 0;
+  RHITexture lightmapTex = 0;
+  float lightmapIntensity = 1.0f;
   uint32_t texFlags = 0;
 };
 struct DeferredLight {
@@ -124,6 +126,7 @@ private:
   RHIRenderTarget gNormalRough;
   RHIRenderTarget gMetallic;
   RHIRenderTarget gPosition;
+  RHIRenderTarget gLightmap;
   RHIRenderTarget gDepth;
   RHIRenderTarget gViewport;
   RHIBuffer vb;

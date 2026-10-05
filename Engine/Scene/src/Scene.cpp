@@ -52,6 +52,10 @@ void MakeDefaultLod(LodData& l) {
   l.nearDist = 15.0f;
   l.farDist = 40.0f;
 }
+void MakeDefaultLightmap(LightmapData& l) {
+  l.texGuid.clear();
+  l.intensity = 1.0f;
+}
 void ComposeMatrix(const Transform& t, float m[16]) {  float rx = t.rotation[0] * 0.01745329252f;
   float ry = t.rotation[1] * 0.01745329252f;
   float rz = t.rotation[2] * 0.01745329252f;
@@ -192,6 +196,8 @@ EntityId Scene::CreateEntity(const std::string& name) {
     s.entity.hasDecal = false;
     MakeDefaultLod(s.entity.lod);
     s.entity.hasLod = false;
+    MakeDefaultLightmap(s.entity.lightmap);
+    s.entity.hasLightmap = false;
     s.entity.parent = EntityId::Invalid();
     s.entity.children.clear();
     id = s.entity.id;
@@ -212,6 +218,8 @@ EntityId Scene::CreateEntity(const std::string& name) {
     s.entity.hasDecal = false;
     MakeDefaultLod(s.entity.lod);
     s.entity.hasLod = false;
+    MakeDefaultLightmap(s.entity.lightmap);
+    s.entity.hasLightmap = false;
     s.entity.parent = EntityId::Invalid();
     slots.push_back(s);
     id = slots.back().entity.id;
