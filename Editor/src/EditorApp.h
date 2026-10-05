@@ -59,6 +59,7 @@ struct EditorApp {
   bool viewSsr;
   bool viewContact;
   bool viewSsgi;
+  bool viewFxaa;
   float viewEnv;
   bool viewDof;
   float viewFocusDist;

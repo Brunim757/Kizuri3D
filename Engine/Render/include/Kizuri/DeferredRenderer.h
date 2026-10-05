@@ -97,6 +97,7 @@ public:
   void SetMotionBlur(bool on, float scale);
   void SetFilm(float ca, float vignette, float grain);
   void SetSsgi(bool on);
+  void SetFxaa(bool on);
   void SetFog(bool on, float density, const float color[3]);
   bool Resize(int w, int h);
   void SetViewOffset(float x, float y);
@@ -218,6 +219,11 @@ private:
   RHIPixelShader ssgiPS;
   RHIRenderTarget ssgiA;
   bool ssgiOn;
+  RHIPixelShader fxaaPS;
+  RHIConstBuffer fxaaCB;
+  RHIRenderTarget fxaaA;
+  bool fxaaOn;
+  bool fxaaRan;
   RHITexture envCube;
   RHIRenderTarget captureTarget;
   bool captureMode;

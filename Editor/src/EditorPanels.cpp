@@ -95,6 +95,7 @@ void EditorApp::RenderScene() {
   renderer.SetMotionBlur(viewMotion, viewMotionScale);
   renderer.SetFilm(viewCa, viewVig, viewGrain);
   renderer.SetSsgi(viewSsgi);
+  renderer.SetFxaa(viewFxaa);
   renderer.SetEnvIntensity(viewEnv);
   renderer.SetFog(viewFog, viewFogDensity, viewFogColor);
   renderer.SetEnvIntensity(viewEnv);
@@ -825,6 +826,7 @@ void EditorApp::DrawSettings() {
     if (ImGui::BeginTabItem("Render")) {
       ImGui::SliderFloat("Render Scale", &viewScale, 0.5f, 1.0f);
       ImGui::SliderFloat("Sharpness", &viewSharp, 0.0f, 1.0f);
+      ImGui::Checkbox("FXAA", &viewFxaa);
       ImGui::SliderFloat("Env Intensity", &viewEnv, 0.0f, 4.0f);
       if (ImGui::Button("Bake Environment")) {
         BakeEnvironment();
