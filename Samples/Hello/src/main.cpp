@@ -2899,6 +2899,7 @@ bool TestMeshCodecExt() {
   }
   return true;
 }
+bool TestUnwrapUV2() {
   std::vector<float> pos = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0 };
   std::vector<float> nrm = { 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1 };
   std::vector<float> uv = { 0, 0, 1, 0, 1, 1, 0, 1 };
