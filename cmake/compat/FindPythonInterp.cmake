@@ -1,0 +1,5 @@
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_EXECUTABLE)
+  set(PYTHON_EXECUTABLE "${Python3_EXECUTABLE}")
+endif()
+set(PYTHONINTERP_FOUND TRUE)

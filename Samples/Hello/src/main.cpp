@@ -32,6 +32,8 @@
 #include "Kizuri/Assets/TexCodec.h"
 #include "Kizuri/Assets/TextureImporter.h"
 #include <meshoptimizer.h>
+#include <draco/mesh/triangle_soup_mesh_builder.h>
+#include <draco/compression/encode.h>
 #include <DirectXMath.h>
 #include <filesystem>
 #include <TaskScheduler.h>
@@ -2894,6 +2896,118 @@ bool TestBasisu() {
   fs::remove_all(dir, ec);
   return true;
 }
+bool TestDraco() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kzgltfdraco_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  float tri[9] = { -1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+  {
+    FILE* fp = std::fopen((dir / "tri.bin").string().c_str(), "wb");
+    std::fwrite(tri, 1, sizeof(tri), fp);
+    std::fclose(fp);
+  }
+  uint16_t idx[3] = { 0, 1, 2 };
+  {
+    FILE* fp = std::fopen((dir / "tri.bin").string().c_str(), "ab");
+    std::fwrite(idx, 1, sizeof(idx), fp);
+    std::fclose(fp);
+  }
+  draco::TriangleSoupMeshBuilder mb;
+  mb.Start(1);
+  mb.AddAttribute(draco::GeometryAttribute::POSITION, 3, draco::DT_FLOAT32);
+  float w0[3] = { -1.0f, -1.0f, 0.0f };
+  float w1[3] = { 1.0f, -1.0f, 0.0f };
+  float w2[3] = { 0.0f, 1.0f, 0.0f };
+  mb.SetAttributeValuesForFace(0, draco::FaceIndex(0), w0, w1, w2);
+  std::unique_ptr<draco::Mesh> dmesh = mb.Finalize();
+  if (dmesh == nullptr) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  draco::Encoder enc;
+  enc.SetAttributeQuantization(draco::GeometryAttribute::POSITION, 14);
+  draco::EncoderBuffer dbuf;
+  if (!enc.EncodeMeshToBuffer(*dmesh, &dbuf).ok() || dbuf.size() == 0) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  {
+    FILE* fp = std::fopen((dir / "draco.bin").string().c_str(), "wb");
+    std::fwrite(dbuf.data(), 1, dbuf.size(), fp);
+    std::fclose(fp);
+  }
+  char gltf[2048];
+  std::snprintf(gltf, sizeof(gltf), "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"indices\":1,\"extensions\":{\"KHR_draco_mesh_compression\":{\"bufferView\":2,\"attributes\":{\"POSITION\":0}}}}]}],\"buffers\":[{\"uri\":\"tri.bin\",\"byteLength\":42},{\"uri\":\"draco.bin\",\"byteLength\":%zu}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":6},{\"buffer\":1,\"byteOffset\":0,\"byteLength\":%zu}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"},{\"bufferView\":1,\"componentType\":5123,\"count\":3,\"type\":\"SCALAR\"}]}", dbuf.size(), dbuf.size());
+  {
+    FILE* fp = std::fopen((dir / "d.gltf").string().c_str(), "wb");
+    std::fwrite(gltf, 1, std::strlen(gltf), fp);
+    std::fclose(fp);
+  }
+  Kizuri::MeshAssetData data;
+  if (!Kizuri::ImportGltfMesh((dir / "d.gltf").string(), "", data, nullptr)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.positions.size() != 9 || data.indices.size() != 3) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (std::fabs(data.positions[0] + 1.0f) > 1e-3f || std::fabs(data.positions[3] - 1.0f) > 1e-3f || std::fabs(data.positions[7] - 1.0f) > 1e-3f) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  fs::remove_all(dir, ec);
+  return true;
+}
+bool TestWebp() {
+  namespace fs = std::filesystem;
+  const char* candidates[3] = { "Samples/Assets/webp_test.webp", "Assets/webp_test.webp", "build/bin/Release/Assets/webp_test.webp" };
+  std::string webpPath;
+  for (int i = 0; i < 3; ++i) {
+    std::error_code tec;
+    if (fs::exists(candidates[i], tec)) {
+      webpPath = candidates[i];
+      break;
+    }
+  }
+  if (webpPath.empty()) {
+    return false;
+  }
+  fs::path dir = fs::temp_directory_path() / "kzgltfwebp_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  fs::copy_file(webpPath, dir / "t.webp", ec);
+  if (ec) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  float tri[9] = { -1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+  {
+    FILE* fp = std::fopen((dir / "tri.bin").string().c_str(), "wb");
+    std::fwrite(tri, 1, sizeof(tri), fp);
+    std::fclose(fp);
+  }
+  std::string gltf = "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"material\":0}]}],\"materials\":[{\"name\":\"W\",\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":0}}}],\"textures\":[{\"source\":0}],\"images\":[{\"uri\":\"t.webp\",\"mimeType\":\"image/webp\"}],\"buffers\":[{\"uri\":\"tri.bin\",\"byteLength\":36}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"}]}";
+  {
+    FILE* fp = std::fopen((dir / "w.gltf").string().c_str(), "wb");
+    std::fwrite(gltf.c_str(), 1, gltf.size(), fp);
+    std::fclose(fp);
+  }
+  Kizuri::MeshAssetData data;
+  if (!Kizuri::ImportGltfMesh((dir / "w.gltf").string(), "", data, nullptr)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.materials.size() != 1 || data.materials[0].albedoTexGuid.empty()) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  fs::remove_all(dir, ec);
+  return true;
+}
 bool TestMeshCodecExt() {
   Kizuri::MeshAssetData data;
   data.guid = "01234567-89ab-cdef-0123-456789abcdef";
@@ -4906,6 +5020,8 @@ int main() {
   failures += Check("GltfInstancing", TestGltfInstancing());
   failures += Check("Meshopt", TestMeshopt());
   failures += Check("Basisu", TestBasisu());
+  failures += Check("Draco", TestDraco());
+  failures += Check("Webp", TestWebp());
   failures += Check("MeshCodecExt", TestMeshCodecExt());
   failures += Check("GltfOrm", TestGltfOrm());
   failures += Check("RHIBuffers", TestRHIBuffers());

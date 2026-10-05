@@ -53,6 +53,41 @@ FetchContent_Declare(
   GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(DirectXTex)
+set(DRACO_TESTS OFF CACHE BOOL "" FORCE)
+set(DRACO_TRANSCODER_SUPPORTED OFF CACHE BOOL "" FORCE)
+set(DRACO_WASM OFF CACHE BOOL "" FORCE)
+set(DRACO_UNITY_PLUGIN OFF CACHE BOOL "" FORCE)
+set(DRACO_MAYA_PLUGIN OFF CACHE BOOL "" FORCE)
+set(DRACO_JS_GLUE OFF CACHE BOOL "" FORCE)
+set(DRACO_ANIMATION_ENCODING OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_ANIM_UTILS OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_CWEBP OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_DWEBP OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_GIF2WEBP OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_IMG2WEBP OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_VWEBP OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_WEBPINFO OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_LIBWEBPMUX OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_WEBPMUX OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_EXTRAS OFF CACHE BOOL "" FORCE)
+set(WEBP_BUILD_FUZZTEST OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  draco
+  GIT_REPOSITORY https://github.com/google/draco.git
+  GIT_TAG 1.5.7
+  GIT_SHALLOW TRUE
+)
+FetchContent_Declare(
+  libwebp
+  GIT_REPOSITORY https://github.com/webmproject/libwebp.git
+  GIT_TAG v1.5.0
+  GIT_SHALLOW TRUE
+)
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/compat)
+FetchContent_MakeAvailable(draco libwebp)
+add_library(kizuri_draco INTERFACE)
+target_link_libraries(kizuri_draco INTERFACE draco)
+target_include_directories(kizuri_draco INTERFACE ${draco_SOURCE_DIR}/src ${draco_BINARY_DIR})
 FetchContent_Declare(
   imgui
   GIT_REPOSITORY https://github.com/ocornut/imgui.git

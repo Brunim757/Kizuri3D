@@ -3,6 +3,8 @@
 #include "Kizuri/Assets/TexCodec.h"
 #include "Kizuri/Assets/TextureImporter.h"
 #include "Kizuri/Assets/BasisuDecode.h"
+#include "Kizuri/Assets/DracoDecode.h"
+#include "Kizuri/Assets/WebpDecode.h"
 #include "Kizuri/Log.h"
 #include <cgltf.h>
 #include <meshoptimizer.h>
@@ -283,7 +285,15 @@ bool ImportEmbeddedTexture(const cgltf_texture* ctex, const std::string& glbPath
     }
   } else {
     if (!ImportTextureMemory(imgBytes.data(), imgBytes.size(), keepTex, tdata, imgName, kind, glbPath, hash)) {
-      return false;
+      std::vector<unsigned char> rgba;
+      int w = 0;
+      int h = 0;
+      if (!DecodeWebp(imgBytes.data(), imgBytes.size(), rgba, w, h)) {
+        return false;
+      }
+      if (!CompressTexturePixels(rgba.data(), w, h, keepTex, tdata, imgName, kind, glbPath, hash)) {
+        return false;
+      }
     }
     imgBytes.clear();
     imgBytes.shrink_to_fit();
@@ -314,7 +324,10 @@ bool DecodeGltfImageRgba(const cgltf_texture* ctex, const std::string& glbPath, 
   if (isBasis) {
     return DecodeBasisu(bytes.data(), bytes.size(), rgba, w, h);
   }
-  return DecodeTextureRgba(bytes.data(), bytes.size(), rgba, w, h);
+  if (DecodeTextureRgba(bytes.data(), bytes.size(), rgba, w, h)) {
+    return true;
+  }
+  return DecodeWebp(bytes.data(), bytes.size(), rgba, w, h);
 }
 bool ImportOrmTextures(const cgltf_material* mat, const std::string& glbPath, uint64_t hash, int& texCounter, const MeshMaterialData& md, std::string& guidOut) {
   guidOut.clear();
@@ -904,110 +917,182 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
         const cgltf_accessor* uvAcc = nullptr;
         const cgltf_accessor* tanAcc = nullptr;
         const cgltf_accessor* uv2Acc = nullptr;
-        for (size_t ai = 0; ai < prim.attributes_count; ++ai) {
-          if (std::strcmp(prim.attributes[ai].name, "POSITION") == 0) {
-            posAcc = prim.attributes[ai].data;
-          } else if (std::strcmp(prim.attributes[ai].name, "NORMAL") == 0) {
-            nrmAcc = prim.attributes[ai].data;
-          } else if (std::strcmp(prim.attributes[ai].name, "TEXCOORD_0") == 0) {
-            uvAcc = prim.attributes[ai].data;
-          } else if (std::strcmp(prim.attributes[ai].name, "TANGENT") == 0) {
-            tanAcc = prim.attributes[ai].data;
-          } else if (std::strcmp(prim.attributes[ai].name, "TEXCOORD_1") == 0) {
-            uv2Acc = prim.attributes[ai].data;
-          }
-        }
-        if (posAcc == nullptr || posAcc->count == 0) {
-          continue;
-        }
         std::vector<float> primPos;
         std::vector<float> primNrm;
         std::vector<float> primUv;
         std::vector<float> primTan;
-        primPos.reserve(posAcc->count * 3);
-        primNrm.reserve(posAcc->count * 3);
-        primUv.reserve(posAcc->count * 2);
-        primTan.reserve(posAcc->count * 4);
-        for (size_t vi = 0; vi < posAcc->count && ok; ++vi) {
-          float p[3] = { 0, 0, 0 };
-          float n[3] = { 0, 1, 0 };
-          float uv[2] = { 0, 0 };
-          float tg[4] = { 0, 0, 0, 1 };
-          if (!ReadVec3(posAcc, vi, p)) {
-            ok = false;
-            break;
+        std::vector<uint32_t> primIdx;
+        size_t primCount = 0;
+        bool readFallback = true;
+        if (prim.has_draco_mesh_compression != 0) {
+          const cgltf_draco_mesh_compression& dc = prim.draco_mesh_compression;
+          const unsigned char* dbase = dc.buffer_view != nullptr ? static_cast<const unsigned char*>(cgltf_buffer_view_data(dc.buffer_view)) : nullptr;
+          int posId = -1;
+          int nrmId = -1;
+          int uvId = -1;
+          if (dbase != nullptr && data->accessors != nullptr) {
+            for (size_t dai = 0; dai < dc.attributes_count; ++dai) {
+              int aid = static_cast<int>(dc.attributes[dai].data - data->accessors);
+              if (std::strcmp(dc.attributes[dai].name, "POSITION") == 0) {
+                posId = aid;
+              } else if (std::strcmp(dc.attributes[dai].name, "NORMAL") == 0) {
+                nrmId = aid;
+              } else if (std::strcmp(dc.attributes[dai].name, "TEXCOORD_0") == 0) {
+                uvId = aid;
+              }
+            }
           }
-          if (nrmAcc != nullptr && !ReadVec3(nrmAcc, vi, n)) {
-            ok = false;
-            break;
+          DracoMeshData dm;
+          if (dbase == nullptr || !DecodeDracoMesh(dbase, dc.buffer_view->size, posId, nrmId, uvId, dm) || dm.positions.empty()) {
+            if (log != nullptr) {
+              log->Add(LogLevel::Warning, "draco primitive decode failed; skipped");
+            }
+            continue;
           }
-          if (uvAcc != nullptr && !ReadVec2(uvAcc, vi, uv)) {
-            ok = false;
-            break;
+          size_t dn = dm.positions.size() / 3;
+          primPos.reserve(dn * 3);
+          primNrm.reserve(dn * 3);
+          primUv.reserve(dn * 2);
+          primTan.reserve(dn * 4);
+          for (size_t vi = 0; vi < dn; ++vi) {
+            float p0 = dm.positions[vi * 3 + 0];
+            float p1 = dm.positions[vi * 3 + 1];
+            float p2 = dm.positions[vi * 3 + 2];
+            float n0 = dm.normals[vi * 3 + 0];
+            float n1 = dm.normals[vi * 3 + 1];
+            float n2 = dm.normals[vi * 3 + 2];
+            float wp0 = nodeM[0] * p0 + nodeM[4] * p1 + nodeM[8] * p2 + nodeM[12];
+            float wp1 = nodeM[1] * p0 + nodeM[5] * p1 + nodeM[9] * p2 + nodeM[13];
+            float wp2 = nodeM[2] * p0 + nodeM[6] * p1 + nodeM[10] * p2 + nodeM[14];
+            float wn0 = nm[0] * n0 + nm[1] * n1 + nm[2] * n2;
+            float wn1 = nm[3] * n0 + nm[4] * n1 + nm[5] * n2;
+            float wn2 = nm[6] * n0 + nm[7] * n1 + nm[8] * n2;
+            float nl = NewtonSqrt(wn0 * wn0 + wn1 * wn1 + wn2 * wn2);
+            if (nl > 1e-12f) {
+              wn0 /= nl;
+              wn1 /= nl;
+              wn2 /= nl;
+            }
+            primPos.push_back(wp0);
+            primPos.push_back(wp1);
+            primPos.push_back(-wp2);
+            primNrm.push_back(wn0);
+            primNrm.push_back(wn1);
+            primNrm.push_back(-wn2);
+            primUv.push_back(dm.uvs[vi * 2 + 0]);
+            primUv.push_back(dm.uvs[vi * 2 + 1]);
+            primTan.push_back(0.0f);
+            primTan.push_back(0.0f);
+            primTan.push_back(0.0f);
+            primTan.push_back(1.0f);
           }
-          if (tanAcc != nullptr) {
-            if (!ReadVec4(tanAcc, vi, tg)) {
+          primIdx = dm.indices;
+          primCount = dn;
+          allTangent = false;
+          readFallback = false;
+        }
+        if (readFallback) {
+          for (size_t ai = 0; ai < prim.attributes_count; ++ai) {
+            if (std::strcmp(prim.attributes[ai].name, "POSITION") == 0) {
+              posAcc = prim.attributes[ai].data;
+            } else if (std::strcmp(prim.attributes[ai].name, "NORMAL") == 0) {
+              nrmAcc = prim.attributes[ai].data;
+            } else if (std::strcmp(prim.attributes[ai].name, "TEXCOORD_0") == 0) {
+              uvAcc = prim.attributes[ai].data;
+            } else if (std::strcmp(prim.attributes[ai].name, "TANGENT") == 0) {
+              tanAcc = prim.attributes[ai].data;
+            } else if (std::strcmp(prim.attributes[ai].name, "TEXCOORD_1") == 0) {
+              uv2Acc = prim.attributes[ai].data;
+            }
+          }
+          if (posAcc == nullptr || posAcc->count == 0) {
+            continue;
+          }
+          primPos.reserve(posAcc->count * 3);
+          primNrm.reserve(posAcc->count * 3);
+          primUv.reserve(posAcc->count * 2);
+          primTan.reserve(posAcc->count * 4);
+          for (size_t vi = 0; vi < posAcc->count && ok; ++vi) {
+            float p[3] = { 0, 0, 0 };
+            float n[3] = { 0, 1, 0 };
+            float uv[2] = { 0, 0 };
+            float tg[4] = { 0, 0, 0, 1 };
+            if (!ReadVec3(posAcc, vi, p)) {
               ok = false;
               break;
+            }
+            if (nrmAcc != nullptr && !ReadVec3(nrmAcc, vi, n)) {
+              ok = false;
+              break;
+            }
+            if (uvAcc != nullptr && !ReadVec2(uvAcc, vi, uv)) {
+              ok = false;
+              break;
+            }
+            if (tanAcc != nullptr) {
+              if (!ReadVec4(tanAcc, vi, tg)) {
+                ok = false;
+                break;
+              }
+            } else {
+              allTangent = false;
+            }
+            float wp0 = nodeM[0] * p[0] + nodeM[4] * p[1] + nodeM[8] * p[2] + nodeM[12];
+            float wp1 = nodeM[1] * p[0] + nodeM[5] * p[1] + nodeM[9] * p[2] + nodeM[13];
+            float wp2 = nodeM[2] * p[0] + nodeM[6] * p[1] + nodeM[10] * p[2] + nodeM[14];
+            float wn0 = nm[0] * n[0] + nm[1] * n[1] + nm[2] * n[2];
+            float wn1 = nm[3] * n[0] + nm[4] * n[1] + nm[5] * n[2];
+            float wn2 = nm[6] * n[0] + nm[7] * n[1] + nm[8] * n[2];
+            float nl = NewtonSqrt(wn0 * wn0 + wn1 * wn1 + wn2 * wn2);
+            if (nl > 1e-12f) {
+              wn0 /= nl;
+              wn1 /= nl;
+              wn2 /= nl;
+            }
+            primPos.push_back(wp0);
+            primPos.push_back(wp1);
+            primPos.push_back(-wp2);
+            primNrm.push_back(wn0);
+            primNrm.push_back(wn1);
+            primNrm.push_back(-wn2);
+            primUv.push_back(uv[0]);
+            primUv.push_back(uv[1]);
+            primTan.push_back(tg[0]);
+            primTan.push_back(tg[1]);
+            primTan.push_back(-tg[2]);
+            primTan.push_back(-tg[3]);
+          }
+          if (!ok) {
+            break;
+          }
+          if (prim.indices != nullptr) {
+            if (prim.indices->count % 3 != 0) {
+              ok = false;
+              break;
+            }
+            primIdx.reserve(prim.indices->count);
+            for (size_t ii = 0; ii < prim.indices->count; ++ii) {
+              uint32_t idx = 0;
+              if (!ReadIndex(prim.indices, ii, idx)) {
+                ok = false;
+                break;
+              }
+              primIdx.push_back(idx);
             }
           } else {
-            allTangent = false;
-          }
-          float wp0 = nodeM[0] * p[0] + nodeM[4] * p[1] + nodeM[8] * p[2] + nodeM[12];
-          float wp1 = nodeM[1] * p[0] + nodeM[5] * p[1] + nodeM[9] * p[2] + nodeM[13];
-          float wp2 = nodeM[2] * p[0] + nodeM[6] * p[1] + nodeM[10] * p[2] + nodeM[14];
-          float wn0 = nm[0] * n[0] + nm[1] * n[1] + nm[2] * n[2];
-          float wn1 = nm[3] * n[0] + nm[4] * n[1] + nm[5] * n[2];
-          float wn2 = nm[6] * n[0] + nm[7] * n[1] + nm[8] * n[2];
-          float nl = NewtonSqrt(wn0 * wn0 + wn1 * wn1 + wn2 * wn2);
-          if (nl > 1e-12f) {
-            wn0 /= nl;
-            wn1 /= nl;
-            wn2 /= nl;
-          }
-          primPos.push_back(wp0);
-          primPos.push_back(wp1);
-          primPos.push_back(-wp2);
-          primNrm.push_back(wn0);
-          primNrm.push_back(wn1);
-          primNrm.push_back(-wn2);
-          primUv.push_back(uv[0]);
-          primUv.push_back(uv[1]);
-          primTan.push_back(tg[0]);
-          primTan.push_back(tg[1]);
-          primTan.push_back(-tg[2]);
-          primTan.push_back(-tg[3]);
-        }
-        if (!ok) {
-          break;
-        }
-        std::vector<uint32_t> primIdx;
-        if (prim.indices != nullptr) {
-          if (prim.indices->count % 3 != 0) {
-            ok = false;
-            break;
-          }
-          primIdx.reserve(prim.indices->count);
-          for (size_t ii = 0; ii < prim.indices->count; ++ii) {
-            uint32_t idx = 0;
-            if (!ReadIndex(prim.indices, ii, idx)) {
+            if (posAcc->count % 3 != 0) {
               ok = false;
               break;
             }
-            primIdx.push_back(idx);
+            primIdx.reserve(posAcc->count);
+            for (size_t vi = 0; vi < posAcc->count; ++vi) {
+              primIdx.push_back(static_cast<uint32_t>(vi));
+            }
           }
-        } else {
-          if (posAcc->count % 3 != 0) {
-            ok = false;
+          if (!ok) {
             break;
           }
-          primIdx.reserve(posAcc->count);
-          for (size_t vi = 0; vi < posAcc->count; ++vi) {
-            primIdx.push_back(static_cast<uint32_t>(vi));
-          }
-        }
-        if (!ok) {
-          break;
+          primCount = posAcc->count;
         }
         std::vector<float> primUv2;
         std::vector<float> usePos = primPos;
@@ -1016,8 +1101,8 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
         std::vector<float> useTan = primTan;
         std::vector<uint32_t> useIdx = primIdx;
         if (uv2Acc != nullptr) {
-          primUv2.reserve(posAcc->count * 2);
-          for (size_t vi = 0; vi < posAcc->count && ok; ++vi) {
+          primUv2.reserve(primCount * 2);
+          for (size_t vi = 0; vi < primCount && ok; ++vi) {
             float uvv[2] = { 0, 0 };
             if (!ReadVec2(uv2Acc, vi, uvv)) {
               ok = false;
@@ -1042,7 +1127,7 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
             useTan = uTan;
             useIdx = uIdx;
           } else {
-            primUv2.assign(posAcc->count * 2, 0.0f);
+            primUv2.assign(primCount * 2, 0.0f);
           }
         }
         uint32_t baseVertex = static_cast<uint32_t>(out.positions.size() / 3);
