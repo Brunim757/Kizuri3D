@@ -170,6 +170,17 @@ private:
   MaterialData before;
   MaterialData after;
 };
+class SetVariantCmd : public Command {
+public:
+  SetVariantCmd(EntityId target, int before, int after);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  int before;
+  int after;
+};
 class AddMaterialCmd : public Command {
 public:
   explicit AddMaterialCmd(EntityId target);

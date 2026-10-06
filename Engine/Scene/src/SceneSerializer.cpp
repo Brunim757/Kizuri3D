@@ -156,6 +156,11 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
     if (e->hasMaterial) {
       const MaterialData& m = e->material;
       std::fprintf(fp, "MATERIAL %.9g %.9g %.9g %.9g %.9g \"%s\" \"%s\" \"%s\" \"%s\"\n", m.albedo[0], m.albedo[1], m.albedo[2], m.metallic, m.roughness, EscapeName(m.albedoTex).c_str(), EscapeName(m.normalTex).c_str(), EscapeName(m.ormTex).c_str(), EscapeName(m.heightTex).c_str());
+      std::fprintf(fp, "MATERIALX %.9g %.9g %.9g %.9g %.9g %d %d %d %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\"\n", m.alpha, m.emissive[0], m.emissive[1], m.emissive[2], m.emissiveStrength, m.unlit ? 1 : 0, m.doubleSided ? 1 : 0, m.alphaMode, m.alphaCutoff, m.ior, m.hasSpecular ? 1 : 0, m.specularColor[0], m.specularColor[1], m.specularColor[2], m.specularStrength, m.clearcoat, m.clearcoatRoughness, m.sheenColor[0], m.sheenColor[1], m.sheenColor[2], m.sheenRoughness, m.anisotropy, m.anisotropyRotation, m.iridescence, m.iridescenceIor, m.iridescenceThicknessMin, m.iridescenceThicknessMax, m.transmission, m.thickness, m.attenuationColor[0], m.attenuationColor[1], m.attenuationColor[2], m.attenuationDistance, m.dispersion, EscapeName(m.emissiveTex).c_str(), EscapeName(m.specularTex).c_str(), EscapeName(m.specularColorTex).c_str(), EscapeName(m.clearcoatTex).c_str(), EscapeName(m.clearcoatRoughnessTex).c_str(), EscapeName(m.clearcoatNormalTex).c_str(), EscapeName(m.sheenColorTex).c_str(), EscapeName(m.sheenRoughnessTex).c_str(), EscapeName(m.anisotropyTex).c_str(), EscapeName(m.iridescenceTex).c_str(), EscapeName(m.iridescenceThicknessTex).c_str(), EscapeName(m.transmissionTex).c_str(), EscapeName(m.thicknessTex).c_str());
+      std::fprintf(fp, "MATERIALXF %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d\n", m.xforms[0].offsetU, m.xforms[0].offsetV, m.xforms[0].scaleU, m.xforms[0].scaleV, m.xforms[0].rotation, m.xforms[0].uvSet, m.xforms[1].offsetU, m.xforms[1].offsetV, m.xforms[1].scaleU, m.xforms[1].scaleV, m.xforms[1].rotation, m.xforms[1].uvSet, m.xforms[2].offsetU, m.xforms[2].offsetV, m.xforms[2].scaleU, m.xforms[2].scaleV, m.xforms[2].rotation, m.xforms[2].uvSet, m.xforms[3].offsetU, m.xforms[3].offsetV, m.xforms[3].scaleU, m.xforms[3].scaleV, m.xforms[3].rotation, m.xforms[3].uvSet, m.xforms[4].offsetU, m.xforms[4].offsetV, m.xforms[4].scaleU, m.xforms[4].scaleV, m.xforms[4].rotation, m.xforms[4].uvSet);
+      if (e->variantIndex >= 0) {
+        std::fprintf(fp, "VARIANT %d\n", e->variantIndex);
+      }
     }
     if (e->hasDecal) {
       const DecalData& d = e->decal;
@@ -373,6 +378,104 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
           current->material.heightTex = height;
         }
         current->hasMaterial = true;
+        continue;
+      }
+      if (field == "MATERIALX") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        float mv[34] = { 1.0f };
+        for (int mi = 1; mi < 34; ++mi) {
+          mv[mi] = 0.0f;
+        }
+        if (!ParseFloats(s, pos, mv, 34)) {
+          failed = true;
+          break;
+        }
+        current->material.alpha = mv[0];
+        current->material.emissive[0] = mv[1];
+        current->material.emissive[1] = mv[2];
+        current->material.emissive[2] = mv[3];
+        current->material.emissiveStrength = mv[4];
+        current->material.unlit = mv[5] > 0.5f;
+        current->material.doubleSided = mv[6] > 0.5f;
+        current->material.alphaMode = static_cast<int>(mv[7]);
+        current->material.alphaCutoff = mv[8];
+        current->material.ior = mv[9];
+        current->material.hasSpecular = mv[10] > 0.5f;
+        current->material.specularColor[0] = mv[11];
+        current->material.specularColor[1] = mv[12];
+        current->material.specularColor[2] = mv[13];
+        current->material.specularStrength = mv[14];
+        current->material.clearcoat = mv[15];
+        current->material.clearcoatRoughness = mv[16];
+        current->material.sheenColor[0] = mv[17];
+        current->material.sheenColor[1] = mv[18];
+        current->material.sheenColor[2] = mv[19];
+        current->material.sheenRoughness = mv[20];
+        current->material.anisotropy = mv[21];
+        current->material.anisotropyRotation = mv[22];
+        current->material.iridescence = mv[23];
+        current->material.iridescenceIor = mv[24];
+        current->material.iridescenceThicknessMin = mv[25];
+        current->material.iridescenceThicknessMax = mv[26];
+        current->material.transmission = mv[27];
+        current->material.thickness = mv[28];
+        current->material.attenuationColor[0] = mv[29];
+        current->material.attenuationColor[1] = mv[30];
+        current->material.attenuationColor[2] = mv[31];
+        current->material.attenuationDistance = mv[32];
+        current->material.dispersion = mv[33];
+        std::string slots[13];
+        for (int si = 0; si < 13; ++si) {
+          if (!ParseQuoted(s, pos, slots[si])) {
+            failed = true;
+            break;
+          }
+        }
+        if (failed) {
+          break;
+        }
+        current->material.emissiveTex = slots[0];
+        current->material.specularTex = slots[1];
+        current->material.specularColorTex = slots[2];
+        current->material.clearcoatTex = slots[3];
+        current->material.clearcoatRoughnessTex = slots[4];
+        current->material.clearcoatNormalTex = slots[5];
+        current->material.sheenColorTex = slots[6];
+        current->material.sheenRoughnessTex = slots[7];
+        current->material.anisotropyTex = slots[8];
+        current->material.iridescenceTex = slots[9];
+        current->material.iridescenceThicknessTex = slots[10];
+        current->material.transmissionTex = slots[11];
+        current->material.thicknessTex = slots[12];
+        continue;
+      }
+      if (field == "MATERIALXF") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        float mv[30] = { 0.0f };
+        mv[2] = 1.0f;
+        mv[3] = 1.0f;
+        if (!ParseFloats(s, pos, mv, 30)) {
+          failed = true;
+          break;
+        }
+        for (int si = 0; si < 5; ++si) {
+          current->material.xforms[si].offsetU = mv[si * 6 + 0];
+          current->material.xforms[si].offsetV = mv[si * 6 + 1];
+          current->material.xforms[si].scaleU = mv[si * 6 + 2];
+          current->material.xforms[si].scaleV = mv[si * 6 + 3];
+          current->material.xforms[si].rotation = mv[si * 6 + 4];
+          current->material.xforms[si].uvSet = static_cast<int>(mv[si * 6 + 5]);
+        }
+        continue;
+      }
+      if (field == "VARIANT") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        long vv = -1;
+        if (!ParseInt(s, pos, vv)) {
+          failed = true;
+          break;
+        }
+        current->variantIndex = static_cast<int>(vv);
         continue;
       }
       if (field == "DECAL") {

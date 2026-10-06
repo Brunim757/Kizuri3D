@@ -1070,7 +1070,118 @@ bool TestSceneRoundTrip() {
   (void)lone;
   return true;
 }
-bool TestSceneInvalid() {
+bool TestSceneMaterialExt() {
+  Kizuri::Scene src;
+  Kizuri::UndoStack undo;
+  Kizuri::Transform t;
+  Kizuri::MakeIdentityTransform(t);
+  Kizuri::EntityId eid;
+  {
+    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::CreateEntityCmd("Mat1", t, Kizuri::EntityId::Invalid()));
+    std::vector<Kizuri::EntityId> before = src.All();
+    if (!undo.Execute(std::move(cmd), src)) {
+      return false;
+    }
+    std::vector<Kizuri::EntityId> after = src.All();
+    if (after.size() != before.size() + 1) {
+      return false;
+    }
+    eid = after.back();
+  }
+  {
+    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::AddMaterialCmd(eid));
+    if (!undo.Execute(std::move(cmd), src)) {
+      return false;
+    }
+  }
+  {
+    Kizuri::Entity* e = src.Get(eid);
+    if (e == nullptr || !e->hasMaterial) {
+      return false;
+    }
+    Kizuri::MaterialData after = e->material;
+    after.alpha = 0.8f;
+    after.emissive[0] = 1.0f;
+    after.emissive[1] = 0.5f;
+    after.emissiveStrength = 2.0f;
+    after.unlit = true;
+    after.doubleSided = true;
+    after.alphaMode = 1;
+    after.alphaCutoff = 0.4f;
+    after.hasSpecular = true;
+    after.specularColor[0] = 0.9f;
+    after.specularStrength = 0.8f;
+    after.clearcoat = 0.5f;
+    after.sheenColor[2] = 1.0f;
+    after.anisotropy = 0.4f;
+    after.iridescence = 0.6f;
+    after.transmission = 0.7f;
+    after.dispersion = 0.02f;
+    after.xforms[0].offsetU = 0.5f;
+    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::SetMaterialCmd(eid, e->material, after));
+    if (!undo.Execute(std::move(cmd), src)) {
+      return false;
+    }
+  }
+  {
+    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::SetVariantCmd(eid, -1, 2));
+    if (!undo.Execute(std::move(cmd), src)) {
+      return false;
+    }
+  }
+  const char* path = "test_matx_tmp.kzscene";
+  std::remove(path);
+  if (!Kizuri::SaveSceneToFile(src, path)) {
+    return false;
+  }
+  Kizuri::Scene dst;
+  if (!Kizuri::LoadSceneFromFile(dst, path, nullptr)) {
+    std::remove(path);
+    return false;
+  }
+  std::remove(path);
+  if (dst.Count() != 1) {
+    return false;
+  }
+  const Kizuri::Entity* e = dst.Get(dst.All()[0]);
+  if (e == nullptr || !e->hasMaterial) {
+    return false;
+  }
+  const Kizuri::MaterialData& m = e->material;
+  if (m.alpha != 0.8f || m.emissive[0] != 1.0f || m.emissive[1] != 0.5f || m.emissiveStrength != 2.0f) {
+    return false;
+  }
+  if (!m.unlit || !m.doubleSided || m.alphaMode != 1 || m.alphaCutoff != 0.4f) {
+    return false;
+  }
+  if (!m.hasSpecular || m.specularColor[0] != 0.9f || m.specularStrength != 0.8f || m.clearcoat != 0.5f) {
+    return false;
+  }
+  if (m.sheenColor[2] != 1.0f || m.anisotropy != 0.4f || m.iridescence != 0.6f || m.transmission != 0.7f || m.dispersion != 0.02f) {
+    return false;
+  }
+  if (m.xforms[0].offsetU != 0.5f) {
+    return false;
+  }
+  if (e->variantIndex != 2) {
+    return false;
+  }
+  if (!undo.Undo(src)) {
+    return false;
+  }
+  const Kizuri::Entity* eu = src.Get(eid);
+  if (eu == nullptr || eu->variantIndex != -1) {
+    return false;
+  }
+  if (!undo.Redo(src)) {
+    return false;
+  }
+  eu = src.Get(eid);
+  if (eu == nullptr || eu->variantIndex != 2) {
+    return false;
+  }
+  return true;
+}
   Kizuri::Scene scene;
   if (Kizuri::LoadSceneFromFile(scene, "no_such_file_xyz.kzscene", nullptr)) {
     return false;
@@ -3092,6 +3203,8 @@ bool TestMeshCodecExt() {
   }
   Kizuri::MeshMaterialData mat;
   mat.name = "Ext";
+  mat.alpha = 0.8f;
+  mat.hasSpecular = true;
   mat.emissive[0] = 1.0f;
   mat.emissive[1] = 0.5f;
   mat.emissiveStrength = 2.0f;
@@ -3153,6 +3266,9 @@ bool TestMeshCodecExt() {
     return false;
   }
   const Kizuri::MeshMaterialData& bm = back.materials[0];
+  if (bm.alpha != 0.8f || !bm.hasSpecular || bm.emissiveStrength != 2.0f) {
+    return false;
+  }
   if (bm.emissive[0] != 1.0f || bm.emissive[1] != 0.5f || bm.emissiveStrength != 2.0f || bm.emissiveTexGuid != "emi-guid") {
     return false;
   }
@@ -5051,6 +5167,7 @@ int main() {
   failures += Check("EditQueue", TestEditQueue());
   failures += Check("Picking", TestPicking());
   failures += Check("Scene-RoundTrip", TestSceneRoundTrip());
+  failures += Check("Scene-MaterialExt", TestSceneMaterialExt());
   failures += Check("Scene-InvalidFile", TestSceneInvalid());
   failures += Check("Undo-Create", TestUndoCreate());
   failures += Check("Undo-Delete", TestUndoDelete());

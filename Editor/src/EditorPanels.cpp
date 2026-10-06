@@ -30,6 +30,77 @@ uint32_t ResolveMaterialSlot(AssetDatabase& assets, const std::string& guid, uin
   out = tr->gpu;
   return bit;
 }
+void FillDeferredFromEntity(AssetDatabase& assets, const MaterialData& m, DeferredMaterial& partMat) {
+  partMat.albedo[0] = m.albedo[0];
+  partMat.albedo[1] = m.albedo[1];
+  partMat.albedo[2] = m.albedo[2];
+  partMat.alpha = m.alpha;
+  partMat.roughness = m.roughness;
+  partMat.metallic = m.metallic;
+  partMat.emissive[0] = m.emissive[0];
+  partMat.emissive[1] = m.emissive[1];
+  partMat.emissive[2] = m.emissive[2];
+  partMat.emissiveStrength = m.emissiveStrength;
+  partMat.unlit = m.unlit;
+  partMat.doubleSided = m.doubleSided;
+  partMat.alphaMode = m.alphaMode;
+  partMat.alphaCutoff = m.alphaCutoff;
+  for (int s = 0; s < 5; ++s) {
+    partMat.xforms[s].offsetU = m.xforms[s].offsetU;
+    partMat.xforms[s].offsetV = m.xforms[s].offsetV;
+    partMat.xforms[s].scaleU = m.xforms[s].scaleU;
+    partMat.xforms[s].scaleV = m.xforms[s].scaleV;
+    partMat.xforms[s].rotation = m.xforms[s].rotation;
+    partMat.xforms[s].uvSet = m.xforms[s].uvSet;
+  }
+  partMat.ior = m.ior;
+  partMat.hasSpecular = m.hasSpecular;
+  partMat.specularColor[0] = m.specularColor[0];
+  partMat.specularColor[1] = m.specularColor[1];
+  partMat.specularColor[2] = m.specularColor[2];
+  partMat.specularStrength = m.specularStrength;
+  partMat.clearcoat = m.clearcoat;
+  partMat.clearcoatRoughness = m.clearcoatRoughness;
+  partMat.sheenColor[0] = m.sheenColor[0];
+  partMat.sheenColor[1] = m.sheenColor[1];
+  partMat.sheenColor[2] = m.sheenColor[2];
+  partMat.sheenRoughness = m.sheenRoughness;
+  partMat.anisotropy = m.anisotropy;
+  partMat.anisotropyRotation = m.anisotropyRotation;
+  partMat.iridescence = m.iridescence;
+  partMat.iridescenceIor = m.iridescenceIor;
+  partMat.iridescenceThicknessMin = m.iridescenceThicknessMin;
+  partMat.iridescenceThicknessMax = m.iridescenceThicknessMax;
+  partMat.transmission = m.transmission;
+  partMat.thickness = m.thickness;
+  partMat.attenuationColor[0] = m.attenuationColor[0];
+  partMat.attenuationColor[1] = m.attenuationColor[1];
+  partMat.attenuationColor[2] = m.attenuationColor[2];
+  partMat.attenuationDistance = m.attenuationDistance;
+  partMat.dispersion = m.dispersion;
+  uint32_t flags = 0;
+  flags |= ResolveMaterialSlot(assets, m.albedoTex, 1u, partMat.albedoTex);
+  flags |= ResolveMaterialSlot(assets, m.normalTex, 2u, partMat.normalTex);
+  flags |= ResolveMaterialSlot(assets, m.ormTex, 4u, partMat.ormTex);
+  flags |= ResolveMaterialSlot(assets, m.heightTex, 8u, partMat.heightTex);
+  flags |= ResolveMaterialSlot(assets, m.emissiveTex, 32u, partMat.emissiveTex);
+  flags |= ResolveMaterialSlot(assets, m.specularTex, 64u, partMat.specularTex);
+  flags |= ResolveMaterialSlot(assets, m.specularColorTex, 128u, partMat.specularColorTex);
+  flags |= ResolveMaterialSlot(assets, m.clearcoatTex, 256u, partMat.clearcoatTex);
+  flags |= ResolveMaterialSlot(assets, m.clearcoatRoughnessTex, 512u, partMat.clearcoatRoughnessTex);
+  flags |= ResolveMaterialSlot(assets, m.clearcoatNormalTex, 1024u, partMat.clearcoatNormalTex);
+  flags |= ResolveMaterialSlot(assets, m.sheenColorTex, 2048u, partMat.sheenColorTex);
+  flags |= ResolveMaterialSlot(assets, m.sheenRoughnessTex, 4096u, partMat.sheenRoughnessTex);
+  flags |= ResolveMaterialSlot(assets, m.anisotropyTex, 8192u, partMat.anisotropyTex);
+  flags |= ResolveMaterialSlot(assets, m.iridescenceTex, 16384u, partMat.iridescenceTex);
+  flags |= ResolveMaterialSlot(assets, m.iridescenceThicknessTex, 32768u, partMat.iridescenceThicknessTex);
+  flags |= ResolveMaterialSlot(assets, m.transmissionTex, 131072u, partMat.transmissionTex);
+  flags |= ResolveMaterialSlot(assets, m.thicknessTex, 262144u, partMat.thicknessTex);
+  if (m.hasSpecular) {
+    flags |= 65536u;
+  }
+  partMat.texFlags = flags;
+}
 void FillDeferredFromMesh(AssetDatabase& assets, const MeshMaterialData& mm, DeferredMaterial& partMat) {
   partMat.albedo[0] = mm.albedo[0];
   partMat.albedo[1] = mm.albedo[1];
@@ -354,20 +425,20 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
             const DeferredMaterial* useMat = nullptr;
             DeferredMaterial partMat;
             if (e->hasMaterial) {
-              partMat.albedo[0] = e->material.albedo[0];
-              partMat.albedo[1] = e->material.albedo[1];
-              partMat.albedo[2] = e->material.albedo[2];
-              partMat.roughness = e->material.roughness;
-              partMat.metallic = e->material.metallic;
-              uint32_t flags = 0;
-              flags |= ResolveMaterialSlot(assets, e->material.albedoTex, 1u, partMat.albedoTex);
-              flags |= ResolveMaterialSlot(assets, e->material.normalTex, 2u, partMat.normalTex);
-              flags |= ResolveMaterialSlot(assets, e->material.ormTex, 4u, partMat.ormTex);
-              flags |= ResolveMaterialSlot(assets, e->material.heightTex, 8u, partMat.heightTex);
-              partMat.texFlags = flags;
+              FillDeferredFromEntity(assets, e->material, partMat);
               useMat = &partMat;
             } else if (part.material < rec->data.materials.size()) {
-              const MeshMaterialData& mm = rec->data.materials[part.material];
+              uint32_t matIdx = part.material;
+              if (e->variantIndex >= 0) {
+                for (size_t vi = 0; vi < rec->data.variantAssigns.size(); ++vi) {
+                  const MeshVariantAssign& va = rec->data.variantAssigns[vi];
+                  if (va.part == static_cast<uint32_t>(p) && static_cast<int>(va.variant) == e->variantIndex && va.material < rec->data.materials.size()) {
+                    matIdx = va.material;
+                    break;
+                  }
+                }
+              }
+              const MeshMaterialData& mm = rec->data.materials[matIdx];
               FillDeferredFromMesh(assets, mm, partMat);
               useMat = &partMat;
             }
@@ -1285,11 +1356,106 @@ void EditorApp::DrawInspector() {
     if (ImGui::ColorEdit3("Albedo", mat.albedo)) {
       matChanged = true;
     }
+    if (ImGui::DragFloat("Alpha", &mat.alpha, 0.01f, 0.0f, 1.0f)) {
+      matChanged = true;
+    }
     if (ImGui::DragFloat("Metallic", &mat.metallic, 0.01f, 0.0f, 1.0f)) {
       matChanged = true;
     }
     if (ImGui::DragFloat("Roughness", &mat.roughness, 0.01f, 0.0f, 1.0f)) {
       matChanged = true;
+    }
+    if (ImGui::Checkbox("Unlit", &mat.unlit)) {
+      matChanged = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Double Sided", &mat.doubleSided)) {
+      matChanged = true;
+    }
+    int alphaMode = mat.alphaMode;
+    if (ImGui::Combo("Alpha Mode", &alphaMode, "Opaque\0Mask\0Blend\0")) {
+      mat.alphaMode = alphaMode < 0 ? 0 : (alphaMode > 2 ? 2 : alphaMode);
+      matChanged = true;
+    }
+    if (ImGui::DragFloat("Alpha Cutoff", &mat.alphaCutoff, 0.01f, 0.0f, 1.0f)) {
+      matChanged = true;
+    }
+    if (ImGui::CollapsingHeader("Emissive")) {
+      if (ImGui::ColorEdit3("Color", mat.emissive)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Strength", &mat.emissiveStrength, 0.05f, 0.0f, 16.0f)) {
+        matChanged = true;
+      }
+    }
+    if (ImGui::CollapsingHeader("Specular (IOR)")) {
+      if (ImGui::DragFloat("IOR", &mat.ior, 0.01f, 1.0f, 3.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::Checkbox("Has Specular Ext", &mat.hasSpecular)) {
+        matChanged = true;
+      }
+      if (ImGui::ColorEdit3("Spec Color", mat.specularColor)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Spec Strength", &mat.specularStrength, 0.01f, 0.0f, 4.0f)) {
+        matChanged = true;
+      }
+    }
+    if (ImGui::CollapsingHeader("Clearcoat")) {
+      if (ImGui::DragFloat("Factor", &mat.clearcoat, 0.01f, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Roughness", &mat.clearcoatRoughness, 0.01f, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+    }
+    if (ImGui::CollapsingHeader("Sheen")) {
+      if (ImGui::ColorEdit3("Color", mat.sheenColor)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Roughness", &mat.sheenRoughness, 0.01f, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+    }
+    if (ImGui::CollapsingHeader("Anisotropy")) {
+      if (ImGui::DragFloat("Strength", &mat.anisotropy, 0.01f, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Rotation", &mat.anisotropyRotation, 0.01f, -3.15f, 3.15f)) {
+        matChanged = true;
+      }
+    }
+    if (ImGui::CollapsingHeader("Iridescence")) {
+      if (ImGui::DragFloat("Factor", &mat.iridescence, 0.01f, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("IOR", &mat.iridescenceIor, 0.01f, 1.0f, 2.5f)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Thick Min", &mat.iridescenceThicknessMin, 1.0f, 10.0f, 1000.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Thick Max", &mat.iridescenceThicknessMax, 1.0f, 10.0f, 2000.0f)) {
+        matChanged = true;
+      }
+    }
+    if (ImGui::CollapsingHeader("Transmission / Volume")) {
+      if (ImGui::DragFloat("Transmission", &mat.transmission, 0.01f, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Thickness", &mat.thickness, 0.01f, 0.0f, 10.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::ColorEdit3("Attenuation", mat.attenuationColor)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Atten Dist", &mat.attenuationDistance, 0.05f, 0.0f, 100.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Dispersion", &mat.dispersion, 0.005f, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
     }
     if (matChanged) {
       edits.PushMaterial(e->id, mat);
@@ -1629,6 +1795,112 @@ void EditorApp::DrawMeshSection(Entity* e) {
       undo.Execute(std::move(cmd), scene);
     }
   }
+  if (!e->meshGuid.empty()) {
+    const MeshRecord* lrec = assets.GetByGuid(e->meshGuid);
+    if (lrec != nullptr && lrec->loaded && !lrec->data.lights.empty()) {
+      std::string lab = "Import lights (" + std::to_string(lrec->data.lights.size()) + ")";
+      if (ImGui::Button(lab.c_str())) {
+        for (size_t li = 0; li < lrec->data.lights.size(); ++li) {
+          const MeshLightData& ml = lrec->data.lights[li];
+          Transform t;
+          MakeIdentityTransform(t);
+          t.position[0] = ml.matrix[12];
+          t.position[1] = ml.matrix[13];
+          t.position[2] = -ml.matrix[14];
+          float dx = -ml.matrix[8];
+          float dy = -ml.matrix[9];
+          float dz = ml.matrix[10];
+          float dl = sqrtf(dx * dx + dy * dy + dz * dz);
+          if (dl > 1e-6f) {
+            dx /= dl;
+            dy /= dl;
+            dz /= dl;
+            t.rotation[0] = -asinf(dy > 1.0f ? 1.0f : (dy < -1.0f ? -1.0f : dy)) * 57.29577951f;
+            t.rotation[1] = atan2f(dx, dz) * 57.29577951f;
+            t.rotation[2] = 0.0f;
+          }
+          std::string lname = ml.name.empty() ? "Light" : ml.name;
+          std::unique_ptr<Command> cc(new CreateEntityCmd(lname, t, EntityId::Invalid(), ""));
+          std::vector<EntityId> beforeIds = scene.All();
+          if (!undo.Execute(std::move(cc), scene)) {
+            continue;
+          }
+          EntityId nid;
+          bool found = false;
+          for (size_t ai = 0; ai < scene.All().size(); ++ai) {
+            EntityId cand = scene.All()[ai];
+            bool old = false;
+            for (size_t bi = 0; bi < beforeIds.size(); ++bi) {
+              if (cand == beforeIds[bi]) {
+                old = true;
+                break;
+              }
+            }
+            if (!old) {
+              nid = cand;
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            continue;
+          }
+          std::unique_ptr<Command> ac(new AddLightCmd(nid));
+          if (!undo.Execute(std::move(ac), scene)) {
+            continue;
+          }
+          Entity* ne = scene.Get(nid);
+          if (ne == nullptr) {
+            continue;
+          }
+          LightData after = ne->light;
+          after.type = ml.type < 0 ? 0 : (ml.type > 2 ? 2 : ml.type);
+          after.color[0] = ml.color[0];
+          after.color[1] = ml.color[1];
+          after.color[2] = ml.color[2];
+          after.intensity = ml.intensity;
+          if (ml.range > 0.0f) {
+            after.radius = ml.range;
+          }
+          if (ml.type == 1) {
+            after.spotAngle = ml.outerCone * 57.29577951f;
+            if (after.spotAngle < 1.0f) {
+              after.spotAngle = 1.0f;
+            }
+            if (after.spotAngle > 170.0f) {
+              after.spotAngle = 170.0f;
+            }
+          }
+          std::unique_ptr<Command> sc(new SetLightCmd(nid, ne->light, after));
+          undo.Execute(std::move(sc), scene);
+        }
+        log.Add(LogLevel::Info, "Imported lights from mesh");
+      }
+    }
+    if (lrec != nullptr && lrec->loaded && !lrec->data.variantNames.empty()) {
+      int cur = e->variantIndex;
+      std::string preview = cur < 0 ? "Default" : (static_cast<size_t>(cur) < lrec->data.variantNames.size() ? lrec->data.variantNames[static_cast<size_t>(cur)] : "Default");
+      if (ImGui::BeginCombo("Variant", preview.c_str())) {
+        bool selDef = cur < 0;
+        if (ImGui::Selectable("Default", selDef)) {
+          if (cur >= 0) {
+            std::unique_ptr<Command> cmd(new SetVariantCmd(e->id, cur, -1));
+            undo.Execute(std::move(cmd), scene);
+          }
+        }
+        for (size_t vi = 0; vi < lrec->data.variantNames.size(); ++vi) {
+          bool sel = cur == static_cast<int>(vi);
+          if (ImGui::Selectable(lrec->data.variantNames[vi].c_str(), sel)) {
+            if (!sel) {
+              std::unique_ptr<Command> cmd(new SetVariantCmd(e->id, cur, static_cast<int>(vi)));
+              undo.Execute(std::move(cmd), scene);
+            }
+          }
+        }
+        ImGui::EndCombo();
+      }
+    }
+  }
 }
 void EditorApp::DrawMaterialSection(Entity* e) {
   if (e == nullptr || !e->hasMaterial) {
@@ -1638,6 +1910,19 @@ void EditorApp::DrawMaterialSection(Entity* e) {
   DrawMaterialSlot(e, "Normal", 1);
   DrawMaterialSlot(e, "ORM", 2);
   DrawMaterialSlot(e, "Height", 3);
+  DrawMaterialSlot(e, "Emissive", 4);
+  DrawMaterialSlot(e, "Specular", 5);
+  DrawMaterialSlot(e, "Spec Color", 6);
+  DrawMaterialSlot(e, "Clearcoat", 7);
+  DrawMaterialSlot(e, "Clearcoat Rough", 8);
+  DrawMaterialSlot(e, "Clearcoat Normal", 9);
+  DrawMaterialSlot(e, "Sheen Color", 10);
+  DrawMaterialSlot(e, "Sheen Rough", 11);
+  DrawMaterialSlot(e, "Anisotropy", 12);
+  DrawMaterialSlot(e, "Iridescence", 13);
+  DrawMaterialSlot(e, "Iridescence Thick", 14);
+  DrawMaterialSlot(e, "Transmission", 15);
+  DrawMaterialSlot(e, "Thickness", 16);
 }
 void EditorApp::DrawDecalSection(Entity* e) {
   if (e == nullptr || !e->hasDecal) {
@@ -1684,16 +1969,42 @@ void EditorApp::DrawDecalSection(Entity* e) {
   }
 }
 void EditorApp::DrawMaterialSlot(Entity* e, const char* label, int slot) {
-  if (e == nullptr || label == nullptr || slot < 0 || slot > 3) {
+  if (e == nullptr || label == nullptr || slot < 0 || slot > 16) {
     return;
   }
-  const std::string* cur = &e->material.albedoTex;
+  std::string* cur = &e->material.albedoTex;
   if (slot == 1) {
     cur = &e->material.normalTex;
   } else if (slot == 2) {
     cur = &e->material.ormTex;
   } else if (slot == 3) {
     cur = &e->material.heightTex;
+  } else if (slot == 4) {
+    cur = &e->material.emissiveTex;
+  } else if (slot == 5) {
+    cur = &e->material.specularTex;
+  } else if (slot == 6) {
+    cur = &e->material.specularColorTex;
+  } else if (slot == 7) {
+    cur = &e->material.clearcoatTex;
+  } else if (slot == 8) {
+    cur = &e->material.clearcoatRoughnessTex;
+  } else if (slot == 9) {
+    cur = &e->material.clearcoatNormalTex;
+  } else if (slot == 10) {
+    cur = &e->material.sheenColorTex;
+  } else if (slot == 11) {
+    cur = &e->material.sheenRoughnessTex;
+  } else if (slot == 12) {
+    cur = &e->material.anisotropyTex;
+  } else if (slot == 13) {
+    cur = &e->material.iridescenceTex;
+  } else if (slot == 14) {
+    cur = &e->material.iridescenceThicknessTex;
+  } else if (slot == 15) {
+    cur = &e->material.transmissionTex;
+  } else if (slot == 16) {
+    cur = &e->material.thicknessTex;
   }
   ImGui::Text("%s:", label);
   ImGui::SameLine();
@@ -1719,15 +2030,41 @@ void EditorApp::DrawMaterialSlot(Entity* e, const char* label, int slot) {
           Announce(LogLevel::Warning, "Texture has no source; assigned without conversion");
         }
         MaterialData after = e->material;
+        std::string* dst = &after.albedoTex;
         if (slot == 1) {
-          after.normalTex = guid;
+          dst = &after.normalTex;
         } else if (slot == 2) {
-          after.ormTex = guid;
+          dst = &after.ormTex;
         } else if (slot == 3) {
-          after.heightTex = guid;
-        } else {
-          after.albedoTex = guid;
+          dst = &after.heightTex;
+        } else if (slot == 4) {
+          dst = &after.emissiveTex;
+        } else if (slot == 5) {
+          dst = &after.specularTex;
+        } else if (slot == 6) {
+          dst = &after.specularColorTex;
+        } else if (slot == 7) {
+          dst = &after.clearcoatTex;
+        } else if (slot == 8) {
+          dst = &after.clearcoatRoughnessTex;
+        } else if (slot == 9) {
+          dst = &after.clearcoatNormalTex;
+        } else if (slot == 10) {
+          dst = &after.sheenColorTex;
+        } else if (slot == 11) {
+          dst = &after.sheenRoughnessTex;
+        } else if (slot == 12) {
+          dst = &after.anisotropyTex;
+        } else if (slot == 13) {
+          dst = &after.iridescenceTex;
+        } else if (slot == 14) {
+          dst = &after.iridescenceThicknessTex;
+        } else if (slot == 15) {
+          dst = &after.transmissionTex;
+        } else if (slot == 16) {
+          dst = &after.thicknessTex;
         }
+        *dst = guid;
         std::unique_ptr<Command> cmd(new SetMaterialCmd(e->id, e->material, after));
         if (undo.Execute(std::move(cmd), scene)) {
           log.Add(LogLevel::Info, "Material texture assigned");
@@ -1741,15 +2078,41 @@ void EditorApp::DrawMaterialSlot(Entity* e, const char* label, int slot) {
   if (ImGui::SmallButton(clearLabel.c_str())) {
     if (!cur->empty()) {
       MaterialData after = e->material;
+      std::string* dst = &after.albedoTex;
       if (slot == 1) {
-        after.normalTex.clear();
+        dst = &after.normalTex;
       } else if (slot == 2) {
-        after.ormTex.clear();
+        dst = &after.ormTex;
       } else if (slot == 3) {
-        after.heightTex.clear();
-      } else {
-        after.albedoTex.clear();
+        dst = &after.heightTex;
+      } else if (slot == 4) {
+        dst = &after.emissiveTex;
+      } else if (slot == 5) {
+        dst = &after.specularTex;
+      } else if (slot == 6) {
+        dst = &after.specularColorTex;
+      } else if (slot == 7) {
+        dst = &after.clearcoatTex;
+      } else if (slot == 8) {
+        dst = &after.clearcoatRoughnessTex;
+      } else if (slot == 9) {
+        dst = &after.clearcoatNormalTex;
+      } else if (slot == 10) {
+        dst = &after.sheenColorTex;
+      } else if (slot == 11) {
+        dst = &after.sheenRoughnessTex;
+      } else if (slot == 12) {
+        dst = &after.anisotropyTex;
+      } else if (slot == 13) {
+        dst = &after.iridescenceTex;
+      } else if (slot == 14) {
+        dst = &after.iridescenceThicknessTex;
+      } else if (slot == 15) {
+        dst = &after.transmissionTex;
+      } else if (slot == 16) {
+        dst = &after.thicknessTex;
       }
+      dst->clear();
       std::unique_ptr<Command> cmd(new SetMaterialCmd(e->id, e->material, after));
       undo.Execute(std::move(cmd), scene);
     }

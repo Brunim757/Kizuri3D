@@ -414,6 +414,32 @@ bool SetMaterialCmd::Revert(Scene& scene) {
 const char* SetMaterialCmd::Name() const {
   return "Set Material";
 }
+SetVariantCmd::SetVariantCmd(EntityId t, int b, int a)
+  : target(t)
+  , before(b)
+  , after(a) {
+}
+bool SetVariantCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->variantIndex = after;
+  scene.MarkDirty();
+  return true;
+}
+bool SetVariantCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->variantIndex = before;
+  scene.MarkDirty();
+  return true;
+}
+const char* SetVariantCmd::Name() const {
+  return "Set Variant";
+}
 AddMaterialCmd::AddMaterialCmd(EntityId t)
   : target(t)
   , prevHas(false) {
