@@ -247,7 +247,7 @@ bool ReadIndex(const cgltf_accessor* acc, size_t idx, uint32_t& v) {
   }
   return false;
 }
-bool ImportEmbeddedTexture(const cgltf_texture* ctex, const std::string& glbPath, uint64_t hash, int& texCounter, TexKind kind, std::string& guidOut) {
+bool ImportEmbeddedTexture(const cgltf_texture* ctex, const std::string& glbPath, uint64_t hash, int& texCounter, TexKind kind, std::string& guidOut, LogStore* log) {
   guidOut.clear();
   if (ctex == nullptr) {
     return false;
@@ -260,6 +260,10 @@ bool ImportEmbeddedTexture(const cgltf_texture* ctex, const std::string& glbPath
   std::vector<unsigned char> imgBytes;
   std::string imgName;
   if (!ResolveGltfImage(img, glbPath, imgBytes, imgName)) {
+    if (log != nullptr) {
+      std::string iname = img->name != nullptr ? img->name : (img->uri != nullptr ? img->uri : "embedded");
+      log->Add(LogLevel::Warning, std::string("texture image not found: ") + iname);
+    }
     return false;
   }
   std::filesystem::path glbFile(glbPath);
@@ -276,11 +280,17 @@ bool ImportEmbeddedTexture(const cgltf_texture* ctex, const std::string& glbPath
     int w = 0;
     int h = 0;
     if (!DecodeBasisu(imgBytes.data(), imgBytes.size(), rgba, w, h)) {
+      if (log != nullptr) {
+        log->Add(LogLevel::Warning, std::string("texture transcode failed: ") + imgName);
+      }
       return false;
     }
     imgBytes.clear();
     imgBytes.shrink_to_fit();
     if (!CompressTexturePixels(rgba.data(), w, h, keepTex, tdata, imgName, kind, glbPath, hash)) {
+      if (log != nullptr) {
+        log->Add(LogLevel::Warning, std::string("texture compress failed: ") + imgName);
+      }
       return false;
     }
   } else {
@@ -289,9 +299,15 @@ bool ImportEmbeddedTexture(const cgltf_texture* ctex, const std::string& glbPath
       int w = 0;
       int h = 0;
       if (!DecodeWebp(imgBytes.data(), imgBytes.size(), rgba, w, h)) {
+        if (log != nullptr) {
+          log->Add(LogLevel::Warning, std::string("texture decode failed: ") + imgName);
+        }
         return false;
       }
       if (!CompressTexturePixels(rgba.data(), w, h, keepTex, tdata, imgName, kind, glbPath, hash)) {
+        if (log != nullptr) {
+          log->Add(LogLevel::Warning, std::string("texture compress failed: ") + imgName);
+        }
         return false;
       }
     }
@@ -299,6 +315,9 @@ bool ImportEmbeddedTexture(const cgltf_texture* ctex, const std::string& glbPath
     imgBytes.shrink_to_fit();
   }
   if (!EncodeTextureFile(tdata, texOut)) {
+    if (log != nullptr) {
+      log->Add(LogLevel::Warning, std::string("texture write failed: ") + imgName);
+    }
     return false;
   }
   guidOut = tdata.guid;
@@ -510,8 +529,8 @@ void ParseMaterial(const cgltf_material* cmat, const std::string& glbPath, uint6
     }
     md.roughness = 1.0f - gloss;
     md.metallic = 0.0f;
-    ImportEmbeddedTexture(sg.diffuse_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.albedoTexGuid);
-    ImportEmbeddedTexture(cmat->normal_texture.texture, glbPath, hash, texCounter, TexKind::Normal, md.normalTexGuid);
+    ImportEmbeddedTexture(sg.diffuse_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.albedoTexGuid, log);
+    ImportEmbeddedTexture(cmat->normal_texture.texture, glbPath, hash, texCounter, TexKind::Normal, md.normalTexGuid, log);
     ReadTextureXform(sg.diffuse_texture, md, 0);
     ReadTextureXform(cmat->normal_texture, md, 1);
     const cgltf_texture* sgTex = sg.specular_glossiness_texture.texture;
@@ -565,14 +584,14 @@ void ParseMaterial(const cgltf_material* cmat, const std::string& glbPath, uint6
     md.alpha = mr.base_color_factor[3];
     md.metallic = mr.metallic_factor;
     md.roughness = mr.roughness_factor;
-    ImportEmbeddedTexture(mr.base_color_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.albedoTexGuid);
-    ImportEmbeddedTexture(cmat->normal_texture.texture, glbPath, hash, texCounter, TexKind::Normal, md.normalTexGuid);
+    ImportEmbeddedTexture(mr.base_color_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.albedoTexGuid, log);
+    ImportEmbeddedTexture(cmat->normal_texture.texture, glbPath, hash, texCounter, TexKind::Normal, md.normalTexGuid, log);
     ImportOrmTextures(cmat, glbPath, hash, texCounter, md, md.ormTexGuid);
     ReadTextureXform(mr.base_color_texture, md, 0);
     ReadTextureXform(cmat->normal_texture, md, 1);
     ReadTextureXform(mr.metallic_roughness_texture, md, 2);
   }
-  ImportEmbeddedTexture(cmat->emissive_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.emissiveTexGuid);
+  ImportEmbeddedTexture(cmat->emissive_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.emissiveTexGuid, log);
   ReadTextureXform(cmat->emissive_texture, md, 4);
   if (cmat->has_ior != 0) {
     md.ior = cmat->ior.ior;
@@ -583,27 +602,27 @@ void ParseMaterial(const cgltf_material* cmat, const std::string& glbPath, uint6
     md.specularColor[1] = cmat->specular.specular_color_factor[1];
     md.specularColor[2] = cmat->specular.specular_color_factor[2];
     md.specularStrength = cmat->specular.specular_factor;
-    ImportEmbeddedTexture(cmat->specular.specular_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.specularTexGuid);
-    ImportEmbeddedTexture(cmat->specular.specular_color_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.specularColorTexGuid);
+    ImportEmbeddedTexture(cmat->specular.specular_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.specularTexGuid, log);
+    ImportEmbeddedTexture(cmat->specular.specular_color_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.specularColorTexGuid, log);
   }
   if (cmat->has_clearcoat != 0) {
     md.clearcoat = cmat->clearcoat.clearcoat_factor;
     md.clearcoatRoughness = cmat->clearcoat.clearcoat_roughness_factor;
-    ImportEmbeddedTexture(cmat->clearcoat.clearcoat_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.clearcoatTexGuid);
-    ImportEmbeddedTexture(cmat->clearcoat.clearcoat_roughness_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.clearcoatRoughnessTexGuid);
-    ImportEmbeddedTexture(cmat->clearcoat.clearcoat_normal_texture.texture, glbPath, hash, texCounter, TexKind::Normal, md.clearcoatNormalTexGuid);
+    ImportEmbeddedTexture(cmat->clearcoat.clearcoat_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.clearcoatTexGuid, log);
+    ImportEmbeddedTexture(cmat->clearcoat.clearcoat_roughness_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.clearcoatRoughnessTexGuid, log);
+    ImportEmbeddedTexture(cmat->clearcoat.clearcoat_normal_texture.texture, glbPath, hash, texCounter, TexKind::Normal, md.clearcoatNormalTexGuid, log);
   }
   if (cmat->has_sheen != 0) {
     md.sheenColor[0] = cmat->sheen.sheen_color_factor[0];
     md.sheenColor[1] = cmat->sheen.sheen_color_factor[1];
     md.sheenColor[2] = cmat->sheen.sheen_color_factor[2];
     md.sheenRoughness = cmat->sheen.sheen_roughness_factor;
-    ImportEmbeddedTexture(cmat->sheen.sheen_color_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.sheenColorTexGuid);
-    ImportEmbeddedTexture(cmat->sheen.sheen_roughness_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.sheenRoughnessTexGuid);
+    ImportEmbeddedTexture(cmat->sheen.sheen_color_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.sheenColorTexGuid, log);
+    ImportEmbeddedTexture(cmat->sheen.sheen_roughness_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.sheenRoughnessTexGuid, log);
   }
   if (cmat->has_transmission != 0) {
     md.transmission = cmat->transmission.transmission_factor;
-    ImportEmbeddedTexture(cmat->transmission.transmission_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.transmissionTexGuid);
+    ImportEmbeddedTexture(cmat->transmission.transmission_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.transmissionTexGuid, log);
   }
   if (cmat->has_volume != 0) {
     md.thickness = cmat->volume.thickness_factor;
@@ -611,15 +630,15 @@ void ParseMaterial(const cgltf_material* cmat, const std::string& glbPath, uint6
     md.attenuationColor[1] = cmat->volume.attenuation_color[1];
     md.attenuationColor[2] = cmat->volume.attenuation_color[2];
     md.attenuationDistance = cmat->volume.attenuation_distance;
-    ImportEmbeddedTexture(cmat->volume.thickness_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.thicknessTexGuid);
+    ImportEmbeddedTexture(cmat->volume.thickness_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.thicknessTexGuid, log);
   }
   if (cmat->has_iridescence != 0) {
     md.iridescence = cmat->iridescence.iridescence_factor;
     md.iridescenceIor = cmat->iridescence.iridescence_ior;
     md.iridescenceThicknessMin = cmat->iridescence.iridescence_thickness_min;
     md.iridescenceThicknessMax = cmat->iridescence.iridescence_thickness_max;
-    ImportEmbeddedTexture(cmat->iridescence.iridescence_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.iridescenceTexGuid);
-    ImportEmbeddedTexture(cmat->iridescence.iridescence_thickness_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.iridescenceThicknessTexGuid);
+    ImportEmbeddedTexture(cmat->iridescence.iridescence_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.iridescenceTexGuid, log);
+    ImportEmbeddedTexture(cmat->iridescence.iridescence_thickness_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.iridescenceThicknessTexGuid, log);
   }
   if (cmat->has_diffuse_transmission != 0) {
     if (log != nullptr) {
@@ -630,13 +649,13 @@ void ParseMaterial(const cgltf_material* cmat, const std::string& glbPath, uint6
       md.transmission = dt;
     }
     if (md.transmissionTexGuid.empty()) {
-      ImportEmbeddedTexture(cmat->diffuse_transmission.diffuse_transmission_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.transmissionTexGuid);
+      ImportEmbeddedTexture(cmat->diffuse_transmission.diffuse_transmission_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.transmissionTexGuid, log);
     }
   }
   if (cmat->has_anisotropy != 0) {
     md.anisotropy = cmat->anisotropy.anisotropy_strength;
     md.anisotropyRotation = cmat->anisotropy.anisotropy_rotation;
-    ImportEmbeddedTexture(cmat->anisotropy.anisotropy_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.anisotropyTexGuid);
+    ImportEmbeddedTexture(cmat->anisotropy.anisotropy_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.anisotropyTexGuid, log);
   }
   if (cmat->has_dispersion != 0) {
     md.dispersion = cmat->dispersion.dispersion;

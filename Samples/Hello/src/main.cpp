@@ -3192,6 +3192,44 @@ bool TestWebp() {
   fs::remove_all(dir, ec);
   return true;
 }
+bool TestGltfMissingTexture() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kzgltfmisstex_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  float tri[9] = { -1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+  {
+    FILE* fp = std::fopen((dir / "tri.bin").string().c_str(), "wb");
+    std::fwrite(tri, 1, sizeof(tri), fp);
+    std::fclose(fp);
+  }
+  std::string gltf = "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"material\":0}]}],\"materials\":[{\"name\":\"M\",\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":0}}}],\"textures\":[{\"source\":0}],\"images\":[{\"uri\":\"gone.png\"}],\"buffers\":[{\"uri\":\"tri.bin\",\"byteLength\":36}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"}]}";
+  {
+    FILE* fp = std::fopen((dir / "m.gltf").string().c_str(), "wb");
+    std::fwrite(gltf.c_str(), 1, gltf.size(), fp);
+    std::fclose(fp);
+  }
+  Kizuri::MeshAssetData data;
+  Kizuri::LogStore log;
+  if (!Kizuri::ImportGltfMesh((dir / "m.gltf").string(), "", data, &log)) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (data.materials.size() != 1 || !data.materials[0].albedoTexGuid.empty()) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  bool warned = false;
+  for (size_t i = 0; i < log.Count(); ++i) {
+    if (log.At(i).level == Kizuri::LogLevel::Warning) {
+      warned = true;
+      break;
+    }
+  }
+  fs::remove_all(dir, ec);
+  return warned;
+}
 bool TestMeshCodecExt() {
   Kizuri::MeshAssetData data;
   data.guid = "01234567-89ab-cdef-0123-456789abcdef";
@@ -5205,6 +5243,7 @@ int main() {
   failures += Check("GltfQuantized", TestGltfQuantized());
   failures += Check("GltfMaterialExt", TestGltfMaterialExt());
   failures += Check("GltfSpecGloss", TestGltfSpecGloss());
+  failures += Check("GltfMissingTexture", TestGltfMissingTexture());
   failures += Check("GltfVariants", TestGltfVariants());
   failures += Check("GltfLights", TestGltfLights());
   failures += Check("GltfInstancing", TestGltfInstancing());

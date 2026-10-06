@@ -145,6 +145,7 @@ public:
   size_t RelocateMissing();
   std::vector<std::string> TakeRelocated();
   std::vector<std::string> TakeImportErrors();
+  std::vector<std::string> TakeImportWarnings();
   bool RenameAssetFile(const std::string& guid, const std::string& newFileName);
   bool SetSourcePath(const std::string& guid, const std::string& newSourcePath);
   bool SetTexSourcePath(const std::string& guid, const std::string& newSourcePath);
@@ -191,6 +192,7 @@ private:
   std::vector<ImportResult> completed;
   std::vector<std::string> relocated;
   std::vector<std::string> importErrors;
+  std::vector<std::string> importWarnings;
   std::map<std::string, int64_t> seenMeshTime;
   std::map<std::string, std::string> pathToGuid;
   void EnsureJobs();

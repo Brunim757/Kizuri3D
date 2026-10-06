@@ -103,7 +103,7 @@ bool CompressTexturePixels(const unsigned char* rgba, int w, int h, const std::s
     outFormat = TexFormat::Bc1;
   }
   DirectX::ScratchImage compressed;
-  if (FAILED(DirectX::Compress(mipChain.GetImages(), mipChain.GetImageCount(), mipChain.GetMetadata(), destFormat, DirectX::TEX_COMPRESS_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, compressed))) {
+  if (FAILED(DirectX::Compress(mipChain.GetImages(), mipChain.GetImageCount(), mipChain.GetMetadata(), destFormat, DirectX::TEX_COMPRESS_DEFAULT | DirectX::TEX_COMPRESS_PARALLEL, DirectX::TEX_THRESHOLD_DEFAULT, compressed))) {
     return false;
   }
   out.guid = keepGuid.empty() ? GenerateGuidString() : keepGuid;

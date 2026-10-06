@@ -3,6 +3,7 @@
 #include "Kizuri/Assets/MeshImporter.h"
 #include "Kizuri/Assets/TexCodec.h"
 #include "Kizuri/Assets/TextureImporter.h"
+#include "Kizuri/Log.h"
 #include <cctype>
 #include <cmath>
 #include <filesystem>
@@ -64,12 +65,28 @@ void ImportMeshTask::ExecuteRange(enki::TaskSetPartition range, uint32_t threadn
     }
   } else {
     try {
-      if (ImportGltfMesh(sourcePath, keepGuid, result.data, nullptr)) {
+      LogStore log;
+      if (ImportGltfMesh(sourcePath, keepGuid, result.data, &log)) {
         progress = 60;
         if (EncodeMeshFile(result.data, meshPath)) {
           result.ok = true;
         }
       }
+      std::string warn;
+      size_t shown = 0;
+      for (size_t i = 0; i < log.Count() && shown < 5; ++i) {
+        if (log.At(i).level == LogLevel::Warning || log.At(i).level == LogLevel::Error) {
+          bool dup = warn.find(log.At(i).text) != std::string::npos;
+          if (!dup) {
+            if (!warn.empty()) {
+              warn += "\n";
+            }
+            warn += log.At(i).text;
+            ++shown;
+          }
+        }
+      }
+      result.warning = warn;
     } catch (const std::bad_alloc&) {
       result.error = "out of memory";
     } catch (...) {
@@ -574,6 +591,14 @@ size_t AssetDatabase::DrainCompleted() {
       }
     } else {
       UpsertResult(results[i]);
+      if (!results[i].warning.empty()) {
+        std::string name = results[i].sourcePath;
+        size_t slash = name.find_last_of("/\\");
+        if (slash != std::string::npos) {
+          name = name.substr(slash + 1);
+        }
+        importWarnings.push_back(name + ": " + results[i].warning);
+      }
     }
     for (size_t p = 0; p < pending.size(); ++p) {
       if (pending[p]->taskId == results[i].taskId) {
@@ -926,6 +951,11 @@ std::vector<std::string> AssetDatabase::TakeRelocated() {
 std::vector<std::string> AssetDatabase::TakeImportErrors() {
   std::vector<std::string> out = importErrors;
   importErrors.clear();
+  return out;
+}
+std::vector<std::string> AssetDatabase::TakeImportWarnings() {
+  std::vector<std::string> out = importWarnings;
+  importWarnings.clear();
   return out;
 }
 bool AssetDatabase::RenameAssetFile(const std::string& guid, const std::string& newFileName) {

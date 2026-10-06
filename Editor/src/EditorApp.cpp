@@ -202,6 +202,12 @@ void EditorApp::PumpAssets() {
     }
   }
   {
+    std::vector<std::string> warns = assets.TakeImportWarnings();
+    for (size_t i = 0; i < warns.size(); ++i) {
+      Announce(LogLevel::Warning, std::string("Import warning: ") + warns[i]);
+    }
+  }
+  {
     std::vector<std::string> names = assets.TakeRelocated();
     if (!names.empty()) {
       std::string msg = "Source relocated: ";
