@@ -1703,7 +1703,7 @@ void DeferredRenderer::RenderForwardPass(const float camPos[3]) {
   float fwdScreen[4] = { static_cast<float>(w), static_cast<float>(h), 0.0f, 0.0f };
   rhi->UpdateConstantBuffer(forwardCB, &fwdScreen, sizeof(fwdScreen));
   rhi->SetPixelConstantBuffer(0, lightCB);
-  rhi->SetPixelConstantBuffer(1, forwardCB);
+  rhi->SetPixelConstantBuffer(3, forwardCB);
   rhi->SetPixelTexture2D(16, transSrc);
   rhi->SetPixelTexture2D(17, envCube);
   rhi->SetPixelSampler(0, sampler);
@@ -1721,8 +1721,8 @@ void DeferredRenderer::RenderForwardPass(const float camPos[3]) {
     (void)matRow;
     rhi->UpdateConstantBuffer(matCB, &mc, sizeof(mc));
     rhi->UpdateConstantBuffer(matExtCB, &mec, sizeof(mec));
-    rhi->SetPixelConstantBuffer(2, matCB);
-    rhi->SetPixelConstantBuffer(3, matExtCB);
+    rhi->SetPixelConstantBuffer(1, matCB);
+    rhi->SetPixelConstantBuffer(2, matExtCB);
     RHITexture alb = (d.mat.texFlags & 1u) != 0 && d.mat.albedoTex != 0 ? d.mat.albedoTex : neutralAlbedo;
     RHITexture nrm = (d.mat.texFlags & 2u) != 0 && d.mat.normalTex != 0 ? d.mat.normalTex : neutralNormal;
     RHITexture orm = (d.mat.texFlags & 4u) != 0 && d.mat.ormTex != 0 ? d.mat.ormTex : neutralOrm;
