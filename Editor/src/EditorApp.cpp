@@ -251,6 +251,19 @@ void EditorApp::PumpAssets() {
       assets.RequestTexture(e->material.normalTex, dist);
       assets.RequestTexture(e->material.ormTex, dist);
       assets.RequestTexture(e->material.heightTex, dist);
+      assets.RequestTexture(e->material.emissiveTex, dist);
+      assets.RequestTexture(e->material.specularTex, dist);
+      assets.RequestTexture(e->material.specularColorTex, dist);
+      assets.RequestTexture(e->material.clearcoatTex, dist);
+      assets.RequestTexture(e->material.clearcoatRoughnessTex, dist);
+      assets.RequestTexture(e->material.clearcoatNormalTex, dist);
+      assets.RequestTexture(e->material.sheenColorTex, dist);
+      assets.RequestTexture(e->material.sheenRoughnessTex, dist);
+      assets.RequestTexture(e->material.anisotropyTex, dist);
+      assets.RequestTexture(e->material.iridescenceTex, dist);
+      assets.RequestTexture(e->material.iridescenceThicknessTex, dist);
+      assets.RequestTexture(e->material.transmissionTex, dist);
+      assets.RequestTexture(e->material.thicknessTex, dist);
     }
     if (e->hasDecal) {
       assets.RequestTexture(e->decal.texGuid, dist);

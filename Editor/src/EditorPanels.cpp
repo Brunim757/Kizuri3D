@@ -1795,6 +1795,38 @@ void EditorApp::DrawMeshSection(Entity* e) {
       undo.Execute(std::move(cmd), scene);
     }
   }
+  if (!e->meshGuid.empty() && !e->hasMaterial) {
+    const MeshRecord* mrec = assets.GetByGuid(e->meshGuid);
+    if (mrec != nullptr && mrec->loaded && !mrec->data.materials.empty()) {
+      if (ImGui::CollapsingHeader("Mesh Materials")) {
+        for (size_t mi = 0; mi < mrec->data.materials.size(); ++mi) {
+          const MeshMaterialData& mm = mrec->data.materials[mi];
+          std::string mlabel = mm.name.empty() ? ("Material " + std::to_string(mi)) : mm.name;
+          ImGui::Text("%s", mlabel.c_str());
+          ImGui::SameLine();
+          ImGui::TextDisabled("(%.2g, %.2g, %.2g)", mm.albedo[0], mm.albedo[1], mm.albedo[2]);
+          const char* slotNames[5] = { "Albedo", "Normal", "ORM", "Height", "Emissive" };
+          const std::string* slotGuids[5] = { &mm.albedoTexGuid, &mm.normalTexGuid, &mm.ormTexGuid, &mm.heightTexGuid, &mm.emissiveTexGuid };
+          for (int s = 0; s < 5; ++s) {
+            if (slotGuids[s]->empty()) {
+              continue;
+            }
+            const TextureRecord* tr = assets.GetTexByGuid(*slotGuids[s]);
+            if (tr == nullptr) {
+              ImGui::BulletText("%s: (importing...)", slotNames[s]);
+            } else {
+              std::filesystem::path tp(tr->texPath);
+              std::string st = std::string(slotNames[s]) + ": " + tp.filename().string();
+              if (!tr->loaded || tr->gpu == 0) {
+                st += " (loading...)";
+              }
+              ImGui::BulletText("%s", st.c_str());
+            }
+          }
+        }
+      }
+    }
+  }
   if (!e->meshGuid.empty()) {
     const MeshRecord* lrec = assets.GetByGuid(e->meshGuid);
     if (lrec != nullptr && lrec->loaded && !lrec->data.lights.empty()) {

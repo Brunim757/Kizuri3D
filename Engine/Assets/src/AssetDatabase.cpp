@@ -1075,8 +1075,8 @@ void AssetDatabase::UpdateStreaming(const float cameraPos[3], const std::vector<
     float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
     for (size_t m = 0; m < mr->second.data.materials.size(); ++m) {
       const MeshMaterialData& mm = mr->second.data.materials[m];
-      const std::string* slots[4] = { &mm.albedoTexGuid, &mm.normalTexGuid, &mm.ormTexGuid, &mm.heightTexGuid };
-      for (int s = 0; s < 4; ++s) {
+      const std::string* slots[17] = { &mm.albedoTexGuid, &mm.normalTexGuid, &mm.ormTexGuid, &mm.heightTexGuid, &mm.emissiveTexGuid, &mm.specularTexGuid, &mm.specularColorTexGuid, &mm.clearcoatTexGuid, &mm.clearcoatRoughnessTexGuid, &mm.clearcoatNormalTexGuid, &mm.sheenColorTexGuid, &mm.sheenRoughnessTexGuid, &mm.anisotropyTexGuid, &mm.iridescenceTexGuid, &mm.iridescenceThicknessTexGuid, &mm.transmissionTexGuid, &mm.thicknessTexGuid };
+      for (int s = 0; s < 17; ++s) {
         RequestTexture(*slots[s], dist);
       }
     }
