@@ -66,7 +66,36 @@ void EditQueue::PushProbe(EntityId target, const ProbeData& value) {
   probeEdits.push_back(e);
 }
 bool MaterialEqual(const MaterialData& a, const MaterialData& b) {
-  return a.albedo[0] == b.albedo[0] && a.albedo[1] == b.albedo[1] && a.albedo[2] == b.albedo[2] && a.metallic == b.metallic && a.roughness == b.roughness && a.albedoTex == b.albedoTex && a.normalTex == b.normalTex && a.ormTex == b.ormTex && a.heightTex == b.heightTex;
+  if (!(a.albedo[0] == b.albedo[0] && a.albedo[1] == b.albedo[1] && a.albedo[2] == b.albedo[2] && a.alpha == b.alpha && a.metallic == b.metallic && a.roughness == b.roughness && a.albedoTex == b.albedoTex && a.normalTex == b.normalTex && a.ormTex == b.ormTex && a.heightTex == b.heightTex)) {
+    return false;
+  }
+  if (!(a.emissive[0] == b.emissive[0] && a.emissive[1] == b.emissive[1] && a.emissive[2] == b.emissive[2] && a.emissiveStrength == b.emissiveStrength && a.emissiveTex == b.emissiveTex && a.unlit == b.unlit && a.doubleSided == b.doubleSided && a.alphaMode == b.alphaMode && a.alphaCutoff == b.alphaCutoff)) {
+    return false;
+  }
+  for (int s = 0; s < 5; ++s) {
+    if (!(a.xforms[s].offsetU == b.xforms[s].offsetU && a.xforms[s].offsetV == b.xforms[s].offsetV && a.xforms[s].scaleU == b.xforms[s].scaleU && a.xforms[s].scaleV == b.xforms[s].scaleV && a.xforms[s].rotation == b.xforms[s].rotation && a.xforms[s].uvSet == b.xforms[s].uvSet)) {
+      return false;
+    }
+  }
+  if (!(a.ior == b.ior && a.hasSpecular == b.hasSpecular && a.specularColor[0] == b.specularColor[0] && a.specularColor[1] == b.specularColor[1] && a.specularColor[2] == b.specularColor[2] && a.specularStrength == b.specularStrength && a.specularTex == b.specularTex && a.specularColorTex == b.specularColorTex)) {
+    return false;
+  }
+  if (!(a.clearcoat == b.clearcoat && a.clearcoatRoughness == b.clearcoatRoughness && a.clearcoatTex == b.clearcoatTex && a.clearcoatRoughnessTex == b.clearcoatRoughnessTex && a.clearcoatNormalTex == b.clearcoatNormalTex)) {
+    return false;
+  }
+  if (!(a.sheenColor[0] == b.sheenColor[0] && a.sheenColor[1] == b.sheenColor[1] && a.sheenColor[2] == b.sheenColor[2] && a.sheenRoughness == b.sheenRoughness && a.sheenColorTex == b.sheenColorTex && a.sheenRoughnessTex == b.sheenRoughnessTex)) {
+    return false;
+  }
+  if (!(a.anisotropy == b.anisotropy && a.anisotropyRotation == b.anisotropyRotation && a.anisotropyTex == b.anisotropyTex)) {
+    return false;
+  }
+  if (!(a.iridescence == b.iridescence && a.iridescenceIor == b.iridescenceIor && a.iridescenceThicknessMin == b.iridescenceThicknessMin && a.iridescenceThicknessMax == b.iridescenceThicknessMax && a.iridescenceTex == b.iridescenceTex && a.iridescenceThicknessTex == b.iridescenceThicknessTex)) {
+    return false;
+  }
+  if (!(a.transmission == b.transmission && a.transmissionTex == b.transmissionTex && a.thickness == b.thickness && a.thicknessTex == b.thicknessTex && a.attenuationColor[0] == b.attenuationColor[0] && a.attenuationColor[1] == b.attenuationColor[1] && a.attenuationColor[2] == b.attenuationColor[2] && a.attenuationDistance == b.attenuationDistance && a.dispersion == b.dispersion)) {
+    return false;
+  }
+  return true;
 }
 bool DecalEqual(const DecalData& a, const DecalData& b) {
   return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.life == b.life && a.texGuid == b.texGuid;
