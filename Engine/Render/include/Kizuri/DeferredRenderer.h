@@ -122,6 +122,14 @@ struct DecalDrawItem {
   float fade;
   RHITexture tex;
 };
+struct ForwardDrawItem {
+  float world[16];
+  RHIBuffer vb;
+  RHIBuffer ib;
+  uint32_t start;
+  uint32_t count;
+  DeferredMaterial mat;
+};
 class DeferredRenderer {
 public:
   DeferredRenderer();
@@ -180,6 +188,7 @@ private:
   RHIRenderTarget gEmissive;
   RHIRenderTarget gF0;
   RHIRenderTarget gExtA;
+  RHIRenderTarget transSrc;
   RHIRenderTarget gDepth;
   RHIRenderTarget gViewport;
   RHIBuffer vb;
@@ -195,6 +204,9 @@ private:
   RHITexture neutralAniso;
   RHIVertexShader geoVS;
   RHIPixelShader geoPS;
+  RHIPixelShader forwardPS;
+  RHIPixelShader copyPS;
+  RHIConstBuffer forwardCB;
   RHIVertexShader lightVS;
   RHIPixelShader lightPS;
   RHIVertexShader depthVS;
@@ -230,6 +242,8 @@ private:
   bool shadowPointActive;
   std::vector<ShadowDrawItem> shadowDraws;
   std::vector<DecalDrawItem> decalDraws;
+  std::vector<ForwardDrawItem> forwardDraws;
+  void RenderForwardPass(const float camPos[3]);
   RHIPixelShader bloomBrightPS;
   RHIPixelShader bloomBlurPS;
   RHIPixelShader bloomAddPS;

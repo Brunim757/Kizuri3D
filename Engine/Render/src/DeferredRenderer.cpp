@@ -68,6 +68,7 @@ struct MatExtConstants {
   float extE[4];
   float extF[4];
   float extG[4];
+  float extH[4];
   float xfA[5][4];
   float xfB[5][4];
 };
@@ -106,7 +107,7 @@ void FillMatConstants(const DeferredMaterial& use, float lodFade, MatConstants& 
   mc.extF[0] = use.specularColor[0];
   mc.extF[1] = use.specularColor[1];
   mc.extF[2] = use.specularColor[2];
-  mc.extF[3] = 0.0f;
+  mc.extF[3] = use.transmission;
   mc.extG[0] = use.sheenColor[0];
   mc.extG[1] = use.sheenColor[1];
   mc.extG[2] = use.sheenColor[2];
@@ -153,6 +154,10 @@ void FillMatConstants(const DeferredMaterial& use, float lodFade, MatConstants& 
   mec.extG[1] = mc.extG[1];
   mec.extG[2] = mc.extG[2];
   mec.extG[3] = mc.extG[3];
+  mec.extH[0] = use.attenuationColor[0];
+  mec.extH[1] = use.attenuationColor[1];
+  mec.extH[2] = use.attenuationColor[2];
+  mec.extH[3] = use.thickness;
   for (int s = 0; s < 5; ++s) {
     mec.xfA[s][0] = use.xforms[s].offsetU;
     mec.xfA[s][1] = use.xforms[s].offsetV;
@@ -204,6 +209,9 @@ DeferredRenderer::DeferredRenderer()
   , neutralAniso(0)
   , geoVS(0)
   , geoPS(0)
+  , forwardPS(0)
+  , copyPS(0)
+  , forwardCB(0)
   , lightVS(0)
   , lightPS(0)
   , depthVS(0)
@@ -409,6 +417,8 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   std::string ssgiPath = dir + "/SsgiPS.hlsl";
   std::string ssgiBlurPath = dir + "/SsgiBlurPS.hlsl";
   std::string fxaaPath = dir + "/FxaaPS.hlsl";
+  std::string forwardPath = dir + "/ForwardPS.hlsl";
+  std::string copyPath = dir + "/CopyPS.hlsl";
   geoVS = rhi->CreateVertexShaderFromFile(geoVSPath.c_str(), "main");
   geoPS = rhi->CreatePixelShaderFromFile(geoPSPath.c_str(), "main");
   lightVS = rhi->CreateVertexShaderFromFile(lightVSPath.c_str(), "main");
@@ -462,6 +472,14 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (fxaaPS == 0) {
     return false;
   }
+  forwardPS = rhi->CreatePixelShaderFromFile(forwardPath.c_str(), "main");
+  if (forwardPS == 0) {
+    return false;
+  }
+  copyPS = rhi->CreatePixelShaderFromFile(copyPath.c_str(), "main");
+  if (copyPS == 0) {
+    return false;
+  }
   layout = rhi->CreateInputLayoutPNUT(geoVS);
   if (layout == 0) {
     return false;
@@ -496,6 +514,11 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   float fxaaInit[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
   fxaaCB = rhi->CreateConstantBuffer(sizeof(fxaaInit), &fxaaInit);
   if (fxaaCB == 0) {
+    return false;
+  }
+  float fwdInit[4] = { 1.0f, 1.0f, 0.0f, 0.0f };
+  forwardCB = rhi->CreateConstantBuffer(sizeof(fwdInit), &fwdInit);
+  if (forwardCB == 0) {
     return false;
   }
   bloomCB = rhi->CreateConstantBuffer(sizeof(bloomInit), &bloomInit);
@@ -663,6 +686,10 @@ void DeferredRenderer::Shutdown() {
   if (matExtCB != 0) {
     rhi->DestroyConstantBuffer(matExtCB);
     matExtCB = 0;
+  }
+  if (forwardCB != 0) {
+    rhi->DestroyConstantBuffer(forwardCB);
+    forwardCB = 0;
   }
   if (bloomCB != 0) {
     rhi->DestroyConstantBuffer(bloomCB);
@@ -1344,6 +1371,7 @@ void DeferredRenderer::BeginEnvFace(int face, const float view[16], const float 
 void DeferredRenderer::SetupGeometryPass() {
   shadowDraws.clear();
   decalDraws.clear();
+  forwardDraws.clear();
   shadowMapsValid = false;
   ssaoValid = false;
   ssrValid = false;
@@ -1414,6 +1442,17 @@ void DeferredRenderer::DrawObject(const float world[16]) {
   item.start = 0;
   item.count = indexCount;
   shadowDraws.push_back(item);
+  if (material.transmission > 0.0f || material.alphaMode == 2) {
+    ForwardDrawItem fwd;
+    std::memcpy(fwd.world, world, sizeof(fwd.world));
+    fwd.vb = vb;
+    fwd.ib = ib;
+    fwd.start = 0;
+    fwd.count = indexCount;
+    fwd.mat = material;
+    forwardDraws.push_back(fwd);
+    return;
+  }
   GeoConstants gc;
   std::memcpy(gc.world, world, sizeof(gc.world));
   std::memcpy(gc.view, lastView, sizeof(gc.view));
@@ -1438,6 +1477,17 @@ void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuff
   std::memcpy(gc.proj, lastProj, sizeof(gc.proj));
   rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
   const DeferredMaterial& use = (mat != nullptr) ? *mat : material;
+  if (use.transmission > 0.0f || use.alphaMode == 2) {
+    ForwardDrawItem fwd;
+    std::memcpy(fwd.world, world, sizeof(fwd.world));
+    fwd.vb = vb;
+    fwd.ib = ib;
+    fwd.start = start;
+    fwd.count = count;
+    fwd.mat = use;
+    forwardDraws.push_back(fwd);
+    return;
+  }
   MatConstants mc;
   MatExtConstants mec;
   uint32_t matRow = 0;
@@ -1590,6 +1640,127 @@ void DeferredRenderer::RenderDecals() {
   ds.depthWrite = true;
   rhi->SetDepthStencilState(ds);
   decalDraws.clear();
+}
+void DeferredRenderer::RenderForwardPass(const float camPos[3]) {
+  if (forwardDraws.empty() || forwardPS == 0 || copyPS == 0) {
+    forwardDraws.clear();
+    return;
+  }
+  std::vector<size_t> order(forwardDraws.size());
+  for (size_t i = 0; i < order.size(); ++i) {
+    order[i] = i;
+  }
+  float fwd[3] = { mainCam.camFwd[0], mainCam.camFwd[1], mainCam.camFwd[2] };
+  for (size_t i = 0; i < order.size(); ++i) {
+    for (size_t j = i + 1; j < order.size(); ++j) {
+      const ForwardDrawItem& a = forwardDraws[order[i]];
+      const ForwardDrawItem& b = forwardDraws[order[j]];
+      float dax = a.world[12] - camPos[0];
+      float day = a.world[13] - camPos[1];
+      float daz = a.world[14] - camPos[2];
+      float dbx = b.world[12] - camPos[0];
+      float dby = b.world[13] - camPos[1];
+      float dbz = b.world[14] - camPos[2];
+      float da = dax * fwd[0] + day * fwd[1] + daz * fwd[2];
+      float db = dbx * fwd[0] + dby * fwd[1] + dbz * fwd[2];
+      if (db > da) {
+        size_t t = order[i];
+        order[i] = order[j];
+        order[j] = t;
+      }
+    }
+  }
+  rhi->SetRenderTargets(1, &transSrc, 0);
+  RHIViewport cvp;
+  cvp.x = viewX;
+  cvp.y = viewY;
+  cvp.w = static_cast<float>(w);
+  cvp.h = static_cast<float>(h);
+  cvp.minD = 0.0f;
+  cvp.maxD = 1.0f;
+  rhi->SetViewport(cvp);
+  rhi->SetVertexShader(lightVS);
+  rhi->SetPixelShader(copyPS);
+  rhi->SetPixelTexture(0, gLight);
+  rhi->SetPixelSampler(0, sampler);
+  rhi->DrawFullscreenTriangle();
+  rhi->SetPixelTexture(0, 0);
+  RHIRenderTarget fwds[1] = { gLight };
+  rhi->SetRenderTargets(1, fwds, gDepth);
+  rhi->SetViewport(cvp);
+  rhi->SetTopology(RHITopology::TriangleList);
+  RHIDepthStencil ds;
+  ds.depthEnable = true;
+  ds.depthWrite = false;
+  rhi->SetDepthStencilState(ds);
+  RHIBlend blend;
+  blend.enable = true;
+  rhi->SetBlendState(blend);
+  rhi->SetVertexShader(geoVS);
+  rhi->SetPixelShader(forwardPS);
+  rhi->SetVertexConstantBuffer(0, geoCB);
+  rhi->SetPixelConstantBuffer(0, lightCB);
+  float fwdScreen[4] = { static_cast<float>(w), static_cast<float>(h), 0.0f, 0.0f };
+  rhi->UpdateConstantBuffer(forwardCB, &fwdScreen, sizeof(fwdScreen));
+  rhi->SetPixelConstantBuffer(0, lightCB);
+  rhi->SetPixelConstantBuffer(1, forwardCB);
+  rhi->SetPixelTexture2D(16, transSrc);
+  rhi->SetPixelTexture2D(17, envCube);
+  rhi->SetPixelSampler(0, sampler);
+  for (size_t oi = 0; oi < order.size(); ++oi) {
+    const ForwardDrawItem& d = forwardDraws[order[oi]];
+    GeoConstants gc;
+    std::memcpy(gc.world, d.world, sizeof(gc.world));
+    std::memcpy(gc.view, lastView, sizeof(gc.view));
+    std::memcpy(gc.proj, lastProj, sizeof(gc.proj));
+    rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
+    MatConstants mc;
+    MatExtConstants mec;
+    uint32_t matRow = 0;
+    FillMatConstants(d.mat, 0.0f, mc, mec, matTablePx, matTableRows, matRow);
+    (void)matRow;
+    rhi->UpdateConstantBuffer(matCB, &mc, sizeof(mc));
+    rhi->UpdateConstantBuffer(matExtCB, &mec, sizeof(mec));
+    rhi->SetPixelConstantBuffer(2, matCB);
+    rhi->SetPixelConstantBuffer(3, matExtCB);
+    RHITexture alb = (d.mat.texFlags & 1u) != 0 && d.mat.albedoTex != 0 ? d.mat.albedoTex : neutralAlbedo;
+    RHITexture nrm = (d.mat.texFlags & 2u) != 0 && d.mat.normalTex != 0 ? d.mat.normalTex : neutralNormal;
+    RHITexture orm = (d.mat.texFlags & 4u) != 0 && d.mat.ormTex != 0 ? d.mat.ormTex : neutralOrm;
+    RHITexture lmt = (d.mat.texFlags & 16u) != 0 && d.mat.lightmapTex != 0 ? d.mat.lightmapTex : 0;
+    RHITexture emi = (d.mat.texFlags & 32u) != 0 && d.mat.emissiveTex != 0 ? d.mat.emissiveTex : neutralBlack;
+    RHITexture trm = d.mat.transmissionTex != 0 ? d.mat.transmissionTex : neutralBlack;
+    RHITexture thm = d.mat.thicknessTex != 0 ? d.mat.thicknessTex : neutralBlack;
+    rhi->SetPixelTexture2D(0, alb);
+    rhi->SetPixelTexture2D(1, nrm);
+    rhi->SetPixelTexture2D(2, orm);
+    rhi->SetPixelTexture2D(4, lmt);
+    rhi->SetPixelTexture2D(5, emi);
+    rhi->SetPixelTexture2D(6, trm);
+    rhi->SetPixelTexture2D(7, thm);
+    RHIRasterizer rs;
+    rs.cull = d.mat.doubleSided ? RHICull::None : RHICull::Back;
+    rs.fill = RHIFill::Solid;
+    rs.frontCCW = false;
+    rs.slopeBias = 0.0f;
+    rhi->SetRasterizerState(rs);
+    rhi->SetVertexBuffer(d.vb, 0);
+    rhi->SetIndexBuffer(d.ib);
+    rhi->DrawIndexed(d.count, d.start, 0);
+  }
+  rhi->SetPixelTexture2D(0, 0);
+  rhi->SetPixelTexture2D(1, 0);
+  rhi->SetPixelTexture2D(2, 0);
+  rhi->SetPixelTexture2D(4, 0);
+  rhi->SetPixelTexture2D(5, 0);
+  rhi->SetPixelTexture2D(6, 0);
+  rhi->SetPixelTexture2D(7, 0);
+  rhi->SetPixelTexture2D(16, 0);
+  rhi->SetPixelTexture2D(17, 0);
+  blend.enable = false;
+  rhi->SetBlendState(blend);
+  ds.depthWrite = true;
+  rhi->SetDepthStencilState(ds);
+  forwardDraws.clear();
 }
 void DeferredRenderer::EndObjectsToTexture(const float camPos[3]) {
   EndInternal(camPos, true);
@@ -2037,6 +2208,11 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture(16, 0);
   rhi->SetPixelTexture(17, 0);
   rhi->SetPixelTexture2D(18, 0);
+  if (toTexture && !captureMode) {
+    RenderForwardPass(camPos);
+  } else {
+    forwardDraws.clear();
+  }
   if (captureMode) {
     captureMode = false;
     captureTarget = 0;
@@ -2276,6 +2452,7 @@ bool DeferredRenderer::CreateTargets() {
   gEmissive = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA16F);
   gF0 = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   gExtA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
+  transSrc = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   gDepth = rhi->CreateRenderTarget(w, h, RHIFormat::D24S8);
   gViewport = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   gLight = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
@@ -2311,7 +2488,7 @@ bool DeferredRenderer::CreateTargets() {
   ssgiA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   ssgiB = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   fxaaA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
-  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0;
+  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0;
 }
 void DeferredRenderer::DestroyTargets() {
   if (rhi == nullptr) {
@@ -2348,6 +2525,10 @@ void DeferredRenderer::DestroyTargets() {
   if (gExtA != 0) {
     rhi->DestroyRenderTarget(gExtA);
     gExtA = 0;
+  }
+  if (transSrc != 0) {
+    rhi->DestroyRenderTarget(transSrc);
+    transSrc = 0;
   }
   if (gDepth != 0) {
     rhi->DestroyRenderTarget(gDepth);
