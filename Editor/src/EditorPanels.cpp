@@ -1447,15 +1447,15 @@ void EditorApp::DrawInspector() {
       matChanged = true;
     }
     if (ImGui::CollapsingHeader("Emissive")) {
-      if (ImGui::ColorEdit3("Color", mat.emissive)) {
+      if (ImGui::ColorEdit3("Emissive Color", mat.emissive)) {
         matChanged = true;
       }
-      if (ImGui::DragFloat("Strength", &mat.emissiveStrength, 0.05f, 0.0f, 16.0f)) {
+      if (ImGui::DragFloat("Emissive Strength", &mat.emissiveStrength, 0.05f, 0.0f, 16.0f)) {
         matChanged = true;
       }
     }
     if (ImGui::CollapsingHeader("Specular (IOR)")) {
-      if (ImGui::DragFloat("IOR", &mat.ior, 0.01f, 1.0f, 3.0f)) {
+      if (ImGui::DragFloat("Specular IOR", &mat.ior, 0.01f, 1.0f, 3.0f)) {
         matChanged = true;
       }
       if (ImGui::Checkbox("Has Specular Ext", &mat.hasSpecular)) {
@@ -1469,34 +1469,34 @@ void EditorApp::DrawInspector() {
       }
     }
     if (ImGui::CollapsingHeader("Clearcoat")) {
-      if (ImGui::DragFloat("Factor", &mat.clearcoat, 0.01f, 0.0f, 1.0f)) {
+      if (ImGui::DragFloat("Clearcoat Factor", &mat.clearcoat, 0.01f, 0.0f, 1.0f)) {
         matChanged = true;
       }
-      if (ImGui::DragFloat("Roughness", &mat.clearcoatRoughness, 0.01f, 0.0f, 1.0f)) {
+      if (ImGui::DragFloat("Clearcoat Roughness", &mat.clearcoatRoughness, 0.01f, 0.0f, 1.0f)) {
         matChanged = true;
       }
     }
     if (ImGui::CollapsingHeader("Sheen")) {
-      if (ImGui::ColorEdit3("Color", mat.sheenColor)) {
+      if (ImGui::ColorEdit3("Sheen Color", mat.sheenColor)) {
         matChanged = true;
       }
-      if (ImGui::DragFloat("Roughness", &mat.sheenRoughness, 0.01f, 0.0f, 1.0f)) {
+      if (ImGui::DragFloat("Sheen Roughness", &mat.sheenRoughness, 0.01f, 0.0f, 1.0f)) {
         matChanged = true;
       }
     }
     if (ImGui::CollapsingHeader("Anisotropy")) {
-      if (ImGui::DragFloat("Strength", &mat.anisotropy, 0.01f, 0.0f, 1.0f)) {
+      if (ImGui::DragFloat("Aniso Strength", &mat.anisotropy, 0.01f, 0.0f, 1.0f)) {
         matChanged = true;
       }
-      if (ImGui::DragFloat("Rotation", &mat.anisotropyRotation, 0.01f, -3.15f, 3.15f)) {
+      if (ImGui::DragFloat("Aniso Rotation", &mat.anisotropyRotation, 0.01f, -3.15f, 3.15f)) {
         matChanged = true;
       }
     }
     if (ImGui::CollapsingHeader("Iridescence")) {
-      if (ImGui::DragFloat("Factor", &mat.iridescence, 0.01f, 0.0f, 1.0f)) {
+      if (ImGui::DragFloat("Iridescence Factor", &mat.iridescence, 0.01f, 0.0f, 1.0f)) {
         matChanged = true;
       }
-      if (ImGui::DragFloat("IOR", &mat.iridescenceIor, 0.01f, 1.0f, 2.5f)) {
+      if (ImGui::DragFloat("Iridescence IOR", &mat.iridescenceIor, 0.01f, 1.0f, 2.5f)) {
         matChanged = true;
       }
       if (ImGui::DragFloat("Thick Min", &mat.iridescenceThicknessMin, 1.0f, 10.0f, 1000.0f)) {
@@ -1538,7 +1538,7 @@ void EditorApp::DrawInspector() {
     }
     DecalData dec = e->decal;
     bool decChanged = false;
-    if (ImGui::DragFloat3("Size", dec.size, 0.05f, 0.05f, 50.0f)) {
+    if (ImGui::DragFloat3("Decal Size", dec.size, 0.05f, 0.05f, 50.0f)) {
       decChanged = true;
     }
     if (ImGui::DragFloat("Life", &dec.life, 0.1f, 0.0f, 300.0f)) {
@@ -1644,7 +1644,7 @@ void EditorApp::DrawInspector() {
     }
     LightmapData lm = e->lightmap;
     bool lmChanged = false;
-    if (ImGui::DragFloat("Intensity", &lm.intensity, 0.05f, 0.0f, 4.0f)) {
+    if (ImGui::DragFloat("Lightmap Intensity", &lm.intensity, 0.05f, 0.0f, 4.0f)) {
       lmChanged = true;
     }
     if (lmChanged) {
@@ -1701,10 +1701,10 @@ void EditorApp::DrawInspector() {
     }
     ProbeData pr = e->probe;
     bool prChanged = false;
-    if (ImGui::DragFloat3("Size", pr.size, 0.1f, 0.5f, 100.0f)) {
+    if (ImGui::DragFloat3("Probe Size", pr.size, 0.1f, 0.5f, 100.0f)) {
       prChanged = true;
     }
-    if (ImGui::DragFloat("Intensity", &pr.intensity, 0.05f, 0.0f, 4.0f)) {
+    if (ImGui::DragFloat("Probe Intensity", &pr.intensity, 0.05f, 0.0f, 4.0f)) {
       prChanged = true;
     }
     if (prChanged) {
