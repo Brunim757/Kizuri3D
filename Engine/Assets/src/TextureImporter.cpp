@@ -2,11 +2,14 @@
 #include "Kizuri/Assets/Guid.h"
 #include <stb_image.h>
 #include <DirectXTex.h>
+#include <atomic>
 #include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <system_error>
+#include <thread>
+#include <vector>
 namespace Kizuri {
 namespace {
 bool NameHintsNormal(const std::string& name) {
@@ -103,7 +106,62 @@ bool CompressTexturePixels(const unsigned char* rgba, int w, int h, const std::s
     outFormat = TexFormat::Bc1;
   }
   DirectX::ScratchImage compressed;
-  if (FAILED(DirectX::Compress(mipChain.GetImages(), mipChain.GetImageCount(), mipChain.GetMetadata(), destFormat, DirectX::TEX_COMPRESS_DEFAULT | DirectX::TEX_COMPRESS_PARALLEL, DirectX::TEX_THRESHOLD_DEFAULT, compressed))) {
+  size_t mipCount = mipChain.GetImageCount();
+  const DirectX::Image* srcImgs = mipChain.GetImages();
+  bool compressOk = true;
+  if (mipCount <= 1) {
+    if (FAILED(DirectX::Compress(srcImgs, mipCount, mipChain.GetMetadata(), destFormat, DirectX::TEX_COMPRESS_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, compressed))) {
+      return false;
+    }
+  } else {
+    unsigned int hwThreads = std::thread::hardware_concurrency();
+    if (hwThreads < 1) {
+      hwThreads = 1;
+    }
+    size_t threadCount = mipCount < static_cast<size_t>(hwThreads) ? mipCount : static_cast<size_t>(hwThreads);
+    std::vector<DirectX::ScratchImage> parts(mipCount);
+    std::vector<HRESULT> partResults(mipCount, S_OK);
+    std::atomic<size_t> next(0);
+    std::vector<std::thread> workers;
+    for (size_t t = 0; t < threadCount; ++t) {
+      workers.push_back(std::thread([&]() {
+        for (;;) {
+          size_t i = next.fetch_add(1);
+          if (i >= mipCount) {
+            break;
+          }
+          partResults[i] = DirectX::Compress(srcImgs[i], destFormat, DirectX::TEX_COMPRESS_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, parts[i]);
+        }
+      }));
+    }
+    for (size_t t = 0; t < workers.size(); ++t) {
+      workers[t].join();
+    }
+    for (size_t i = 0; i < mipCount; ++i) {
+      if (FAILED(partResults[i]) || parts[i].GetImageCount() == 0) {
+        compressOk = false;
+        break;
+      }
+    }
+    if (compressOk) {
+      DirectX::TexMetadata md = mipChain.GetMetadata();
+      md.format = destFormat;
+      if (FAILED(compressed.Initialize(md))) {
+        compressOk = false;
+      } else {
+        for (size_t i = 0; i < mipCount && compressOk; ++i) {
+          const DirectX::Image* dst = compressed.GetImage(i, 0, 0);
+          const DirectX::Image* s = parts[i].GetImage(0, 0, 0);
+          if (dst == nullptr || s == nullptr || dst->slicePitch != s->slicePitch) {
+            compressOk = false;
+            break;
+          }
+          std::memcpy(dst->pixels, s->pixels, dst->slicePitch);
+        }
+      }
+    }
+  }
+  if (!compressOk) {
     return false;
   }
   out.guid = keepGuid.empty() ? GenerateGuidString() : keepGuid;
