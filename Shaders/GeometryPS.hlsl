@@ -193,7 +193,21 @@ PSOut main(PSIn pin)
     float ca = cos(ExtD.y);
     float sa = sin(ExtD.y);
     float2 arot = float2(anisoDir.x * ca - anisoDir.y * sa, anisoDir.x * sa + anisoDir.y * ca);
-    float2 avec = arot * anisoStr;
+    float3 wT = normalize(pin.wtan.xyz);
+    float3 wB = normalize(cross(n, wT) * pin.wtan.w + 1e-6);
+    float3 dirW = wT * arot.x + wB * arot.y;
+    float dl = length(dirW);
+    if (dl < 1e-4 || anisoStr <= 0.0) {
+        dirW = float3(1.0, 0.0, 0.0);
+        anisoStr = 0.0;
+    } else {
+        dirW /= dl;
+    }
+    float3 octN = dirW / (abs(dirW.x) + abs(dirW.y) + abs(dirW.z));
+    float sx = octN.x >= 0.0 ? 1.0 : -1.0;
+    float sy = octN.y >= 0.0 ? 1.0 : -1.0;
+    float2 oct = octN.z >= 0.0 ? octN.xy : (1.0 - abs(float2(octN.y, octN.x))) * float2(sx, sy);
+    float2 avec = oct * 0.5 + 0.5;
     float iri = ExtC.y;
     if ((flags & 16384u) != 0u) {
         iri *= IriTex.Sample(GeoSamp, XformUv(pin.uv, pin.uv2, 0)).r;
@@ -208,9 +222,9 @@ PSOut main(PSIn pin)
     pout.wpos = float4(pin.wpos, avec.y * 0.5 + 0.5);
     float3 lmIrr = float3(0.0, 0.0, 0.0);
     if ((flags & 16u) != 0u) {
-        lmIrr = LightmapTex.Sample(GeoSamp, pin.luv).rgb;
+        lmIrr = LightmapTex.Sample(GeoSamp, pin.luv).rgb * Extra.x;
     }
-    pout.lightmap = float4(lmIrr, Extra.x);
+    pout.lightmap = float4(lmIrr, anisoStr);
     pout.emissive = float4(emi, iriThick / 2000.0);
     pout.f0 = float4(F0, cc);
     pout.extA = float4(ccr, sheen);

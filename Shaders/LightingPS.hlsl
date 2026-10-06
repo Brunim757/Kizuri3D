@@ -95,7 +95,60 @@ float GaSchlickGGX(float cosLi, float cosLo, float roughness)
     float k = (r * r) / 8.0;
     return GaSchlickG1(cosLi, k) * GaSchlickG1(cosLo, k);
 }
-float3 ShadeOne(float3 N, float3 V, float3 L, float3 lightColor, float3 albedo, float roughness, float metallic, float3 F0)
+struct Lobes
+{
+    float cc;
+    float ccRough;
+    float3 sheen;
+    float sheenRough;
+    float iri;
+    float iriNm;
+    float iriIor;
+    float3 anisoT;
+    float anisoStr;
+    float disp;
+    float iorM;
+};
+float D_AnisoGGX(float3 H, float3 T, float3 B, float3 N, float ax, float ay)
+{
+    float th = dot(T, H);
+    float bh = dot(B, H);
+    float nh = saturate(dot(N, H));
+    float a2 = ax * ay;
+    float3 v = float3(ay * th, ax * bh, a2 * nh);
+    float v2 = dot(v, v);
+    float w2 = a2 / max(v2, 1e-7);
+    return a2 * w2 * w2 / 3.14159265;
+}
+float D_Charlie(float cosLh, float rough)
+{
+    float r = max(rough, 0.05);
+    float invR = 1.0 / r;
+    float cos2h = cosLh * cosLh;
+    float sin2h = max(1.0 - cos2h, 0.0078125);
+    return (2.0 + invR) * pow(sin2h, invR * 0.5) / (2.0 * 3.14159265);
+}
+float3 ThinFilm(float cosT, float iorF, float thickNm)
+{
+    float r0 = (1.0 - iorF) / (1.0 + iorF);
+    r0 *= r0;
+    float3 lambda = float3(650.0, 510.0, 475.0);
+    float3 delta = (4.0 * 3.14159265 * iorF * thickNm * max(cosT, 1e-3)) / lambda;
+    float3 c = cos(delta);
+    float3 R = (2.0 * r0 * (1.0 + c)) / (1.0 + r0 * r0 + 2.0 * r0 * c + 1e-5);
+    return saturate(R);
+}
+float3 OctDecode(float2 e)
+{
+    float3 n = float3(e.x, e.y, 1.0 - abs(e.x) - abs(e.y));
+    if (n.z < 0.0) {
+        float sx = n.x >= 0.0 ? 1.0 : -1.0;
+        float sy = n.y >= 0.0 ? 1.0 : -1.0;
+        n.xy = (1.0 - abs(float2(n.y, n.x))) * float2(sx, sy);
+    }
+    return normalize(n + 1e-7);
+}
+float3 ShadeOne(float3 N, float3 V, float3 L, float3 lightColor, float3 albedo, float roughness, float metallic, float3 F0, Lobes lb)
 {
     float3 H = normalize(L + V);
     float rawLi = dot(N, L);
@@ -105,17 +158,58 @@ float3 ShadeOne(float3 N, float3 V, float3 L, float3 lightColor, float3 albedo, 
     float vh = saturate(dot(V, H));
     float3 Fb = lerp(F0, albedo, metallic);
     float3 F = Fb + (1.0 - Fb) * pow(1.0 - vh, 5.0);
-    float D = NdfGGX(cosLh, roughness);
+    if (lb.iri > 0.001) {
+        float3 film = ThinFilm(cosLh, clamp(lb.iriIor, 1.0, 3.0), clamp(lb.iriNm, 0.0, 2000.0));
+        F = lerp(F, film * (Fb + 0.5), clamp(lb.iri, 0.0, 1.0));
+    }
+    float D = 0.0;
     float G = GaSchlickGGX(cosLi, cosLo, roughness);
+    if (lb.anisoStr > 0.001) {
+        float3 T = normalize(lb.anisoT - N * dot(N, lb.anisoT) + 1e-6);
+        float3 B = normalize(cross(N, T));
+        float aspect = sqrt(max(1.0 - 0.9 * clamp(lb.anisoStr, 0.0, 1.0), 1e-4));
+        float r2 = max(roughness * roughness, 1e-4);
+        float ax = max(r2 / aspect, 1e-4);
+        float ay = max(r2 * aspect, 1e-4);
+        D = D_AnisoGGX(H, T, B, N, ax, ay);
+    } else {
+        D = NdfGGX(cosLh, roughness);
+    }
     float3 spec = (F * D * G) / max(4.0 * cosLi * cosLo, 1e-5);
+    if (lb.disp > 0.001) {
+        float spread = clamp(lb.disp, 0.0, 1.0) * 0.03;
+        float iorC = clamp(lb.iorM, 1.0, 4.0);
+        float3 iorC3 = float3(iorC - spread, iorC, iorC + spread);
+        float3 f0c = (iorC3 - 1.0) / (iorC3 + 1.0);
+        f0c *= f0c;
+        float3 Fbc = lerp(f0c, albedo, metallic);
+        float3 Fc = Fbc + (1.0 - Fbc) * pow(1.0 - vh, 5.0);
+        spec = (Fc * D * G) / max(4.0 * cosLi * cosLo, 1e-5);
+    }
     float3 kd = (1.0 - F) * (1.0 - metallic);
     float3 diff = kd * albedo;
+    float3 sheenAcc = float3(0.0, 0.0, 0.0);
+    if (dot(lb.sheen, lb.sheen) > 1e-8) {
+        float sheenD = D_Charlie(cosLh, lb.sheenRough);
+        float sheenV = 1.0 / max(4.0 * (cosLi + cosLo - cosLi * cosLo), 1e-4);
+        sheenAcc = lb.sheen * (sheenD * sheenV * cosLi);
+    }
+    float ccF = 0.0;
+    float3 ccSpec = float3(0.0, 0.0, 0.0);
+    if (lb.cc > 0.001) {
+        float Fcc = 0.04 + 0.96 * pow(1.0 - cosLo, 5.0);
+        float Dcc = NdfGGX(cosLh, clamp(lb.ccRough, 0.03, 1.0));
+        float Gcc = GaSchlickGGX(cosLi, cosLo, clamp(lb.ccRough, 0.03, 1.0));
+        ccSpec = (Fcc * Dcc * Gcc) / max(4.0 * cosLi * cosLo, 1e-5);
+        ccF = lb.cc * Fcc;
+    }
     float wrapLi = saturate((rawLi + 0.5) / 1.5);
     wrapLi *= wrapLi;
     float3 Lt = -(L + N * 0.5);
     float trans = pow(saturate(dot(V, -normalize(Lt))), 4.0) * (1.0 - metallic);
     float3 sssCol = albedo * trans;
-    return diff * lightColor * wrapLi + spec * lightColor * cosLi + sssCol * lightColor;
+    float3 base = (diff * wrapLi + spec * cosLi + sssCol) * (1.0 - ccF) + sheenAcc * (1.0 - ccF);
+    return base * lightColor + ccSpec * lb.cc * lightColor * cosLi;
 }
 float BlockerSearch2D(float2 uv, float recvDist, float nearZ, float farZ, float searchUV)
 {
@@ -331,13 +425,15 @@ float3 SkyGradient(float3 viewDir, float3 sunDirTo, float3 sunColor, float sunIn
 }
 float4 main(PSIn pin) : SV_Target
 {
-    float3 albedo = AlbedoTX.Sample(LinearSampler, pin.uv).rgb;
+    float4 albFull = AlbedoTX.Sample(LinearSampler, pin.uv);
+    float3 albedo = albFull.rgb;
     float4 nr = NormalRoughTX.Sample(LinearSampler, pin.uv);
     float3 N = normalize(nr.xyz);
     float roughness = clamp(nr.w, 0.04, 1.0);
     float4 metalFull = MetallicTX.Sample(LinearSampler, pin.uv);
     float metallic = clamp(metalFull.r, 0.0, 1.0);
-    float3 wpos = PositionTX.Sample(LinearSampler, pin.uv).xyz;
+    float4 posFull = PositionTX.Sample(LinearSampler, pin.uv);
+    float3 wpos = posFull.xyz;
     if (dot(wpos, wpos) < 1e-8) {
         float2 ndc2 = float2(pin.uv.x * 2.0 - 1.0, 1.0 - pin.uv.y * 2.0);
         float3 ray = CamFwd.xyz + CamRight.xyz * (ndc2.x * CamRight.w * CamUp.w) + CamUp.xyz * (ndc2.y * CamRight.w);
@@ -403,18 +499,35 @@ float4 main(PSIn pin) : SV_Target
         }
     }
     float3 Lsun = normalize(-LightDir.xyz);
-    float3 emis = EmissiveTX.Sample(LinearSampler, pin.uv).rgb;
+    float4 emisFull = EmissiveTX.Sample(LinearSampler, pin.uv);
+    float3 emis = emisFull.rgb;
     uint matID = (uint) (metalFull.a * 255.0 + 0.5);
     if (matID > 255u) {
         matID = 255u;
     }
     float4 matInfo = MatTable.Load(int3((int) matID, 0, 0));
     float unlitF = matInfo.r;
-    float3 specF0 = F0TX.Sample(LinearSampler, pin.uv).rgb;
+    float4 f0Full = F0TX.Sample(LinearSampler, pin.uv);
+    float3 specF0 = f0Full.rgb;
+    float4 extFull = ExtATX.Sample(LinearSampler, pin.uv);
+    float4 lmFull = LightmapTX.Sample(LinearSampler, pin.uv);
+    Lobes lb;
+    lb.cc = f0Full.a;
+    lb.ccRough = extFull.r;
+    lb.sheen = extFull.gba;
+    lb.sheenRough = metalFull.g;
+    lb.iri = metalFull.b;
+    lb.iriNm = emisFull.a * 2000.0;
+    lb.iriIor = 1.0 + matInfo.g * 2.0;
+    float2 anOct = float2(albFull.a, posFull.a) * 2.0 - 1.0;
+    lb.anisoT = OctDecode(anOct);
+    lb.anisoStr = lmFull.a;
+    lb.disp = matInfo.b;
+    lb.iorM = 1.0 + matInfo.a * 3.0;
     float3 col = float3(0.0, 0.0, 0.0);
     float3 amb = float3(0.0, 0.0, 0.0);
     if (unlitF < 0.5) {
-    col = ShadeOne(N, V, Lsun, LightColor.rgb, albedo, roughness, metallic, specF0);
+    col = ShadeOne(N, V, Lsun, LightColor.rgb, albedo, roughness, metallic, specF0, lb);
     int count = (int)Counts.x;
     if (count > 16) {
         count = 16;
@@ -432,7 +545,7 @@ float4 main(PSIn pin) : SV_Target
                     }
                 }
             }
-            col += ShadeOne(N, V, Ld, LightC[i].rgb, albedo, roughness, metallic, specF0) * dirShadow;
+            col += ShadeOne(N, V, Ld, LightC[i].rgb, albedo, roughness, metallic, specF0, lb) * dirShadow;
         } else {
             float3 toLight = LightA[i].xyz - wpos;
             float dist = length(toLight);
@@ -458,7 +571,7 @@ float4 main(PSIn pin) : SV_Target
                     lightShadow = SamplePointPCSS(wposB, PointMeta.w);
                 }
             }
-            col += ShadeOne(N, V, L, LightC[i].rgb, albedo, roughness, metallic, specF0) * att * spot * lightShadow;
+            col += ShadeOne(N, V, L, LightC[i].rgb, albedo, roughness, metallic, specF0, lb) * att * spot * lightShadow;
         }
     }
     float ao = 1.0;
@@ -505,11 +618,26 @@ float4 main(PSIn pin) : SV_Target
     }
     float4 ssr = SsrTX.Sample(LinearSampler, pin.uv);
     float3 specAmb = lerp(env, ssr.rgb, clamp(ssr.a, 0.0, 1.0));
+    float cosNV = saturate(dot(N, V));
     float3 F0e = lerp(specF0, albedo, metallic);
-    float3 fres = F0e + (1.0 - F0e) * pow(1.0 - saturate(dot(N, V)), 5.0);
-    col += specAmb * fres * (1.0 - roughness) * ao;
-    float4 lm = LightmapTX.Sample(LinearSampler, pin.uv);
-    col += albedo * lm.rgb * lm.a;
+    float3 fres = F0e + (1.0 - F0e) * pow(1.0 - cosNV, 5.0);
+    if (lb.iri > 0.001) {
+        float3 filmE = ThinFilm(cosNV, clamp(lb.iriIor, 1.0, 3.0), clamp(lb.iriNm, 0.0, 2000.0));
+        fres = lerp(fres, filmE * (F0e + 0.5), clamp(lb.iri, 0.0, 1.0));
+    }
+    float ccEnvF = 0.0;
+    float3 ccEnv = float3(0.0, 0.0, 0.0);
+    if (lb.cc > 0.001) {
+        float FccE = 0.04 + 0.96 * pow(1.0 - cosNV, 5.0);
+        ccEnvF = lb.cc * FccE;
+        ccEnv = EnvTX.SampleLevel(LinearSampler, R, clamp(lb.ccRough, 0.0, 1.0) * 6.0).rgb * GradeInfo.z;
+    }
+    col += specAmb * fres * (1.0 - roughness) * ao * (1.0 - ccEnvF);
+    col += ccEnv * ccEnvF * ao;
+    if (dot(lb.sheen, lb.sheen) > 1e-8) {
+        col += lb.sheen * hemi * 0.5 * ao;
+    }
+    col += albedo * lmFull.rgb;
     } else {
         col = albedo;
     }

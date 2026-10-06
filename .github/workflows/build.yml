@@ -10,6 +10,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: false
+      - name: Validate shaders
+        shell: pwsh
+        run: |
+          $fxc = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter fxc.exe | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $fxc) { throw "fxc not found" }
+          $failed = $false
+          Get-ChildItem "Shaders/*.hlsl" -Exclude "Fsr*" | ForEach-Object {
+            $profile = if ($_.Name -match "VS\.hlsl$") { "vs_5_0" } else { "ps_5_0" }
+            & $fxc /nologo /T $profile /E main /I Shaders $_.FullName /Fo NUL
+            if ($LASTEXITCODE -ne 0) { Write-Host "::error::$($_.Name) failed to compile"; $failed = $true }
+          }
+          if ($failed) { throw "shader validation failed" }
       - name: Configure
         run: cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release
       - name: Build
