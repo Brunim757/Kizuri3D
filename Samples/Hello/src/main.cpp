@@ -2930,7 +2930,6 @@ bool TestDraco() {
   enc.SetAttributeQuantization(draco::GeometryAttribute::POSITION, 14);
   draco::EncoderBuffer dbuf;
   if (!enc.EncodeMeshToBuffer(*dmesh, &dbuf).ok() || dbuf.size() == 0) {
-    std::printf("[draco-stage] encode-fail\n");
     fs::remove_all(dir, ec);
     return false;
   }
@@ -2947,22 +2946,15 @@ bool TestDraco() {
     std::fclose(fp);
   }
   Kizuri::MeshAssetData data;
-  Kizuri::LogStore dlog;
-  if (!Kizuri::ImportGltfMesh((dir / "d.gltf").string(), "", data, &dlog)) {
-    std::printf("[draco-stage] import-fail\n");
-    for (size_t li = 0; li < dlog.Count(); ++li) {
-      std::printf("[draco-log] %s\n", dlog.At(li).text.c_str());
-    }
+  if (!Kizuri::ImportGltfMesh((dir / "d.gltf").string(), "", data, nullptr)) {
     fs::remove_all(dir, ec);
     return false;
   }
   if (data.positions.size() != 9 || data.indices.size() != 3) {
-    std::printf("[draco-stage] count-fail pos=%zu idx=%zu\n", data.positions.size(), data.indices.size());
     fs::remove_all(dir, ec);
     return false;
   }
   if (std::fabs(data.positions[0] + 1.0f) > 1e-3f || std::fabs(data.positions[3] - 1.0f) > 1e-3f || std::fabs(data.positions[7] - 1.0f) > 1e-3f) {
-    std::printf("[draco-stage] value-fail %g %g %g\n", data.positions[0], data.positions[3], data.positions[7]);
     fs::remove_all(dir, ec);
     return false;
   }

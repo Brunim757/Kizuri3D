@@ -906,12 +906,6 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
         if (prim.type != cgltf_primitive_type_triangles) {
           continue;
         }
-        if (prim.has_draco_mesh_compression != 0) {
-          if (log != nullptr) {
-            log->Add(LogLevel::Warning, "draco primitive skipped; decoder arrives in Lote 2");
-          }
-          continue;
-        }
         const cgltf_accessor* posAcc = nullptr;
         const cgltf_accessor* nrmAcc = nullptr;
         const cgltf_accessor* uvAcc = nullptr;
