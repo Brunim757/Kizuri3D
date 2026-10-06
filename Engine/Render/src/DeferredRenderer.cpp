@@ -1704,7 +1704,7 @@ void DeferredRenderer::RenderForwardPass(const float camPos[3]) {
   rhi->UpdateConstantBuffer(forwardCB, &fwdScreen, sizeof(fwdScreen));
   rhi->SetPixelConstantBuffer(0, lightCB);
   rhi->SetPixelConstantBuffer(3, forwardCB);
-  rhi->SetPixelTexture2D(16, transSrc);
+  rhi->SetPixelTexture(16, transSrc);
   rhi->SetPixelTexture2D(17, envCube);
   rhi->SetPixelSampler(0, sampler);
   for (size_t oi = 0; oi < order.size(); ++oi) {
@@ -1754,7 +1754,7 @@ void DeferredRenderer::RenderForwardPass(const float camPos[3]) {
   rhi->SetPixelTexture2D(5, 0);
   rhi->SetPixelTexture2D(6, 0);
   rhi->SetPixelTexture2D(7, 0);
-  rhi->SetPixelTexture2D(16, 0);
+  rhi->SetPixelTexture(16, 0);
   rhi->SetPixelTexture2D(17, 0);
   blend.enable = false;
   rhi->SetBlendState(blend);
