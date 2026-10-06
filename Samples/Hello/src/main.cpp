@@ -2947,8 +2947,12 @@ bool TestDraco() {
     std::fclose(fp);
   }
   Kizuri::MeshAssetData data;
-  if (!Kizuri::ImportGltfMesh((dir / "d.gltf").string(), "", data, nullptr)) {
+  Kizuri::LogStore dlog;
+  if (!Kizuri::ImportGltfMesh((dir / "d.gltf").string(), "", data, &dlog)) {
     std::printf("[draco-stage] import-fail\n");
+    for (size_t li = 0; li < dlog.Count(); ++li) {
+      std::printf("[draco-log] %s\n", dlog.At(li).text.c_str());
+    }
     fs::remove_all(dir, ec);
     return false;
   }
