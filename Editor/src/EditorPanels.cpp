@@ -1434,7 +1434,6 @@ void EditorApp::DrawInspector() {
     if (DrawMaterialScalars(mat)) {
       edits.PushMaterial(e->id, mat);
     }
-    }
     DrawMaterialSection(e);
   }
   if (e->hasDecal) {
@@ -2039,7 +2038,6 @@ bool EditorApp::DrawMaterialScalars(MaterialData& mat) {
         matChanged = true;
       }
     }
-    if (matChanged) {
   return matChanged;
 }
 
