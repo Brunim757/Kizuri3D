@@ -440,6 +440,120 @@ bool SetVariantCmd::Revert(Scene& scene) {
 const char* SetVariantCmd::Name() const {
   return "Set Variant";
 }
+static MaterialData* FindPartMaterial(Entity& e, uint32_t part) {
+  for (size_t i = 0; i < e.partMaterials.size(); ++i) {
+    if (e.partMaterials[i].part == part) {
+      return &e.partMaterials[i].material;
+    }
+  }
+  return nullptr;
+}
+SetPartMaterialCmd::SetPartMaterialCmd(EntityId t, uint32_t p, const MaterialData& b, const MaterialData& a)
+  : target(t)
+  , part(p)
+  , before(b)
+  , after(a) {
+}
+bool SetPartMaterialCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  MaterialData* m = FindPartMaterial(*e, part);
+  if (m == nullptr) {
+    return false;
+  }
+  *m = after;
+  scene.MarkDirty();
+  return true;
+}
+bool SetPartMaterialCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  MaterialData* m = FindPartMaterial(*e, part);
+  if (m == nullptr) {
+    return false;
+  }
+  *m = before;
+  scene.MarkDirty();
+  return true;
+}
+const char* SetPartMaterialCmd::Name() const {
+  return "Set Part Material";
+}
+AddPartMaterialCmd::AddPartMaterialCmd(EntityId t, uint32_t p, const MaterialData& initial)
+  : target(t)
+  , part(p)
+  , initial(initial) {
+}
+bool AddPartMaterialCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || FindPartMaterial(*e, part) != nullptr) {
+    return false;
+  }
+  PartMaterial pm;
+  pm.part = part;
+  pm.material = initial;
+  e->partMaterials.push_back(pm);
+  scene.MarkDirty();
+  return true;
+}
+bool AddPartMaterialCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  for (size_t i = 0; i < e->partMaterials.size(); ++i) {
+    if (e->partMaterials[i].part == part) {
+      e->partMaterials.erase(e->partMaterials.begin() + static_cast<long>(i));
+      scene.MarkDirty();
+      return true;
+    }
+  }
+  return false;
+}
+const char* AddPartMaterialCmd::Name() const {
+  return "Add Part Material";
+}
+RemovePartMaterialCmd::RemovePartMaterialCmd(EntityId t, uint32_t p)
+  : target(t)
+  , part(p)
+  , hadIt(false) {
+  MakeDefaultMaterial(prevMaterial);
+}
+bool RemovePartMaterialCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  for (size_t i = 0; i < e->partMaterials.size(); ++i) {
+    if (e->partMaterials[i].part == part) {
+      prevMaterial = e->partMaterials[i].material;
+      hadIt = true;
+      e->partMaterials.erase(e->partMaterials.begin() + static_cast<long>(i));
+      scene.MarkDirty();
+      return true;
+    }
+  }
+  return false;
+}
+bool RemovePartMaterialCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !hadIt) {
+    return false;
+  }
+  PartMaterial pm;
+  pm.part = part;
+  pm.material = prevMaterial;
+  e->partMaterials.push_back(pm);
+  scene.MarkDirty();
+  return true;
+}
+const char* RemovePartMaterialCmd::Name() const {
+  return "Remove Part Material";
+}
 AddMaterialCmd::AddMaterialCmd(EntityId t)
   : target(t)
   , useInitial(false)

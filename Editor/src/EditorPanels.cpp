@@ -490,10 +490,23 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
             const MeshPartData& part = rec->data.parts[p];
             const DeferredMaterial* useMat = nullptr;
             DeferredMaterial partMat;
-            if (e->hasMaterial) {
+            const MaterialData* pm = nullptr;
+            for (size_t k = 0; k < e->partMaterials.size(); ++k) {
+              if (e->partMaterials[k].part == static_cast<uint32_t>(p)) {
+                pm = &e->partMaterials[k].material;
+                break;
+              }
+            }
+            if (pm != nullptr) {
+              FillDeferredFromEntity(assets, *pm, partMat);
+              useMat = &partMat;
+            } else if (e->hasMaterial) {
               FillDeferredFromEntity(assets, e->material, partMat);
               useMat = &partMat;
-            } else if (part.material < rec->data.materials.size()) {
+            } else {
+              useMat = nullptr;
+            }
+            if (useMat == nullptr && part.material < rec->data.materials.size()) {
               uint32_t matIdx = part.material;
               if (e->variantIndex >= 0) {
                 for (size_t vi = 0; vi < rec->data.variantAssigns.size(); ++vi) {
@@ -1418,113 +1431,9 @@ void EditorApp::DrawInspector() {
       undo.Execute(std::move(cmd), scene);
     }
     MaterialData mat = e->material;
-    bool matChanged = false;
-    if (ImGui::ColorEdit3("Albedo", mat.albedo)) {
-      matChanged = true;
-    }
-    if (ImGui::DragFloat("Alpha", &mat.alpha, 0.01f, 0.0f, 1.0f)) {
-      matChanged = true;
-    }
-    if (ImGui::DragFloat("Metallic", &mat.metallic, 0.01f, 0.0f, 1.0f)) {
-      matChanged = true;
-    }
-    if (ImGui::DragFloat("Roughness", &mat.roughness, 0.01f, 0.0f, 1.0f)) {
-      matChanged = true;
-    }
-    if (ImGui::Checkbox("Unlit", &mat.unlit)) {
-      matChanged = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Checkbox("Double Sided", &mat.doubleSided)) {
-      matChanged = true;
-    }
-    int alphaMode = mat.alphaMode;
-    if (ImGui::Combo("Alpha Mode", &alphaMode, "Opaque\0Mask\0Blend\0")) {
-      mat.alphaMode = alphaMode < 0 ? 0 : (alphaMode > 2 ? 2 : alphaMode);
-      matChanged = true;
-    }
-    if (ImGui::DragFloat("Alpha Cutoff", &mat.alphaCutoff, 0.01f, 0.0f, 1.0f)) {
-      matChanged = true;
-    }
-    if (ImGui::CollapsingHeader("Emissive")) {
-      if (ImGui::ColorEdit3("Emissive Color", mat.emissive)) {
-        matChanged = true;
-      }
-      if (ImGui::DragFloat("Emissive Strength", &mat.emissiveStrength, 0.05f, 0.0f, 16.0f)) {
-        matChanged = true;
-      }
-    }
-    if (ImGui::CollapsingHeader("Specular (IOR)")) {
-      if (ImGui::DragFloat("Specular IOR", &mat.ior, 0.01f, 1.0f, 3.0f)) {
-        matChanged = true;
-      }
-      if (ImGui::Checkbox("Has Specular Ext", &mat.hasSpecular)) {
-        matChanged = true;
-      }
-      if (ImGui::ColorEdit3("Spec Color", mat.specularColor)) {
-        matChanged = true;
-      }
-      if (ImGui::DragFloat("Spec Strength", &mat.specularStrength, 0.01f, 0.0f, 4.0f)) {
-        matChanged = true;
-      }
-    }
-    if (ImGui::CollapsingHeader("Clearcoat")) {
-      if (ImGui::DragFloat("Clearcoat Factor", &mat.clearcoat, 0.01f, 0.0f, 1.0f)) {
-        matChanged = true;
-      }
-      if (ImGui::DragFloat("Clearcoat Roughness", &mat.clearcoatRoughness, 0.01f, 0.0f, 1.0f)) {
-        matChanged = true;
-      }
-    }
-    if (ImGui::CollapsingHeader("Sheen")) {
-      if (ImGui::ColorEdit3("Sheen Color", mat.sheenColor)) {
-        matChanged = true;
-      }
-      if (ImGui::DragFloat("Sheen Roughness", &mat.sheenRoughness, 0.01f, 0.0f, 1.0f)) {
-        matChanged = true;
-      }
-    }
-    if (ImGui::CollapsingHeader("Anisotropy")) {
-      if (ImGui::DragFloat("Aniso Strength", &mat.anisotropy, 0.01f, 0.0f, 1.0f)) {
-        matChanged = true;
-      }
-      if (ImGui::DragFloat("Aniso Rotation", &mat.anisotropyRotation, 0.01f, -3.15f, 3.15f)) {
-        matChanged = true;
-      }
-    }
-    if (ImGui::CollapsingHeader("Iridescence")) {
-      if (ImGui::DragFloat("Iridescence Factor", &mat.iridescence, 0.01f, 0.0f, 1.0f)) {
-        matChanged = true;
-      }
-      if (ImGui::DragFloat("Iridescence IOR", &mat.iridescenceIor, 0.01f, 1.0f, 2.5f)) {
-        matChanged = true;
-      }
-      if (ImGui::DragFloat("Thick Min", &mat.iridescenceThicknessMin, 1.0f, 10.0f, 1000.0f)) {
-        matChanged = true;
-      }
-      if (ImGui::DragFloat("Thick Max", &mat.iridescenceThicknessMax, 1.0f, 10.0f, 2000.0f)) {
-        matChanged = true;
-      }
-    }
-    if (ImGui::CollapsingHeader("Transmission / Volume")) {
-      if (ImGui::DragFloat("Transmission", &mat.transmission, 0.01f, 0.0f, 1.0f)) {
-        matChanged = true;
-      }
-      if (ImGui::DragFloat("Thickness", &mat.thickness, 0.01f, 0.0f, 10.0f)) {
-        matChanged = true;
-      }
-      if (ImGui::ColorEdit3("Attenuation", mat.attenuationColor)) {
-        matChanged = true;
-      }
-      if (ImGui::DragFloat("Atten Dist", &mat.attenuationDistance, 0.05f, 0.0f, 100.0f)) {
-        matChanged = true;
-      }
-      if (ImGui::DragFloat("Dispersion", &mat.dispersion, 0.005f, 0.0f, 1.0f)) {
-        matChanged = true;
-      }
-    }
-    if (matChanged) {
+    if (DrawMaterialScalars(mat)) {
       edits.PushMaterial(e->id, mat);
+    }
     }
     DrawMaterialSection(e);
   }
@@ -2022,7 +1931,118 @@ void EditorApp::DrawMeshSection(Entity* e) {
       }
     }
   }
+  DrawPartMaterials(e);
 }
+bool EditorApp::DrawMaterialScalars(MaterialData& mat) {
+  bool matChanged = false;
+    if (ImGui::ColorEdit3("Albedo", mat.albedo)) {
+      matChanged = true;
+    }
+    if (ImGui::DragFloat("Alpha", &mat.alpha, 0.01f, 0.0f, 1.0f)) {
+      matChanged = true;
+    }
+    if (ImGui::DragFloat("Metallic", &mat.metallic, 0.01f, 0.0f, 1.0f)) {
+      matChanged = true;
+    }
+    if (ImGui::DragFloat("Roughness", &mat.roughness, 0.01f, 0.0f, 1.0f)) {
+      matChanged = true;
+    }
+    if (ImGui::Checkbox("Unlit", &mat.unlit)) {
+      matChanged = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Double Sided", &mat.doubleSided)) {
+      matChanged = true;
+    }
+    int alphaMode = mat.alphaMode;
+    if (ImGui::Combo("Alpha Mode", &alphaMode, "Opaque\0Mask\0Blend\0")) {
+      mat.alphaMode = alphaMode < 0 ? 0 : (alphaMode > 2 ? 2 : alphaMode);
+      matChanged = true;
+    }
+    if (ImGui::DragFloat("Alpha Cutoff", &mat.alphaCutoff, 0.01f, 0.0f, 1.0f)) {
+      matChanged = true;
+    }
+    if (ImGui::CollapsingHeader("Emissive")) {
+      if (ImGui::ColorEdit3("Emissive Color", mat.emissive)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Emissive Strength", &mat.emissiveStrength, 0.05f, 0.0f, 16.0f)) {
+        matChanged = true;
+      }
+    }
+    if (ImGui::CollapsingHeader("Specular (IOR)")) {
+      if (ImGui::DragFloat("Specular IOR", &mat.ior, 0.01f, 1.0f, 3.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::Checkbox("Has Specular Ext", &mat.hasSpecular)) {
+        matChanged = true;
+      }
+      if (ImGui::ColorEdit3("Spec Color", mat.specularColor)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Spec Strength", &mat.specularStrength, 0.01f, 0.0f, 4.0f)) {
+        matChanged = true;
+      }
+    }
+    if (ImGui::CollapsingHeader("Clearcoat")) {
+      if (ImGui::DragFloat("Clearcoat Factor", &mat.clearcoat, 0.01f, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Clearcoat Roughness", &mat.clearcoatRoughness, 0.01f, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+    }
+    if (ImGui::CollapsingHeader("Sheen")) {
+      if (ImGui::ColorEdit3("Sheen Color", mat.sheenColor)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Sheen Roughness", &mat.sheenRoughness, 0.01f, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+    }
+    if (ImGui::CollapsingHeader("Anisotropy")) {
+      if (ImGui::DragFloat("Aniso Strength", &mat.anisotropy, 0.01f, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Aniso Rotation", &mat.anisotropyRotation, 0.01f, -3.15f, 3.15f)) {
+        matChanged = true;
+      }
+    }
+    if (ImGui::CollapsingHeader("Iridescence")) {
+      if (ImGui::DragFloat("Iridescence Factor", &mat.iridescence, 0.01f, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Iridescence IOR", &mat.iridescenceIor, 0.01f, 1.0f, 2.5f)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Thick Min", &mat.iridescenceThicknessMin, 1.0f, 10.0f, 1000.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Thick Max", &mat.iridescenceThicknessMax, 1.0f, 10.0f, 2000.0f)) {
+        matChanged = true;
+      }
+    }
+    if (ImGui::CollapsingHeader("Transmission / Volume")) {
+      if (ImGui::DragFloat("Transmission", &mat.transmission, 0.01f, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Thickness", &mat.thickness, 0.01f, 0.0f, 10.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::ColorEdit3("Attenuation", mat.attenuationColor)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Atten Dist", &mat.attenuationDistance, 0.05f, 0.0f, 100.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::DragFloat("Dispersion", &mat.dispersion, 0.005f, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+    }
+    if (matChanged) {
+  return matChanged;
+}
+
 void EditorApp::DrawMaterialSection(Entity* e) {
   if (e == nullptr || !e->hasMaterial) {
     return;
@@ -2044,6 +2064,104 @@ void EditorApp::DrawMaterialSection(Entity* e) {
   DrawMaterialSlot(e, "Iridescence Thick", 14);
   DrawMaterialSlot(e, "Transmission", 15);
   DrawMaterialSlot(e, "Thickness", 16);
+}
+void EditorApp::DrawPartMaterials(Entity* e) {
+  if (e == nullptr || !e->hasMesh || e->meshGuid.empty()) {
+    return;
+  }
+  const MeshRecord* rec = assets.GetByGuid(e->meshGuid);
+  if (rec == nullptr || !rec->loaded || rec->data.parts.empty()) {
+    return;
+  }
+  if (!ImGui::CollapsingHeader("Part Materials")) {
+    return;
+  }
+  for (size_t p = 0; p < rec->data.parts.size(); ++p) {
+    const MeshPartData& part = rec->data.parts[p];
+    ImGui::PushID(static_cast<int>(p));
+    std::string baseName = "mesh";
+    if (part.material < rec->data.materials.size()) {
+      baseName = rec->data.materials[part.material].name.empty() ? ("Material " + std::to_string(part.material)) : rec->data.materials[part.material].name;
+    }
+    MaterialData* ov = nullptr;
+    for (size_t k = 0; k < e->partMaterials.size(); ++k) {
+      if (e->partMaterials[k].part == static_cast<uint32_t>(p)) {
+        ov = &e->partMaterials[k].material;
+        break;
+      }
+    }
+    std::string head = "Part " + std::to_string(p) + " (base: " + baseName + (ov != nullptr ? ", override)" : ")");
+    if (e->hasMaterial && ov == nullptr) {
+      head = "Part " + std::to_string(p) + " (entity override)";
+    }
+    ImGui::Text("%s", head.c_str());
+    ImGui::SameLine();
+    if (ov != nullptr) {
+      if (ImGui::SmallButton("Clear##partoverride")) {
+        std::unique_ptr<Command> cmd(new RemovePartMaterialCmd(e->id, static_cast<uint32_t>(p)));
+        undo.Execute(std::move(cmd), scene);
+        ImGui::PopID();
+        continue;
+      }
+      MaterialData* live = nullptr;
+      for (size_t k = 0; k < e->partMaterials.size(); ++k) {
+        if (e->partMaterials[k].part == static_cast<uint32_t>(p)) {
+          live = &e->partMaterials[k].material;
+          break;
+        }
+      }
+      if (live == nullptr) {
+        ImGui::PopID();
+        continue;
+      }
+      MaterialData mat = *live;
+      if (DrawMaterialScalars(mat)) {
+        edits.PushPartMaterial(e->id, static_cast<uint32_t>(p), mat);
+      }
+      DrawMaterialSlotFor(e, "Albedo", 0, true, static_cast<uint32_t>(p));
+      DrawMaterialSlotFor(e, "Normal", 1, true, static_cast<uint32_t>(p));
+      DrawMaterialSlotFor(e, "ORM", 2, true, static_cast<uint32_t>(p));
+      DrawMaterialSlotFor(e, "Height", 3, true, static_cast<uint32_t>(p));
+      DrawMaterialSlotFor(e, "Emissive", 4, true, static_cast<uint32_t>(p));
+      DrawMaterialSlotFor(e, "Specular", 5, true, static_cast<uint32_t>(p));
+      DrawMaterialSlotFor(e, "Spec Color", 6, true, static_cast<uint32_t>(p));
+      DrawMaterialSlotFor(e, "Clearcoat", 7, true, static_cast<uint32_t>(p));
+      DrawMaterialSlotFor(e, "Clearcoat Rough", 8, true, static_cast<uint32_t>(p));
+      DrawMaterialSlotFor(e, "Clearcoat Normal", 9, true, static_cast<uint32_t>(p));
+      DrawMaterialSlotFor(e, "Sheen Color", 10, true, static_cast<uint32_t>(p));
+      DrawMaterialSlotFor(e, "Sheen Rough", 11, true, static_cast<uint32_t>(p));
+      DrawMaterialSlotFor(e, "Anisotropy", 12, true, static_cast<uint32_t>(p));
+      DrawMaterialSlotFor(e, "Iridescence", 13, true, static_cast<uint32_t>(p));
+      DrawMaterialSlotFor(e, "Iridescence Thick", 14, true, static_cast<uint32_t>(p));
+      DrawMaterialSlotFor(e, "Transmission", 15, true, static_cast<uint32_t>(p));
+      DrawMaterialSlotFor(e, "Thickness", 16, true, static_cast<uint32_t>(p));
+    } else {
+      std::string btn = "Override##part" + std::to_string(p);
+      if (ImGui::SmallButton(btn.c_str())) {
+        MaterialData initial;
+        if (e->hasMaterial) {
+          initial = e->material;
+        } else if (part.material < rec->data.materials.size()) {
+          uint32_t matIdx = part.material;
+          if (e->variantIndex >= 0) {
+            for (size_t vi = 0; vi < rec->data.variantAssigns.size(); ++vi) {
+              const MeshVariantAssign& va = rec->data.variantAssigns[vi];
+              if (va.part == static_cast<uint32_t>(p) && static_cast<int>(va.variant) == e->variantIndex && va.material < rec->data.materials.size()) {
+                matIdx = va.material;
+                break;
+              }
+            }
+          }
+          MaterialDataFromMesh(rec->data.materials[matIdx], initial);
+        } else {
+          MakeDefaultMaterial(initial);
+        }
+        std::unique_ptr<Command> cmd(new AddPartMaterialCmd(e->id, static_cast<uint32_t>(p), initial));
+        undo.Execute(std::move(cmd), scene);
+      }
+    }
+    ImGui::PopID();
+  }
 }
 void EditorApp::DrawDecalSection(Entity* e) {
   if (e == nullptr || !e->hasDecal) {
@@ -2089,50 +2207,79 @@ void EditorApp::DrawDecalSection(Entity* e) {
     }
   }
 }
+static std::string* SlotPtr(MaterialData& m, int slot) {
+  if (slot == 0) {
+    return &m.albedoTex;
+  } else if (slot == 1) {
+    return &m.normalTex;
+  } else if (slot == 2) {
+    return &m.ormTex;
+  } else if (slot == 3) {
+    return &m.heightTex;
+  } else if (slot == 4) {
+    return &m.emissiveTex;
+  } else if (slot == 5) {
+    return &m.specularTex;
+  } else if (slot == 6) {
+    return &m.specularColorTex;
+  } else if (slot == 7) {
+    return &m.clearcoatTex;
+  } else if (slot == 8) {
+    return &m.clearcoatRoughnessTex;
+  } else if (slot == 9) {
+    return &m.clearcoatNormalTex;
+  } else if (slot == 10) {
+    return &m.sheenColorTex;
+  } else if (slot == 11) {
+    return &m.sheenRoughnessTex;
+  } else if (slot == 12) {
+    return &m.anisotropyTex;
+  } else if (slot == 13) {
+    return &m.iridescenceTex;
+  } else if (slot == 14) {
+    return &m.iridescenceThicknessTex;
+  } else if (slot == 15) {
+    return &m.transmissionTex;
+  } else if (slot == 16) {
+    return &m.thicknessTex;
+  }
+  return nullptr;
+}
 void EditorApp::DrawMaterialSlot(Entity* e, const char* label, int slot) {
-  if (e == nullptr || label == nullptr || slot < 0 || slot > 16) {
+  if (e == nullptr) {
     return;
   }
-  std::string* cur = &e->material.albedoTex;
-  if (slot == 1) {
-    cur = &e->material.normalTex;
-  } else if (slot == 2) {
-    cur = &e->material.ormTex;
-  } else if (slot == 3) {
-    cur = &e->material.heightTex;
-  } else if (slot == 4) {
-    cur = &e->material.emissiveTex;
-  } else if (slot == 5) {
-    cur = &e->material.specularTex;
-  } else if (slot == 6) {
-    cur = &e->material.specularColorTex;
-  } else if (slot == 7) {
-    cur = &e->material.clearcoatTex;
-  } else if (slot == 8) {
-    cur = &e->material.clearcoatRoughnessTex;
-  } else if (slot == 9) {
-    cur = &e->material.clearcoatNormalTex;
-  } else if (slot == 10) {
-    cur = &e->material.sheenColorTex;
-  } else if (slot == 11) {
-    cur = &e->material.sheenRoughnessTex;
-  } else if (slot == 12) {
-    cur = &e->material.anisotropyTex;
-  } else if (slot == 13) {
-    cur = &e->material.iridescenceTex;
-  } else if (slot == 14) {
-    cur = &e->material.iridescenceThicknessTex;
-  } else if (slot == 15) {
-    cur = &e->material.transmissionTex;
-  } else if (slot == 16) {
-    cur = &e->material.thicknessTex;
+  DrawMaterialSlotFor(e, label, slot, false, 0);
+}
+void EditorApp::DrawMaterialSlotFor(Entity* e, const char* label, int slot, bool isPart, uint32_t part) {
+  if (e == nullptr || label == nullptr) {
+    return;
+  }
+  MaterialData* live = &e->material;
+  if (isPart) {
+    live = nullptr;
+    for (size_t k = 0; k < e->partMaterials.size(); ++k) {
+      if (e->partMaterials[k].part == part) {
+        live = &e->partMaterials[k].material;
+        break;
+      }
+    }
+    if (live == nullptr) {
+      return;
+    }
+  } else if (!e->hasMaterial) {
+    return;
+  }
+  std::string* curPtr = SlotPtr(*live, slot);
+  if (curPtr == nullptr) {
+    return;
   }
   ImGui::Text("%s:", label);
   ImGui::SameLine();
-  if (cur->empty()) {
+  if (curPtr->empty()) {
     ImGui::TextDisabled("(none)");
   } else {
-    const TextureRecord* tr = assets.GetTexByGuid(*cur);
+    const TextureRecord* tr = assets.GetTexByGuid(*curPtr);
     if (tr == nullptr) {
       ImGui::TextDisabled("(missing)");
     } else {
@@ -2146,49 +2293,27 @@ void EditorApp::DrawMaterialSlot(Entity* e, const char* label, int slot) {
       std::string guid(static_cast<const char*>(payload->Data));
       if (assets.GetTexByGuid(guid) == nullptr) {
         Announce(LogLevel::Warning, "Dropped texture not found");
-      } else if (guid != *cur) {
+      } else if (guid != *curPtr) {
         if ((slot == 1 || slot == 2) && !assets.EnsureTextureKind(guid, slot == 1 ? TexKind::Normal : TexKind::Orm)) {
           Announce(LogLevel::Warning, "Texture has no source; assigned without conversion");
         }
-        MaterialData after = e->material;
-        std::string* dst = &after.albedoTex;
-        if (slot == 1) {
-          dst = &after.normalTex;
-        } else if (slot == 2) {
-          dst = &after.ormTex;
-        } else if (slot == 3) {
-          dst = &after.heightTex;
-        } else if (slot == 4) {
-          dst = &after.emissiveTex;
-        } else if (slot == 5) {
-          dst = &after.specularTex;
-        } else if (slot == 6) {
-          dst = &after.specularColorTex;
-        } else if (slot == 7) {
-          dst = &after.clearcoatTex;
-        } else if (slot == 8) {
-          dst = &after.clearcoatRoughnessTex;
-        } else if (slot == 9) {
-          dst = &after.clearcoatNormalTex;
-        } else if (slot == 10) {
-          dst = &after.sheenColorTex;
-        } else if (slot == 11) {
-          dst = &after.sheenRoughnessTex;
-        } else if (slot == 12) {
-          dst = &after.anisotropyTex;
-        } else if (slot == 13) {
-          dst = &after.iridescenceTex;
-        } else if (slot == 14) {
-          dst = &after.iridescenceThicknessTex;
-        } else if (slot == 15) {
-          dst = &after.transmissionTex;
-        } else if (slot == 16) {
-          dst = &after.thicknessTex;
+        MaterialData after = *live;
+        std::string* dst = SlotPtr(after, slot);
+        if (dst == nullptr) {
+          ImGui::EndDragDropTarget();
+          return;
         }
         *dst = guid;
-        std::unique_ptr<Command> cmd(new SetMaterialCmd(e->id, e->material, after));
-        if (undo.Execute(std::move(cmd), scene)) {
-          log.Add(LogLevel::Info, "Material texture assigned");
+        if (isPart) {
+          std::unique_ptr<Command> cmd(new SetPartMaterialCmd(e->id, part, *live, after));
+          if (undo.Execute(std::move(cmd), scene)) {
+            log.Add(LogLevel::Info, "Part material texture assigned");
+          }
+        } else {
+          std::unique_ptr<Command> cmd(new SetMaterialCmd(e->id, *live, after));
+          if (undo.Execute(std::move(cmd), scene)) {
+            log.Add(LogLevel::Info, "Material texture assigned");
+          }
         }
       }
     }
@@ -2197,45 +2322,20 @@ void EditorApp::DrawMaterialSlot(Entity* e, const char* label, int slot) {
   ImGui::SameLine();
   std::string clearLabel = std::string("Clear##") + label;
   if (ImGui::SmallButton(clearLabel.c_str())) {
-    if (!cur->empty()) {
-      MaterialData after = e->material;
-      std::string* dst = &after.albedoTex;
-      if (slot == 1) {
-        dst = &after.normalTex;
-      } else if (slot == 2) {
-        dst = &after.ormTex;
-      } else if (slot == 3) {
-        dst = &after.heightTex;
-      } else if (slot == 4) {
-        dst = &after.emissiveTex;
-      } else if (slot == 5) {
-        dst = &after.specularTex;
-      } else if (slot == 6) {
-        dst = &after.specularColorTex;
-      } else if (slot == 7) {
-        dst = &after.clearcoatTex;
-      } else if (slot == 8) {
-        dst = &after.clearcoatRoughnessTex;
-      } else if (slot == 9) {
-        dst = &after.clearcoatNormalTex;
-      } else if (slot == 10) {
-        dst = &after.sheenColorTex;
-      } else if (slot == 11) {
-        dst = &after.sheenRoughnessTex;
-      } else if (slot == 12) {
-        dst = &after.anisotropyTex;
-      } else if (slot == 13) {
-        dst = &after.iridescenceTex;
-      } else if (slot == 14) {
-        dst = &after.iridescenceThicknessTex;
-      } else if (slot == 15) {
-        dst = &after.transmissionTex;
-      } else if (slot == 16) {
-        dst = &after.thicknessTex;
+    if (!curPtr->empty()) {
+      MaterialData after = *live;
+      std::string* dst = SlotPtr(after, slot);
+      if (dst == nullptr) {
+        return;
       }
       dst->clear();
-      std::unique_ptr<Command> cmd(new SetMaterialCmd(e->id, e->material, after));
-      undo.Execute(std::move(cmd), scene);
+      if (isPart) {
+        std::unique_ptr<Command> cmd(new SetPartMaterialCmd(e->id, part, *live, after));
+        undo.Execute(std::move(cmd), scene);
+      } else {
+        std::unique_ptr<Command> cmd(new SetMaterialCmd(e->id, *live, after));
+        undo.Execute(std::move(cmd), scene);
+      }
     }
   }
 }

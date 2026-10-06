@@ -113,6 +113,10 @@ struct ProbeData {
   float size[3];
   float intensity;
 };
+struct PartMaterial {
+  uint32_t part;
+  MaterialData material;
+};
 struct Entity {
   EntityId id;
   std::string name;
@@ -124,6 +128,7 @@ struct Entity {
   MaterialData material;
   bool hasMaterial;
   int variantIndex = -1;
+  std::vector<PartMaterial> partMaterials;
   DecalData decal;
   bool hasDecal;
   LodData lod;

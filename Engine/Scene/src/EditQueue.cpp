@@ -29,6 +29,16 @@ void EditQueue::PushMaterial(EntityId target, const MaterialData& value) {
   e.value = value;
   materialEdits.push_back(e);
 }
+void EditQueue::PushPartMaterial(EntityId target, uint32_t part, const MaterialData& value) {
+  if (!target.IsValid()) {
+    return;
+  }
+  PartMaterialEdit e;
+  e.target = target;
+  e.part = part;
+  e.value = value;
+  partMaterialEdits.push_back(e);
+}
 void EditQueue::PushDecal(EntityId target, const DecalData& value) {
   if (!target.IsValid()) {
     return;
@@ -110,7 +120,7 @@ bool ProbeEqual(const ProbeData& a, const ProbeData& b) {
   return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.intensity == b.intensity;
 }
 size_t EditQueue::Pending() const {
-  return edits.size() + lightEdits.size() + materialEdits.size() + decalEdits.size() + lodEdits.size() + lightmapEdits.size() + probeEdits.size();
+  return edits.size() + lightEdits.size() + materialEdits.size() + partMaterialEdits.size() + decalEdits.size() + lodEdits.size() + lightmapEdits.size() + probeEdits.size();
 }
 size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
   size_t applied = 0;
@@ -186,6 +196,40 @@ size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
     }
   }
   materialEdits.clear();
+  for (size_t i = 0; i < partMaterialEdits.size(); ++i) {
+    bool last = true;
+    for (size_t j = i + 1; j < partMaterialEdits.size(); ++j) {
+      if (partMaterialEdits[j].target == partMaterialEdits[i].target && partMaterialEdits[j].part == partMaterialEdits[i].part) {
+        last = false;
+        break;
+      }
+    }
+    if (!last) {
+      continue;
+    }
+    Entity* e = scene.Get(partMaterialEdits[i].target);
+    if (e == nullptr) {
+      continue;
+    }
+    const MaterialData* cur = nullptr;
+    for (size_t k = 0; k < e->partMaterials.size(); ++k) {
+      if (e->partMaterials[k].part == partMaterialEdits[i].part) {
+        cur = &e->partMaterials[k].material;
+        break;
+      }
+    }
+    if (cur == nullptr) {
+      continue;
+    }
+    if (MaterialEqual(*cur, partMaterialEdits[i].value)) {
+      continue;
+    }
+    std::unique_ptr<Command> cmd(new SetPartMaterialCmd(partMaterialEdits[i].target, partMaterialEdits[i].part, *cur, partMaterialEdits[i].value));
+    if (undo.Execute(std::move(cmd), scene)) {
+      ++applied;
+    }
+  }
+  partMaterialEdits.clear();
   for (size_t i = 0; i < decalEdits.size(); ++i) {
     bool last = true;
     for (size_t j = i + 1; j < decalEdits.size(); ++j) {
@@ -288,6 +332,7 @@ void EditQueue::Clear() {
   edits.clear();
   lightEdits.clear();
   materialEdits.clear();
+  partMaterialEdits.clear();
   decalEdits.clear();
   lodEdits.clear();
   lightmapEdits.clear();

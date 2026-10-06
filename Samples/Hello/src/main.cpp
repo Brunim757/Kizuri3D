@@ -1217,6 +1217,100 @@ bool TestSceneMaterialExt() {
   }
   return true;
 }
+bool TestPartMaterial() {
+  Kizuri::Scene src;
+  Kizuri::UndoStack undo;
+  Kizuri::Transform t;
+  Kizuri::MakeIdentityTransform(t);
+  Kizuri::EntityId eid;
+  {
+    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::CreateEntityCmd("Parts", t, Kizuri::EntityId::Invalid()));
+    size_t before = src.All().size();
+    if (!undo.Execute(std::move(cmd), src) || src.All().size() != before + 1) {
+      return false;
+    }
+    eid = src.All().back();
+  }
+  {
+    Kizuri::MaterialData initial;
+    Kizuri::MakeDefaultMaterial(initial);
+    initial.albedo[0] = 0.2f;
+    initial.ormTex = "orm-0";
+    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::AddPartMaterialCmd(eid, 1, initial));
+    if (!undo.Execute(std::move(cmd), src)) {
+      return false;
+    }
+  }
+  {
+    const Kizuri::Entity* e = src.Get(eid);
+    if (e == nullptr || e->partMaterials.size() != 1 || e->partMaterials[0].part != 1) {
+      return false;
+    }
+    Kizuri::MaterialData after = e->partMaterials[0].material;
+    after.metallic = 0.7f;
+    after.alphaMode = 1;
+    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::SetPartMaterialCmd(eid, 1, e->partMaterials[0].material, after));
+    if (!undo.Execute(std::move(cmd), src)) {
+      return false;
+    }
+  }
+  if (!undo.Undo(src)) {
+    return false;
+  }
+  {
+    const Kizuri::Entity* e = src.Get(eid);
+    if (e == nullptr || e->partMaterials.size() != 1 || e->partMaterials[0].material.metallic != 0.0f) {
+      return false;
+    }
+  }
+  if (!undo.Redo(src)) {
+    return false;
+  }
+  const char* path = "test_partmat_tmp.kzscene";
+  std::remove(path);
+  if (!Kizuri::SaveSceneToFile(src, path)) {
+    return false;
+  }
+  Kizuri::Scene dst;
+  if (!Kizuri::LoadSceneFromFile(dst, path, nullptr)) {
+    std::remove(path);
+    return false;
+  }
+  std::remove(path);
+  if (dst.Count() != 1) {
+    return false;
+  }
+  const Kizuri::Entity* e = dst.Get(dst.All()[0]);
+  if (e == nullptr || e->partMaterials.size() != 1) {
+    return false;
+  }
+  const Kizuri::PartMaterial& pm = e->partMaterials[0];
+  if (pm.part != 1 || pm.material.albedo[0] != 0.2f || pm.material.metallic != 0.7f || pm.material.alphaMode != 1 || pm.material.ormTex != "orm-0") {
+    return false;
+  }
+  {
+    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::RemovePartMaterialCmd(eid, 1));
+    if (!undo.Execute(std::move(cmd), src)) {
+      return false;
+    }
+  }
+  {
+    const Kizuri::Entity* e2 = src.Get(eid);
+    if (e2 == nullptr || !e2->partMaterials.empty()) {
+      return false;
+    }
+  }
+  if (!undo.Undo(src)) {
+    return false;
+  }
+  {
+    const Kizuri::Entity* e2 = src.Get(eid);
+    if (e2 == nullptr || e2->partMaterials.size() != 1) {
+      return false;
+    }
+  }
+  return true;
+}
 bool TestSceneInvalid() {
   Kizuri::Scene scene;
   if (Kizuri::LoadSceneFromFile(scene, "no_such_file_xyz.kzscene", nullptr)) {
@@ -5242,6 +5336,7 @@ int main() {
   failures += Check("Picking", TestPicking());
   failures += Check("Scene-RoundTrip", TestSceneRoundTrip());
   failures += Check("Scene-MaterialExt", TestSceneMaterialExt());
+  failures += Check("Part-Material", TestPartMaterial());
   failures += Check("Scene-InvalidFile", TestSceneInvalid());
   failures += Check("Undo-Create", TestUndoCreate());
   failures += Check("Undo-Delete", TestUndoDelete());

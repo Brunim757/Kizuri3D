@@ -181,6 +181,41 @@ private:
   int before;
   int after;
 };
+class SetPartMaterialCmd : public Command {
+public:
+  SetPartMaterialCmd(EntityId target, uint32_t part, const MaterialData& before, const MaterialData& after);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  uint32_t part;
+  MaterialData before;
+  MaterialData after;
+};
+class AddPartMaterialCmd : public Command {
+public:
+  AddPartMaterialCmd(EntityId target, uint32_t part, const MaterialData& initial);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  uint32_t part;
+  MaterialData initial;
+};
+class RemovePartMaterialCmd : public Command {
+public:
+  RemovePartMaterialCmd(EntityId target, uint32_t part);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  uint32_t part;
+  MaterialData prevMaterial;
+  bool hadIt;
+};
 class AddMaterialCmd : public Command {
 public:
   explicit AddMaterialCmd(EntityId target);

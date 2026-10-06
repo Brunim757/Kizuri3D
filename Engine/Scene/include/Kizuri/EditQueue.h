@@ -15,6 +15,11 @@ struct MaterialEdit {
   EntityId target;
   MaterialData value;
 };
+struct PartMaterialEdit {
+  EntityId target;
+  uint32_t part;
+  MaterialData value;
+};
 struct DecalEdit {
   EntityId target;
   DecalData value;
@@ -36,6 +41,7 @@ public:
   void PushTransform(EntityId target, const Transform& value);
   void PushLight(EntityId target, const LightData& value);
   void PushMaterial(EntityId target, const MaterialData& value);
+  void PushPartMaterial(EntityId target, uint32_t part, const MaterialData& value);
   void PushDecal(EntityId target, const DecalData& value);
   void PushLod(EntityId target, const LodData& value);
   void PushLightmap(EntityId target, const LightmapData& value);
@@ -47,6 +53,7 @@ private:
   std::vector<TransformEdit> edits;
   std::vector<LightEdit> lightEdits;
   std::vector<MaterialEdit> materialEdits;
+  std::vector<PartMaterialEdit> partMaterialEdits;
   std::vector<DecalEdit> decalEdits;
   std::vector<LodEdit> lodEdits;
   std::vector<LightmapEdit> lightmapEdits;

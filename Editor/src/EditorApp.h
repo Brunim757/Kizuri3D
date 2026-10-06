@@ -142,6 +142,9 @@ struct EditorApp {
   void BakeProbes();
   void DrawMaterialSection(Entity* e);
   void DrawMaterialSlot(Entity* e, const char* label, int slot);
+  void DrawMaterialSlotFor(Entity* e, const char* label, int slot, bool isPart, uint32_t part);
+  bool DrawMaterialScalars(MaterialData& mat);
+  void DrawPartMaterials(Entity* e);
   void DrawDecalSection(Entity* e);
   void DrawLightGizmo();
   std::string ResolveAssetsDir();
