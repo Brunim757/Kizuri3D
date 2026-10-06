@@ -150,7 +150,11 @@ PSOut main(PSIn pin)
     float3 emi = ExtE.rgb * ExtA.x;
     if ((flags & 32u) != 0u) {
         float2 euv = XformUv(pin.uv, pin.uv2, 4);
-        emi += EmissiveTex.Sample(GeoSamp, euv).rgb * ExtA.x;
+        float3 emiFactor = ExtE.rgb;
+        if (dot(emiFactor, float3(1.0, 1.0, 1.0)) <= 0.0) {
+            emiFactor = float3(1.0, 1.0, 1.0);
+        }
+        emi = EmissiveTex.Sample(GeoSamp, euv).rgb * emiFactor * ExtA.x;
     }
     float iorSafe = max(ExtA.y, 1.01);
     float f0d = (iorSafe - 1.0) / (iorSafe + 1.0);

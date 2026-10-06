@@ -187,7 +187,11 @@ float4 main(PSIn pin) : SV_Target
     float3 F0 = float3(f0d, f0d, f0d);
     float3 emi = ExtE.rgb * ExtA.x;
     if ((flags & 32u) != 0u) {
-        emi += EmissiveTex.Sample(GeoSamp, XformUv(pin.uv, pin.uv2, 4)).rgb * ExtA.x;
+        float3 emiFactor = ExtE.rgb;
+        if (dot(emiFactor, float3(1.0, 1.0, 1.0)) <= 0.0) {
+            emiFactor = float3(1.0, 1.0, 1.0);
+        }
+        emi = EmissiveTex.Sample(GeoSamp, XformUv(pin.uv, pin.uv2, 4)).rgb * emiFactor * ExtA.x;
     }
     float3 V = normalize(CamPos.xyz - pin.wpos);
     float3 Lsun = normalize(-LightDir.xyz);
