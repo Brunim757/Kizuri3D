@@ -1180,6 +1180,41 @@ bool TestSceneMaterialExt() {
   if (eu == nullptr || eu->variantIndex != 2) {
     return false;
   }
+  Kizuri::EntityId eid2;
+  {
+    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::CreateEntityCmd("Mat2", t, Kizuri::EntityId::Invalid()));
+    size_t before = src.All().size();
+    if (!undo.Execute(std::move(cmd), src) || src.All().size() != before + 1) {
+      return false;
+    }
+    eid2 = src.All().back();
+  }
+  {
+    Kizuri::MaterialData initial;
+    Kizuri::MakeDefaultMaterial(initial);
+    initial.alphaMode = 1;
+    initial.alphaCutoff = 0.4f;
+    initial.unlit = true;
+    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::AddMaterialCmd(eid2, initial));
+    if (!undo.Execute(std::move(cmd), src)) {
+      return false;
+    }
+  }
+  {
+    const Kizuri::Entity* e2 = src.Get(eid2);
+    if (e2 == nullptr || !e2->hasMaterial || e2->material.alphaMode != 1 || e2->material.alphaCutoff != 0.4f || !e2->material.unlit) {
+      return false;
+    }
+  }
+  if (!undo.Undo(src)) {
+    return false;
+  }
+  {
+    const Kizuri::Entity* e2 = src.Get(eid2);
+    if (e2 == nullptr || e2->hasMaterial) {
+      return false;
+    }
+  }
   return true;
 }
 bool TestSceneInvalid() {
