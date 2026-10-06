@@ -1745,6 +1745,10 @@ void EditorApp::DrawInspector() {
               mi = rec->data.parts[0].material;
             }
             MaterialDataFromMesh(rec->data.materials[mi], initial);
+            if (rec->data.materials.size() > 1) {
+              std::string mname = rec->data.materials[mi].name.empty() ? ("Material " + std::to_string(mi)) : rec->data.materials[mi].name;
+              Announce(LogLevel::Warning, "Mesh has " + std::to_string(rec->data.materials.size()) + " materials; override pre-filled from '" + mname + "' and applies to all parts");
+            }
           }
         }
         std::unique_ptr<Command> cmd(new AddMaterialCmd(e->id, initial));
