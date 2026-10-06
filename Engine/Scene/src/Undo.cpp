@@ -442,6 +442,15 @@ const char* SetVariantCmd::Name() const {
 }
 AddMaterialCmd::AddMaterialCmd(EntityId t)
   : target(t)
+  , useInitial(false)
+  , prevHas(false) {
+  MakeDefaultMaterial(prevMaterial);
+  MakeDefaultMaterial(initialMaterial);
+}
+AddMaterialCmd::AddMaterialCmd(EntityId t, const MaterialData& initial)
+  : target(t)
+  , initialMaterial(initial)
+  , useInitial(true)
   , prevHas(false) {
   MakeDefaultMaterial(prevMaterial);
 }
@@ -453,7 +462,11 @@ bool AddMaterialCmd::Apply(Scene& scene) {
   prevMaterial = e->material;
   prevHas = e->hasMaterial;
   e->hasMaterial = true;
-  MakeDefaultMaterial(e->material);
+  if (useInitial) {
+    e->material = initialMaterial;
+  } else {
+    MakeDefaultMaterial(e->material);
+  }
   scene.MarkDirty();
   return true;
 }

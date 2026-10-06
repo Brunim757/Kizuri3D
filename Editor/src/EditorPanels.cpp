@@ -30,6 +30,72 @@ uint32_t ResolveMaterialSlot(AssetDatabase& assets, const std::string& guid, uin
   out = tr->gpu;
   return bit;
 }
+void MaterialDataFromMesh(const MeshMaterialData& mm, MaterialData& m) {
+  m.albedo[0] = mm.albedo[0];
+  m.albedo[1] = mm.albedo[1];
+  m.albedo[2] = mm.albedo[2];
+  m.alpha = mm.alpha;
+  m.metallic = mm.metallic;
+  m.roughness = mm.roughness;
+  m.albedoTex = mm.albedoTexGuid;
+  m.normalTex = mm.normalTexGuid;
+  m.ormTex = mm.ormTexGuid;
+  m.heightTex = mm.heightTexGuid;
+  m.emissive[0] = mm.emissive[0];
+  m.emissive[1] = mm.emissive[1];
+  m.emissive[2] = mm.emissive[2];
+  m.emissiveStrength = mm.emissiveStrength;
+  m.emissiveTex = mm.emissiveTexGuid;
+  m.unlit = mm.unlit;
+  m.doubleSided = mm.doubleSided;
+  m.alphaMode = mm.alphaMode;
+  m.alphaCutoff = mm.alphaCutoff;
+  for (int s = 0; s < 5; ++s) {
+    m.xforms[s].offsetU = mm.xforms[s].offsetU;
+    m.xforms[s].offsetV = mm.xforms[s].offsetV;
+    m.xforms[s].scaleU = mm.xforms[s].scaleU;
+    m.xforms[s].scaleV = mm.xforms[s].scaleV;
+    m.xforms[s].rotation = mm.xforms[s].rotation;
+    m.xforms[s].uvSet = mm.xforms[s].uvSet;
+  }
+  m.ior = mm.ior;
+  m.hasSpecular = mm.hasSpecular;
+  m.specularColor[0] = mm.specularColor[0];
+  m.specularColor[1] = mm.specularColor[1];
+  m.specularColor[2] = mm.specularColor[2];
+  m.specularStrength = mm.specularStrength;
+  m.specularTex = mm.specularTexGuid;
+  m.specularColorTex = mm.specularColorTexGuid;
+  m.clearcoat = mm.clearcoat;
+  m.clearcoatRoughness = mm.clearcoatRoughness;
+  m.clearcoatTex = mm.clearcoatTexGuid;
+  m.clearcoatRoughnessTex = mm.clearcoatRoughnessTexGuid;
+  m.clearcoatNormalTex = mm.clearcoatNormalTexGuid;
+  m.sheenColor[0] = mm.sheenColor[0];
+  m.sheenColor[1] = mm.sheenColor[1];
+  m.sheenColor[2] = mm.sheenColor[2];
+  m.sheenRoughness = mm.sheenRoughness;
+  m.sheenColorTex = mm.sheenColorTexGuid;
+  m.sheenRoughnessTex = mm.sheenRoughnessTexGuid;
+  m.anisotropy = mm.anisotropy;
+  m.anisotropyRotation = mm.anisotropyRotation;
+  m.anisotropyTex = mm.anisotropyTexGuid;
+  m.iridescence = mm.iridescence;
+  m.iridescenceIor = mm.iridescenceIor;
+  m.iridescenceThicknessMin = mm.iridescenceThicknessMin;
+  m.iridescenceThicknessMax = mm.iridescenceThicknessMax;
+  m.iridescenceTex = mm.iridescenceTexGuid;
+  m.iridescenceThicknessTex = mm.iridescenceThicknessTexGuid;
+  m.transmission = mm.transmission;
+  m.transmissionTex = mm.transmissionTexGuid;
+  m.thickness = mm.thickness;
+  m.thicknessTex = mm.thicknessTexGuid;
+  m.attenuationColor[0] = mm.attenuationColor[0];
+  m.attenuationColor[1] = mm.attenuationColor[1];
+  m.attenuationColor[2] = mm.attenuationColor[2];
+  m.attenuationDistance = mm.attenuationDistance;
+  m.dispersion = mm.dispersion;
+}
 void FillDeferredFromEntity(AssetDatabase& assets, const MaterialData& m, DeferredMaterial& partMat) {
   partMat.albedo[0] = m.albedo[0];
   partMat.albedo[1] = m.albedo[1];
@@ -1669,7 +1735,19 @@ void EditorApp::DrawInspector() {
         undo.Execute(std::move(cmd), scene);
       }
       if (!e->hasMaterial && ImGui::MenuItem("Material")) {
-        std::unique_ptr<Command> cmd(new AddMaterialCmd(e->id));
+        MaterialData initial;
+        MakeDefaultMaterial(initial);
+        if (e->hasMesh && !e->meshGuid.empty()) {
+          const MeshRecord* rec = assets.GetByGuid(e->meshGuid);
+          if (rec != nullptr && rec->loaded && !rec->data.materials.empty()) {
+            size_t mi = 0;
+            if (!rec->data.parts.empty() && rec->data.parts[0].material < rec->data.materials.size()) {
+              mi = rec->data.parts[0].material;
+            }
+            MaterialDataFromMesh(rec->data.materials[mi], initial);
+          }
+        }
+        std::unique_ptr<Command> cmd(new AddMaterialCmd(e->id, initial));
         undo.Execute(std::move(cmd), scene);
       }
       if (!e->hasDecal && ImGui::MenuItem("Decal")) {

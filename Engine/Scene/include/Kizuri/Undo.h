@@ -184,12 +184,15 @@ private:
 class AddMaterialCmd : public Command {
 public:
   explicit AddMaterialCmd(EntityId target);
+  AddMaterialCmd(EntityId target, const MaterialData& initial);
   bool Apply(Scene& scene) override;
   bool Revert(Scene& scene) override;
   const char* Name() const override;
 private:
   EntityId target;
   MaterialData prevMaterial;
+  MaterialData initialMaterial;
+  bool useInitial;
   bool prevHas;
 };
 class RemoveMaterialCmd : public Command {
