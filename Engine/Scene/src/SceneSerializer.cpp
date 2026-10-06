@@ -223,6 +223,7 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
     MaterialData material;
     bool hasMaterial;
     int variantIndex;
+    std::vector<PartMaterial> partMaterials;
     DecalData decal;
     bool hasDecal;
     LodData lod;
@@ -754,6 +755,7 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       createdEntity->material = pending[i].material;
       createdEntity->hasMaterial = pending[i].hasMaterial;
       createdEntity->variantIndex = pending[i].variantIndex;
+      createdEntity->partMaterials = pending[i].partMaterials;
       createdEntity->decal = pending[i].decal;
       createdEntity->hasDecal = pending[i].hasDecal;
       createdEntity->lod = pending[i].lod;
