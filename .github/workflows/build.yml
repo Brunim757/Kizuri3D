@@ -13,7 +13,7 @@ jobs:
       - name: Validate shaders
         shell: pwsh
         run: |
-          $fxc = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter fxc.exe | Select-Object -First 1 -ExpandProperty FullName
+          $fxc = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter fxc.exe | Where-Object { $_.FullName -match "\\x64\\" } | Select-Object -First 1 -ExpandProperty FullName
           if (-not $fxc) { throw "fxc not found" }
           $failed = $false
           Get-ChildItem "Shaders/*.hlsl" -Exclude "Fsr*" | ForEach-Object {
