@@ -1182,6 +1182,7 @@ bool TestSceneMaterialExt() {
   }
   return true;
 }
+bool TestSceneInvalid() {
   Kizuri::Scene scene;
   if (Kizuri::LoadSceneFromFile(scene, "no_such_file_xyz.kzscene", nullptr)) {
     return false;
