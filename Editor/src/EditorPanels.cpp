@@ -1805,6 +1805,13 @@ void EditorApp::DrawMeshSection(Entity* e) {
           ImGui::Text("%s", mlabel.c_str());
           ImGui::SameLine();
           ImGui::TextDisabled("(%.2g, %.2g, %.2g)", mm.albedo[0], mm.albedo[1], mm.albedo[2]);
+          if (mm.unlit) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("[unlit]");
+          }
+          if (mm.emissive[0] > 0.0f || mm.emissive[1] > 0.0f || mm.emissive[2] > 0.0f) {
+            ImGui::BulletText("Emissive factor: (%.2g, %.2g, %.2g) x%.2g%s", mm.emissive[0], mm.emissive[1], mm.emissive[2], mm.emissiveStrength, mm.emissiveTexGuid.empty() ? " (no texture: glows flat)" : "");
+          }
           const char* slotNames[5] = { "Albedo", "Normal", "ORM", "Height", "Emissive" };
           const std::string* slotGuids[5] = { &mm.albedoTexGuid, &mm.normalTexGuid, &mm.ormTexGuid, &mm.heightTexGuid, &mm.emissiveTexGuid };
           for (int s = 0; s < 5; ++s) {
