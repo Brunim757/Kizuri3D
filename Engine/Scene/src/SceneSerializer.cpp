@@ -217,6 +217,7 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
     bool hasLight;
     MaterialData material;
     bool hasMaterial;
+    int variantIndex;
     DecalData decal;
     bool hasDecal;
     LodData lod;
@@ -249,6 +250,7 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       pe.hasMesh = false;
       pe.hasLight = false;
       pe.hasMaterial = false;
+      pe.variantIndex = -1;
       pe.hasDecal = false;
       pe.hasLod = false;
       pe.hasLightmap = false;
@@ -611,6 +613,7 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       createdEntity->hasLight = pending[i].hasLight;
       createdEntity->material = pending[i].material;
       createdEntity->hasMaterial = pending[i].hasMaterial;
+      createdEntity->variantIndex = pending[i].variantIndex;
       createdEntity->decal = pending[i].decal;
       createdEntity->hasDecal = pending[i].hasDecal;
       createdEntity->lod = pending[i].lod;
