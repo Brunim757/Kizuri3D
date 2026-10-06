@@ -52,7 +52,118 @@ struct MatConstants {
   float albedo[4];
   float params[4];
   float extra[4];
+  float extA[4];
+  float extB[4];
+  float extC[4];
+  float extD[4];
+  float extE[4];
+  float extF[4];
+  float extG[4];
 };
+struct MatExtConstants {
+  float extA[4];
+  float extB[4];
+  float extC[4];
+  float extD[4];
+  float extE[4];
+  float extF[4];
+  float extG[4];
+  float xfA[5][4];
+  float xfB[5][4];
+};
+void FillMatConstants(const DeferredMaterial& use, float lodFade, MatConstants& mc, MatExtConstants& mec, unsigned char* tablePx, uint32_t& rows, uint32_t& outRow) {
+  mc.albedo[0] = use.albedo[0];
+  mc.albedo[1] = use.albedo[1];
+  mc.albedo[2] = use.albedo[2];
+  mc.albedo[3] = use.alpha;
+  mc.params[0] = use.roughness;
+  mc.params[1] = use.metallic;
+  mc.params[2] = static_cast<float>(use.texFlags);
+  mc.params[3] = lodFade < 0.0f ? 0.0f : (lodFade > 1.0f ? 1.0f : lodFade);
+  mc.extra[0] = use.lightmapIntensity;
+  mc.extra[1] = 0.0f;
+  mc.extra[2] = 0.0f;
+  mc.extra[3] = 0.0f;
+  mc.extA[0] = use.emissiveStrength;
+  mc.extA[1] = use.ior;
+  mc.extA[2] = use.specularStrength;
+  mc.extA[3] = use.alphaCutoff;
+  mc.extB[0] = static_cast<float>(use.alphaMode);
+  mc.extB[1] = use.doubleSided ? 1.0f : 0.0f;
+  mc.extB[2] = use.clearcoat;
+  mc.extB[3] = use.clearcoatRoughness;
+  mc.extC[0] = use.sheenRoughness;
+  mc.extC[1] = use.iridescence;
+  mc.extC[2] = use.iridescenceThicknessMin;
+  mc.extC[3] = use.iridescenceThicknessMax;
+  mc.extD[0] = use.anisotropy;
+  mc.extD[1] = use.anisotropyRotation;
+  mc.extD[2] = use.dispersion;
+  mc.extD[3] = use.attenuationDistance;
+  mc.extE[0] = use.emissive[0];
+  mc.extE[1] = use.emissive[1];
+  mc.extE[2] = use.emissive[2];
+  mc.extF[0] = use.specularColor[0];
+  mc.extF[1] = use.specularColor[1];
+  mc.extF[2] = use.specularColor[2];
+  mc.extF[3] = 0.0f;
+  mc.extG[0] = use.sheenColor[0];
+  mc.extG[1] = use.sheenColor[1];
+  mc.extG[2] = use.sheenColor[2];
+  mc.extG[3] = 0.0f;
+  uint32_t row = 0;
+  if (rows < 256) {
+    row = rows++;
+    unsigned char* px = tablePx + static_cast<size_t>(row) * 4;
+    px[0] = use.unlit ? 255 : 0;
+    float iri = (use.iridescenceIor - 1.0f) * 0.5f;
+    px[1] = static_cast<unsigned char>((iri < 0.0f ? 0.0f : (iri > 1.0f ? 1.0f : iri)) * 255.0f + 0.5f);
+    float disp = use.dispersion >= 0.0f ? use.dispersion : 0.0f;
+    px[2] = static_cast<unsigned char>((disp > 1.0f ? 1.0f : disp) * 255.0f + 0.5f);
+    float ior = (use.ior - 1.0f) / 3.0f;
+    px[3] = static_cast<unsigned char>((ior < 0.0f ? 0.0f : (ior > 1.0f ? 1.0f : ior)) * 255.0f + 0.5f);
+  }
+  outRow = row;
+  mc.extE[3] = static_cast<float>(row);
+  mec.extA[0] = mc.extA[0];
+  mec.extA[1] = mc.extA[1];
+  mec.extA[2] = mc.extA[2];
+  mec.extA[3] = mc.extA[3];
+  mec.extB[0] = mc.extB[0];
+  mec.extB[1] = mc.extB[1];
+  mec.extB[2] = mc.extB[2];
+  mec.extB[3] = mc.extB[3];
+  mec.extC[0] = mc.extC[0];
+  mec.extC[1] = mc.extC[1];
+  mec.extC[2] = mc.extC[2];
+  mec.extC[3] = mc.extC[3];
+  mec.extD[0] = mc.extD[0];
+  mec.extD[1] = mc.extD[1];
+  mec.extD[2] = mc.extD[2];
+  mec.extD[3] = mc.extD[3];
+  mec.extE[0] = mc.extE[0];
+  mec.extE[1] = mc.extE[1];
+  mec.extE[2] = mc.extE[2];
+  mec.extE[3] = mc.extE[3];
+  mec.extF[0] = mc.extF[0];
+  mec.extF[1] = mc.extF[1];
+  mec.extF[2] = mc.extF[2];
+  mec.extF[3] = mc.extF[3];
+  mec.extG[0] = mc.extG[0];
+  mec.extG[1] = mc.extG[1];
+  mec.extG[2] = mc.extG[2];
+  mec.extG[3] = mc.extG[3];
+  for (int s = 0; s < 5; ++s) {
+    mec.xfA[s][0] = use.xforms[s].offsetU;
+    mec.xfA[s][1] = use.xforms[s].offsetV;
+    mec.xfA[s][2] = use.xforms[s].scaleU;
+    mec.xfA[s][3] = use.xforms[s].scaleV;
+    mec.xfB[s][0] = use.xforms[s].rotation;
+    mec.xfB[s][1] = static_cast<float>(use.xforms[s].uvSet);
+    mec.xfB[s][2] = 0.0f;
+    mec.xfB[s][3] = 0.0f;
+  }
+}
 struct SsrConstants {
   float viewProj[16];
   float camPos[4];
@@ -76,6 +187,9 @@ DeferredRenderer::DeferredRenderer()
   , gMetallic(0)
   , gPosition(0)
   , gLightmap(0)
+  , gEmissive(0)
+  , gF0(0)
+  , gExtA(0)
   , gDepth(0)
   , gViewport(0)
   , vb(0)
@@ -83,6 +197,11 @@ DeferredRenderer::DeferredRenderer()
   , geoCB(0)
   , lightCB(0)
   , matCB(0)
+  , matExtCB(0)
+  , matTable(0)
+  , matTableRows(0)
+  , neutralBlack(0)
+  , neutralAniso(0)
   , geoVS(0)
   , geoPS(0)
   , lightVS(0)
@@ -353,6 +472,8 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   std::memset(&lc, 0, sizeof(lc));
   MatConstants mc;
   std::memset(&mc, 0, sizeof(mc));
+  MatExtConstants mec;
+  std::memset(&mec, 0, sizeof(mec));
   float bloomInit[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
   uint32_t fsrInit[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
   float ssaoInit[24] = { 0.0f };
@@ -361,6 +482,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   geoCB = rhi->CreateConstantBuffer(sizeof(GeoConstants), &gc);
   lightCB = rhi->CreateConstantBuffer(sizeof(LightConstants), &lc);
   matCB = rhi->CreateConstantBuffer(sizeof(MatConstants), &mc);
+  matExtCB = rhi->CreateConstantBuffer(sizeof(MatExtConstants), &mec);
   ssrCB = rhi->CreateConstantBuffer(sizeof(SsrConstants), &sc);
   if (ssrCB == 0) {
     return false;
@@ -379,7 +501,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   bloomCB = rhi->CreateConstantBuffer(sizeof(bloomInit), &bloomInit);
   fsrCB = rhi->CreateConstantBuffer(sizeof(fsrInit), &fsrInit);
   ssaoCB = rhi->CreateConstantBuffer(sizeof(ssaoInit), &ssaoInit);
-  if (geoCB == 0 || lightCB == 0 || matCB == 0) {
+  if (geoCB == 0 || lightCB == 0 || matCB == 0 || matExtCB == 0) {
     return false;
   }
   if (bloomCB == 0 || fsrCB == 0 || ssaoCB == 0) {
@@ -396,13 +518,30 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   unsigned char whitePx[4] = { 255, 255, 255, 255 };
   unsigned char nrmPx[4] = { 128, 128, 255, 255 };
   unsigned char ormPx[4] = { 255, 128, 0, 255 };
+  unsigned char blackPx[4] = { 0, 0, 0, 255 };
+  unsigned char anisoPx[4] = { 255, 128, 255, 255 };
   neutralAlbedo = rhi->CreateTexture2D(1, 1, 1, RHITextureFormat::RGBA8_UNORM);
   neutralNormal = rhi->CreateTexture2D(1, 1, 1, RHITextureFormat::RGBA8_UNORM);
   neutralOrm = rhi->CreateTexture2D(1, 1, 1, RHITextureFormat::RGBA8_UNORM);
-  if (neutralAlbedo == 0 || neutralNormal == 0 || neutralOrm == 0) {
+  neutralBlack = rhi->CreateTexture2D(1, 1, 1, RHITextureFormat::RGBA8_UNORM);
+  neutralAniso = rhi->CreateTexture2D(1, 1, 1, RHITextureFormat::RGBA8_UNORM);
+  if (neutralAlbedo == 0 || neutralNormal == 0 || neutralOrm == 0 || neutralBlack == 0 || neutralAniso == 0) {
     return false;
   }
-  if (!rhi->UpdateTextureMip(neutralAlbedo, 0, 1, 1, 4, whitePx, 4) || !rhi->UpdateTextureMip(neutralNormal, 0, 1, 1, 4, nrmPx, 4) || !rhi->UpdateTextureMip(neutralOrm, 0, 1, 1, 4, ormPx, 4)) {
+  if (!rhi->UpdateTextureMip(neutralAlbedo, 0, 1, 1, 4, whitePx, 4) || !rhi->UpdateTextureMip(neutralNormal, 0, 1, 1, 4, nrmPx, 4) || !rhi->UpdateTextureMip(neutralOrm, 0, 1, 1, 4, ormPx, 4) || !rhi->UpdateTextureMip(neutralBlack, 0, 1, 1, 4, blackPx, 4) || !rhi->UpdateTextureMip(neutralAniso, 0, 1, 1, 4, anisoPx, 4)) {
+    return false;
+  }
+  matTable = rhi->CreateTexture2D(256, 1, 1, RHITextureFormat::RGBA8_UNORM);
+  if (matTable == 0) {
+    return false;
+  }
+  std::memset(matTablePx, 0, sizeof(matTablePx));
+  matTablePx[0] = 0;
+  matTablePx[1] = 38;
+  matTablePx[2] = 0;
+  matTablePx[3] = 43;
+  matTableRows = 1;
+  if (!rhi->UpdateTextureMip(matTable, 0, 256, 1, 256 * 4, matTablePx, sizeof(matTablePx))) {
     return false;
   }
   float decalBox[8 * 14] = {
@@ -478,6 +617,18 @@ void DeferredRenderer::Shutdown() {
     rhi->DestroyTexture(neutralOrm);
     neutralOrm = 0;
   }
+  if (neutralBlack != 0) {
+    rhi->DestroyTexture(neutralBlack);
+    neutralBlack = 0;
+  }
+  if (neutralAniso != 0) {
+    rhi->DestroyTexture(neutralAniso);
+    neutralAniso = 0;
+  }
+  if (matTable != 0) {
+    rhi->DestroyTexture(matTable);
+    matTable = 0;
+  }
   geoSampler = 0;
   if (shadowAtlas != 0) {
     rhi->DestroyRenderTarget(shadowAtlas);
@@ -508,6 +659,10 @@ void DeferredRenderer::Shutdown() {
   if (matCB != 0) {
     rhi->DestroyConstantBuffer(matCB);
     matCB = 0;
+  }
+  if (matExtCB != 0) {
+    rhi->DestroyConstantBuffer(matExtCB);
+    matExtCB = 0;
   }
   if (bloomCB != 0) {
     rhi->DestroyConstantBuffer(bloomCB);
@@ -1192,13 +1347,17 @@ void DeferredRenderer::SetupGeometryPass() {
   shadowMapsValid = false;
   ssaoValid = false;
   ssrValid = false;
-  RHIRenderTarget mrts[5] = { gAlbedo, gNormalRough, gMetallic, gPosition, gLightmap };
-  rhi->SetRenderTargets(5, mrts, gDepth);
-  rhi->ClearRenderTarget(gAlbedo, 0.02f, 0.02f, 0.03f, 1.0f);
+  matTableRows = 1;
+  RHIRenderTarget mrts[8] = { gAlbedo, gNormalRough, gMetallic, gPosition, gLightmap, gEmissive, gF0, gExtA };
+  rhi->SetRenderTargets(8, mrts, gDepth);
+  rhi->ClearRenderTarget(gAlbedo, 0.02f, 0.02f, 0.03f, 0.5f);
   rhi->ClearRenderTarget(gNormalRough, 0.5f, 0.5f, 1.0f, 1.0f);
-  rhi->ClearRenderTarget(gMetallic, 0.0f, 0.0f, 0.0f, 1.0f);
-  rhi->ClearRenderTarget(gPosition, 0.0f, 0.0f, 0.0f, 1.0f);
+  rhi->ClearRenderTarget(gMetallic, 0.0f, 0.0f, 0.0f, 0.0f);
+  rhi->ClearRenderTarget(gPosition, 0.0f, 0.0f, 0.0f, 0.5f);
   rhi->ClearRenderTarget(gLightmap, 0.0f, 0.0f, 0.0f, 0.0f);
+  rhi->ClearRenderTarget(gEmissive, 0.0f, 0.0f, 0.0f, 0.0f);
+  rhi->ClearRenderTarget(gF0, 0.04f, 0.04f, 0.04f, 0.0f);
+  rhi->ClearRenderTarget(gExtA, 0.0f, 0.0f, 0.0f, 0.0f);
   rhi->ClearDepth(gDepth);
   RHIViewport vp;
   vp.x = viewX;
@@ -1280,29 +1439,46 @@ void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuff
   rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
   const DeferredMaterial& use = (mat != nullptr) ? *mat : material;
   MatConstants mc;
-  mc.albedo[0] = use.albedo[0];
-  mc.albedo[1] = use.albedo[1];
-  mc.albedo[2] = use.albedo[2];
-  mc.albedo[3] = 1.0f;
-  mc.params[0] = use.roughness;
-  mc.params[1] = use.metallic;
-  mc.params[2] = static_cast<float>(use.texFlags);
-  mc.params[3] = lodFade < 0.0f ? 0.0f : (lodFade > 1.0f ? 1.0f : lodFade);
-  mc.extra[0] = use.lightmapIntensity;
-  mc.extra[1] = 0.0f;
-  mc.extra[2] = 0.0f;
-  mc.extra[3] = 0.0f;
+  MatExtConstants mec;
+  uint32_t matRow = 0;
+  FillMatConstants(use, lodFade < 0.0f ? 0.0f : (lodFade > 1.0f ? 1.0f : lodFade), mc, mec, matTablePx, matTableRows, matRow);
+  (void)matRow;
   rhi->UpdateConstantBuffer(matCB, &mc, sizeof(mc));
+  rhi->UpdateConstantBuffer(matExtCB, &mec, sizeof(mec));
+  rhi->SetPixelConstantBuffer(0, matCB);
+  rhi->SetPixelConstantBuffer(1, matExtCB);
   RHITexture alb = (use.texFlags & 1u) != 0 && use.albedoTex != 0 ? use.albedoTex : neutralAlbedo;
   RHITexture nrm = (use.texFlags & 2u) != 0 && use.normalTex != 0 ? use.normalTex : neutralNormal;
   RHITexture orm = (use.texFlags & 4u) != 0 && use.ormTex != 0 ? use.ormTex : neutralOrm;
   RHITexture hgt = (use.texFlags & 8u) != 0 && use.heightTex != 0 ? use.heightTex : 0;
   RHITexture lmt = (use.texFlags & 16u) != 0 && use.lightmapTex != 0 ? use.lightmapTex : 0;
+  RHITexture emi = (use.texFlags & 32u) != 0 && use.emissiveTex != 0 ? use.emissiveTex : neutralBlack;
+  RHITexture spc = (use.texFlags & 64u) != 0 && use.specularTex != 0 ? use.specularTex : neutralBlack;
+  RHITexture spcC = (use.texFlags & 128u) != 0 && use.specularColorTex != 0 ? use.specularColorTex : neutralAlbedo;
+  RHITexture ccT = (use.texFlags & 256u) != 0 && use.clearcoatTex != 0 ? use.clearcoatTex : neutralBlack;
+  RHITexture ccR = (use.texFlags & 512u) != 0 && use.clearcoatRoughnessTex != 0 ? use.clearcoatRoughnessTex : neutralBlack;
+  RHITexture ccN = (use.texFlags & 1024u) != 0 && use.clearcoatNormalTex != 0 ? use.clearcoatNormalTex : neutralNormal;
+  RHITexture shC = (use.texFlags & 2048u) != 0 && use.sheenColorTex != 0 ? use.sheenColorTex : neutralBlack;
+  RHITexture shR = (use.texFlags & 4096u) != 0 && use.sheenRoughnessTex != 0 ? use.sheenRoughnessTex : neutralBlack;
+  RHITexture anT = (use.texFlags & 8192u) != 0 && use.anisotropyTex != 0 ? use.anisotropyTex : neutralAniso;
+  RHITexture irT = (use.texFlags & 16384u) != 0 && use.iridescenceTex != 0 ? use.iridescenceTex : neutralBlack;
+  RHITexture irH = (use.texFlags & 32768u) != 0 && use.iridescenceThicknessTex != 0 ? use.iridescenceThicknessTex : neutralBlack;
   rhi->SetPixelTexture2D(0, alb);
   rhi->SetPixelTexture2D(1, nrm);
   rhi->SetPixelTexture2D(2, orm);
   rhi->SetPixelTexture2D(3, hgt);
   rhi->SetPixelTexture2D(4, lmt);
+  rhi->SetPixelTexture2D(5, emi);
+  rhi->SetPixelTexture2D(6, spc);
+  rhi->SetPixelTexture2D(7, spcC);
+  rhi->SetPixelTexture2D(8, ccT);
+  rhi->SetPixelTexture2D(9, ccR);
+  rhi->SetPixelTexture2D(10, ccN);
+  rhi->SetPixelTexture2D(11, shC);
+  rhi->SetPixelTexture2D(12, shR);
+  rhi->SetPixelTexture2D(13, anT);
+  rhi->SetPixelTexture2D(14, irT);
+  rhi->SetPixelTexture2D(15, irH);
   rhi->SetPixelSampler(0, geoSampler);
   rhi->SetPixelSampler(1, geoSampler);
   rhi->SetPixelSampler(2, geoSampler);
@@ -1310,6 +1486,21 @@ void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuff
   rhi->SetPixelSampler(4, geoSampler);
   rhi->SetVertexBuffer(vb, 0);
   rhi->SetIndexBuffer(ib);
+  if (use.doubleSided) {
+    RHIRasterizer rs;
+    rs.cull = RHICull::None;
+    rs.fill = RHIFill::Solid;
+    rs.frontCCW = false;
+    rs.slopeBias = 0.0f;
+    rhi->SetRasterizerState(rs);
+  } else {
+    RHIRasterizer rs;
+    rs.cull = RHICull::Back;
+    rs.fill = RHIFill::Solid;
+    rs.frontCCW = false;
+    rs.slopeBias = 0.0f;
+    rhi->SetRasterizerState(rs);
+  }
   rhi->DrawIndexed(count, start, 0);
 }
 void DeferredRenderer::DrawDecal(const float world[16], const float invWorld[16], const float size[3], float fade, RHITexture tex) {
@@ -1586,6 +1777,11 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture(1, gNormalRough);
   rhi->SetPixelTexture(2, gMetallic);
   rhi->SetPixelTexture(3, gPosition);
+  rhi->SetPixelTexture(15, gEmissive);
+  rhi->SetPixelTexture(16, gF0);
+  rhi->SetPixelTexture(17, gExtA);
+  rhi->UpdateTextureMip(matTable, 0, 256, 1, 256 * 4, matTablePx, sizeof(matTablePx));
+  rhi->SetPixelTexture2D(18, matTable);
   rhi->SetPixelSampler(0, sampler);
   LightConstants lc;
   lc.camPos[0] = camPos[0];
@@ -1837,6 +2033,10 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture2D(12, 0);
   rhi->SetPixelTexture2D(13, 0);
   rhi->SetPixelTexture2D(14, 0);
+  rhi->SetPixelTexture(15, 0);
+  rhi->SetPixelTexture(16, 0);
+  rhi->SetPixelTexture(17, 0);
+  rhi->SetPixelTexture2D(18, 0);
   if (captureMode) {
     captureMode = false;
     captureTarget = 0;
@@ -2073,6 +2273,9 @@ bool DeferredRenderer::CreateTargets() {
   gMetallic = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   gPosition = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA16F);
   gLightmap = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA16F);
+  gEmissive = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA16F);
+  gF0 = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
+  gExtA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   gDepth = rhi->CreateRenderTarget(w, h, RHIFormat::D24S8);
   gViewport = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   gLight = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
@@ -2108,7 +2311,7 @@ bool DeferredRenderer::CreateTargets() {
   ssgiA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   ssgiB = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   fxaaA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
-  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0;
+  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0;
 }
 void DeferredRenderer::DestroyTargets() {
   if (rhi == nullptr) {
@@ -2133,6 +2336,18 @@ void DeferredRenderer::DestroyTargets() {
   if (gLightmap != 0) {
     rhi->DestroyRenderTarget(gLightmap);
     gLightmap = 0;
+  }
+  if (gEmissive != 0) {
+    rhi->DestroyRenderTarget(gEmissive);
+    gEmissive = 0;
+  }
+  if (gF0 != 0) {
+    rhi->DestroyRenderTarget(gF0);
+    gF0 = 0;
+  }
+  if (gExtA != 0) {
+    rhi->DestroyRenderTarget(gExtA);
+    gExtA = 0;
   }
   if (gDepth != 0) {
     rhi->DestroyRenderTarget(gDepth);

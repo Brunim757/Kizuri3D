@@ -14,6 +14,7 @@ struct MeshUvXform {
 struct MeshMaterialData {
   std::string name;
   float albedo[3] = { 1.0f, 1.0f, 1.0f };
+  float alpha = 1.0f;
   float metallic = 0.0f;
   float roughness = 1.0f;
   std::string albedoTexGuid;
@@ -29,6 +30,7 @@ struct MeshMaterialData {
   float alphaCutoff = 0.5f;
   MeshUvXform xforms[5];
   float ior = 1.5f;
+  bool hasSpecular = false;
   float specularColor[3] = { 1.0f, 1.0f, 1.0f };
   float specularStrength = 1.0f;
   std::string specularTexGuid;

@@ -122,6 +122,7 @@ bool AppendMeshFlatBuffer(const MeshAssetData& data, size_t vertexCount, flatbuf
     msb.add_albedoR(m.albedo[0]);
     msb.add_albedoG(m.albedo[1]);
     msb.add_albedoB(m.albedo[2]);
+    msb.add_alpha(m.alpha);
     msb.add_metallic(m.metallic);
     msb.add_roughness(m.roughness);
     msb.add_albedoTexGuid(fbTex);
@@ -139,6 +140,7 @@ bool AppendMeshFlatBuffer(const MeshAssetData& data, size_t vertexCount, flatbuf
     msb.add_alphaCutoff(m.alphaCutoff);
     msb.add_xforms(fbXfVec);
     msb.add_ior(m.ior);
+    msb.add_hasSpecular(m.hasSpecular);
     msb.add_specularR(m.specularColor[0]);
     msb.add_specularG(m.specularColor[1]);
     msb.add_specularB(m.specularColor[2]);
@@ -381,6 +383,7 @@ bool DecodeMeshMemory(const void* bytes, size_t size, MeshAssetData& out) {
       md.albedo[0] = m->albedoR();
       md.albedo[1] = m->albedoG();
       md.albedo[2] = m->albedoB();
+      md.alpha = m->alpha();
       md.metallic = m->metallic();
       md.roughness = m->roughness();
       md.albedoTexGuid = m->albedoTexGuid() != nullptr ? m->albedoTexGuid()->str() : "";
@@ -409,6 +412,7 @@ bool DecodeMeshMemory(const void* bytes, size_t size, MeshAssetData& out) {
         }
       }
       md.ior = m->ior();
+      md.hasSpecular = m->hasSpecular();
       md.specularColor[0] = m->specularR();
       md.specularColor[1] = m->specularG();
       md.specularColor[2] = m->specularB();

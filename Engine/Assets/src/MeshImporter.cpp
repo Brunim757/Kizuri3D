@@ -500,6 +500,7 @@ void ParseMaterial(const cgltf_material* cmat, const std::string& glbPath, uint6
     md.albedo[0] = sg.diffuse_factor[0];
     md.albedo[1] = sg.diffuse_factor[1];
     md.albedo[2] = sg.diffuse_factor[2];
+    md.alpha = sg.diffuse_factor[3];
     float gloss = sg.glossiness_factor;
     if (gloss < 0.0f) {
       gloss = 0.0f;
@@ -561,6 +562,7 @@ void ParseMaterial(const cgltf_material* cmat, const std::string& glbPath, uint6
     md.albedo[0] = mr.base_color_factor[0];
     md.albedo[1] = mr.base_color_factor[1];
     md.albedo[2] = mr.base_color_factor[2];
+    md.alpha = mr.base_color_factor[3];
     md.metallic = mr.metallic_factor;
     md.roughness = mr.roughness_factor;
     ImportEmbeddedTexture(mr.base_color_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.albedoTexGuid);
@@ -576,6 +578,7 @@ void ParseMaterial(const cgltf_material* cmat, const std::string& glbPath, uint6
     md.ior = cmat->ior.ior;
   }
   if (cmat->has_specular != 0) {
+    md.hasSpecular = true;
     md.specularColor[0] = cmat->specular.specular_color_factor[0];
     md.specularColor[1] = cmat->specular.specular_color_factor[1];
     md.specularColor[2] = cmat->specular.specular_color_factor[2];

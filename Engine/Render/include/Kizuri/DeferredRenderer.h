@@ -3,8 +3,17 @@
 #include <vector>
 #include <stdint.h>
 namespace Kizuri {
+struct DeferredUvXform {
+  float offsetU = 0.0f;
+  float offsetV = 0.0f;
+  float scaleU = 1.0f;
+  float scaleV = 1.0f;
+  float rotation = 0.0f;
+  int uvSet = 0;
+};
 struct DeferredMaterial {
   float albedo[3] = { 1.0f, 1.0f, 1.0f };
+  float alpha = 1.0f;
   float roughness = 0.5f;
   float metallic = 0.0f;
   RHITexture albedoTex = 0;
@@ -14,6 +23,45 @@ struct DeferredMaterial {
   RHITexture lightmapTex = 0;
   float lightmapIntensity = 1.0f;
   uint32_t texFlags = 0;
+  float emissive[3] = { 0.0f, 0.0f, 0.0f };
+  float emissiveStrength = 1.0f;
+  RHITexture emissiveTex = 0;
+  bool unlit = false;
+  bool doubleSided = false;
+  int alphaMode = 0;
+  float alphaCutoff = 0.5f;
+  DeferredUvXform xforms[5];
+  float ior = 1.5f;
+  bool hasSpecular = false;
+  float specularColor[3] = { 1.0f, 1.0f, 1.0f };
+  float specularStrength = 1.0f;
+  RHITexture specularTex = 0;
+  RHITexture specularColorTex = 0;
+  float clearcoat = 0.0f;
+  float clearcoatRoughness = 0.0f;
+  RHITexture clearcoatTex = 0;
+  RHITexture clearcoatRoughnessTex = 0;
+  RHITexture clearcoatNormalTex = 0;
+  float sheenColor[3] = { 0.0f, 0.0f, 0.0f };
+  float sheenRoughness = 0.0f;
+  RHITexture sheenColorTex = 0;
+  RHITexture sheenRoughnessTex = 0;
+  float anisotropy = 0.0f;
+  float anisotropyRotation = 0.0f;
+  RHITexture anisotropyTex = 0;
+  float iridescence = 0.0f;
+  float iridescenceIor = 1.3f;
+  float iridescenceThicknessMin = 100.0f;
+  float iridescenceThicknessMax = 400.0f;
+  RHITexture iridescenceTex = 0;
+  RHITexture iridescenceThicknessTex = 0;
+  float transmission = 0.0f;
+  RHITexture transmissionTex = 0;
+  float thickness = 0.0f;
+  RHITexture thicknessTex = 0;
+  float attenuationColor[3] = { 1.0f, 1.0f, 1.0f };
+  float attenuationDistance = 0.0f;
+  float dispersion = 0.0f;
 };
 struct DeferredLight {
   float direction[3];
@@ -129,6 +177,9 @@ private:
   RHIRenderTarget gMetallic;
   RHIRenderTarget gPosition;
   RHIRenderTarget gLightmap;
+  RHIRenderTarget gEmissive;
+  RHIRenderTarget gF0;
+  RHIRenderTarget gExtA;
   RHIRenderTarget gDepth;
   RHIRenderTarget gViewport;
   RHIBuffer vb;
@@ -136,6 +187,12 @@ private:
   RHIConstBuffer geoCB;
   RHIConstBuffer lightCB;
   RHIConstBuffer matCB;
+  RHIConstBuffer matExtCB;
+  RHITexture matTable;
+  unsigned char matTablePx[256 * 4];
+  uint32_t matTableRows;
+  RHITexture neutralBlack;
+  RHITexture neutralAniso;
   RHIVertexShader geoVS;
   RHIPixelShader geoPS;
   RHIVertexShader lightVS;

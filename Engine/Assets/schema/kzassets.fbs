@@ -21,6 +21,7 @@ table MaterialSlot {
   albedoR:float;
   albedoG:float;
   albedoB:float;
+  alpha:float = 1.0;
   metallic:float;
   roughness:float;
   albedoTexGuid:string;
@@ -38,6 +39,7 @@ table MaterialSlot {
   alphaCutoff:float = 0.5;
   xforms:[UvXform];
   ior:float = 1.5;
+  hasSpecular:bool = false;
   specularR:float = 1.0;
   specularG:float = 1.0;
   specularB:float = 1.0;

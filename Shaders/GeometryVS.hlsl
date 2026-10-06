@@ -21,6 +21,7 @@ struct VSOut
     float4 wtan : TEXCOORD2;
     float3 vts : TEXCOORD3;
     float2 luv : TEXCOORD4;
+    float2 uv2 : TEXCOORD5;
 };
 VSOut main(VSIn vin)
 {
@@ -33,6 +34,7 @@ VSOut main(VSIn vin)
     vout.pos = mul(vp, Proj);
     vout.uv = vin.uv;
     vout.luv = vin.uv2;
+    vout.uv2 = vin.uv2;
     float3 wt = normalize(mul(vin.tan.xyz, wrot));
     vout.wtan = float4(wt, vin.tan.w);
     float3 wb = cross(vout.wnrm, wt) * vin.tan.w;

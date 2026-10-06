@@ -30,6 +30,75 @@ uint32_t ResolveMaterialSlot(AssetDatabase& assets, const std::string& guid, uin
   out = tr->gpu;
   return bit;
 }
+void FillDeferredFromMesh(AssetDatabase& assets, const MeshMaterialData& mm, DeferredMaterial& partMat) {
+  partMat.albedo[0] = mm.albedo[0];
+  partMat.albedo[1] = mm.albedo[1];
+  partMat.albedo[2] = mm.albedo[2];
+  partMat.alpha = mm.alpha;
+  partMat.roughness = mm.roughness;
+  partMat.metallic = mm.metallic;
+  partMat.emissive[0] = mm.emissive[0];
+  partMat.emissive[1] = mm.emissive[1];
+  partMat.emissive[2] = mm.emissive[2];
+  partMat.emissiveStrength = mm.emissiveStrength;
+  partMat.unlit = mm.unlit;
+  partMat.doubleSided = mm.doubleSided;
+  partMat.alphaMode = mm.alphaMode;
+  partMat.alphaCutoff = mm.alphaCutoff;
+  for (int s = 0; s < 5; ++s) {
+    partMat.xforms[s].offsetU = mm.xforms[s].offsetU;
+    partMat.xforms[s].offsetV = mm.xforms[s].offsetV;
+    partMat.xforms[s].scaleU = mm.xforms[s].scaleU;
+    partMat.xforms[s].scaleV = mm.xforms[s].scaleV;
+    partMat.xforms[s].rotation = mm.xforms[s].rotation;
+    partMat.xforms[s].uvSet = mm.xforms[s].uvSet;
+  }
+  partMat.ior = mm.ior;
+  partMat.hasSpecular = mm.hasSpecular;
+  partMat.specularColor[0] = mm.specularColor[0];
+  partMat.specularColor[1] = mm.specularColor[1];
+  partMat.specularColor[2] = mm.specularColor[2];
+  partMat.specularStrength = mm.specularStrength;
+  partMat.clearcoat = mm.clearcoat;
+  partMat.clearcoatRoughness = mm.clearcoatRoughness;
+  partMat.sheenColor[0] = mm.sheenColor[0];
+  partMat.sheenColor[1] = mm.sheenColor[1];
+  partMat.sheenColor[2] = mm.sheenColor[2];
+  partMat.sheenRoughness = mm.sheenRoughness;
+  partMat.anisotropy = mm.anisotropy;
+  partMat.anisotropyRotation = mm.anisotropyRotation;
+  partMat.iridescence = mm.iridescence;
+  partMat.iridescenceIor = mm.iridescenceIor;
+  partMat.iridescenceThicknessMin = mm.iridescenceThicknessMin;
+  partMat.iridescenceThicknessMax = mm.iridescenceThicknessMax;
+  partMat.transmission = mm.transmission;
+  partMat.thickness = mm.thickness;
+  partMat.attenuationColor[0] = mm.attenuationColor[0];
+  partMat.attenuationColor[1] = mm.attenuationColor[1];
+  partMat.attenuationColor[2] = mm.attenuationColor[2];
+  partMat.attenuationDistance = mm.attenuationDistance;
+  partMat.dispersion = mm.dispersion;
+  uint32_t flags = 0;
+  flags |= ResolveMaterialSlot(assets, mm.albedoTexGuid, 1u, partMat.albedoTex);
+  flags |= ResolveMaterialSlot(assets, mm.normalTexGuid, 2u, partMat.normalTex);
+  flags |= ResolveMaterialSlot(assets, mm.ormTexGuid, 4u, partMat.ormTex);
+  flags |= ResolveMaterialSlot(assets, mm.heightTexGuid, 8u, partMat.heightTex);
+  flags |= ResolveMaterialSlot(assets, mm.emissiveTexGuid, 32u, partMat.emissiveTex);
+  flags |= ResolveMaterialSlot(assets, mm.specularTexGuid, 64u, partMat.specularTex);
+  flags |= ResolveMaterialSlot(assets, mm.specularColorTexGuid, 128u, partMat.specularColorTex);
+  flags |= ResolveMaterialSlot(assets, mm.clearcoatTexGuid, 256u, partMat.clearcoatTex);
+  flags |= ResolveMaterialSlot(assets, mm.clearcoatRoughnessTexGuid, 512u, partMat.clearcoatRoughnessTex);
+  flags |= ResolveMaterialSlot(assets, mm.clearcoatNormalTexGuid, 1024u, partMat.clearcoatNormalTex);
+  flags |= ResolveMaterialSlot(assets, mm.sheenColorTexGuid, 2048u, partMat.sheenColorTex);
+  flags |= ResolveMaterialSlot(assets, mm.sheenRoughnessTexGuid, 4096u, partMat.sheenRoughnessTex);
+  flags |= ResolveMaterialSlot(assets, mm.anisotropyTexGuid, 8192u, partMat.anisotropyTex);
+  flags |= ResolveMaterialSlot(assets, mm.iridescenceTexGuid, 16384u, partMat.iridescenceTex);
+  flags |= ResolveMaterialSlot(assets, mm.iridescenceThicknessTexGuid, 32768u, partMat.iridescenceThicknessTex);
+  if (mm.hasSpecular) {
+    flags |= 65536u;
+  }
+  partMat.texFlags = flags;
+}
 static Transform s_clipboard;
 static bool s_hasClipboard = false;
 void EditorApp::RenderScene() {
@@ -297,17 +366,7 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
               useMat = &partMat;
             } else if (part.material < rec->data.materials.size()) {
               const MeshMaterialData& mm = rec->data.materials[part.material];
-              partMat.albedo[0] = mm.albedo[0];
-              partMat.albedo[1] = mm.albedo[1];
-              partMat.albedo[2] = mm.albedo[2];
-              partMat.roughness = mm.roughness;
-              partMat.metallic = mm.metallic;
-              uint32_t flags = 0;
-              flags |= ResolveMaterialSlot(assets, mm.albedoTexGuid, 1u, partMat.albedoTex);
-              flags |= ResolveMaterialSlot(assets, mm.normalTexGuid, 2u, partMat.normalTex);
-              flags |= ResolveMaterialSlot(assets, mm.ormTexGuid, 4u, partMat.ormTex);
-              flags |= ResolveMaterialSlot(assets, mm.heightTexGuid, 8u, partMat.heightTex);
-              partMat.texFlags = flags;
+              FillDeferredFromMesh(assets, mm, partMat);
               useMat = &partMat;
             }
             if (e->hasLightmap && !e->lightmap.texGuid.empty() && useMat != nullptr) {

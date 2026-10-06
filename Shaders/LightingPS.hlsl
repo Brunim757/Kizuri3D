@@ -48,6 +48,10 @@ TextureCube ProbeCube0 : register(t11);
 TextureCube ProbeCube1 : register(t12);
 TextureCube ProbeCube2 : register(t13);
 TextureCube ProbeCube3 : register(t14);
+Texture2D EmissiveTX : register(t15);
+Texture2D F0TX : register(t16);
+Texture2D ExtATX : register(t17);
+Texture2D MatTable : register(t18);
 Texture2D ShadowAtlas : register(t4);
 TextureCube PointCube : register(t5);
 SamplerState ShadowSampler : register(s1);
@@ -91,7 +95,7 @@ float GaSchlickGGX(float cosLi, float cosLo, float roughness)
     float k = (r * r) / 8.0;
     return GaSchlickG1(cosLi, k) * GaSchlickG1(cosLo, k);
 }
-float3 ShadeOne(float3 N, float3 V, float3 L, float3 lightColor, float3 albedo, float roughness, float metallic)
+float3 ShadeOne(float3 N, float3 V, float3 L, float3 lightColor, float3 albedo, float roughness, float metallic, float3 F0)
 {
     float3 H = normalize(L + V);
     float rawLi = dot(N, L);
@@ -99,8 +103,8 @@ float3 ShadeOne(float3 N, float3 V, float3 L, float3 lightColor, float3 albedo, 
     float cosLo = saturate(dot(N, V));
     float cosLh = saturate(dot(N, H));
     float vh = saturate(dot(V, H));
-    float3 F0 = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);
-    float3 F = F0 + (1.0 - F0) * pow(1.0 - vh, 5.0);
+    float3 Fb = lerp(F0, albedo, metallic);
+    float3 F = Fb + (1.0 - Fb) * pow(1.0 - vh, 5.0);
     float D = NdfGGX(cosLh, roughness);
     float G = GaSchlickGGX(cosLi, cosLo, roughness);
     float3 spec = (F * D * G) / max(4.0 * cosLi * cosLo, 1e-5);
@@ -331,7 +335,8 @@ float4 main(PSIn pin) : SV_Target
     float4 nr = NormalRoughTX.Sample(LinearSampler, pin.uv);
     float3 N = normalize(nr.xyz);
     float roughness = clamp(nr.w, 0.04, 1.0);
-    float metallic = clamp(MetallicTX.Sample(LinearSampler, pin.uv).r, 0.0, 1.0);
+    float4 metalFull = MetallicTX.Sample(LinearSampler, pin.uv);
+    float metallic = clamp(metalFull.r, 0.0, 1.0);
     float3 wpos = PositionTX.Sample(LinearSampler, pin.uv).xyz;
     if (dot(wpos, wpos) < 1e-8) {
         float2 ndc2 = float2(pin.uv.x * 2.0 - 1.0, 1.0 - pin.uv.y * 2.0);
@@ -398,7 +403,18 @@ float4 main(PSIn pin) : SV_Target
         }
     }
     float3 Lsun = normalize(-LightDir.xyz);
-    float3 col = ShadeOne(N, V, Lsun, LightColor.rgb, albedo, roughness, metallic);
+    float3 emis = EmissiveTX.Sample(LinearSampler, pin.uv).rgb;
+    uint matID = (uint) (metalFull.a * 255.0 + 0.5);
+    if (matID > 255u) {
+        matID = 255u;
+    }
+    float4 matInfo = MatTable.Load(int3((int) matID, 0, 0));
+    float unlitF = matInfo.r;
+    float3 specF0 = F0TX.Sample(LinearSampler, pin.uv).rgb;
+    float3 col = float3(0.0, 0.0, 0.0);
+    float3 amb = float3(0.0, 0.0, 0.0);
+    if (unlitF < 0.5) {
+    col = ShadeOne(N, V, Lsun, LightColor.rgb, albedo, roughness, metallic, specF0);
     int count = (int)Counts.x;
     if (count > 16) {
         count = 16;
@@ -416,7 +432,7 @@ float4 main(PSIn pin) : SV_Target
                     }
                 }
             }
-            col += ShadeOne(N, V, Ld, LightC[i].rgb, albedo, roughness, metallic) * dirShadow;
+            col += ShadeOne(N, V, Ld, LightC[i].rgb, albedo, roughness, metallic, specF0) * dirShadow;
         } else {
             float3 toLight = LightA[i].xyz - wpos;
             float dist = length(toLight);
@@ -442,7 +458,7 @@ float4 main(PSIn pin) : SV_Target
                     lightShadow = SamplePointPCSS(wposB, PointMeta.w);
                 }
             }
-            col += ShadeOne(N, V, L, LightC[i].rgb, albedo, roughness, metallic) * att * spot * lightShadow;
+            col += ShadeOne(N, V, L, LightC[i].rgb, albedo, roughness, metallic, specF0) * att * spot * lightShadow;
         }
     }
     float ao = 1.0;
@@ -453,7 +469,7 @@ float4 main(PSIn pin) : SV_Target
     col *= ao;
     float sint2 = max(SkySun.w, 1e-3);
     float3 hemi = SkyGradient(N, normalize(SkySun.xyz), SkyColor.rgb, sint2);
-    float3 amb = albedo * hemi * 0.5 * ao;
+    amb = albedo * hemi * 0.5 * ao;
     float3 R = reflect(-V, N);
     float3 skyEnv = SkyGradient(R, normalize(SkySun.xyz), SkyColor.rgb, sint2);
     float3 cubeEnv = EnvTX.SampleLevel(LinearSampler, R, clamp(roughness, 0.0, 1.0) * 6.0).rgb * GradeInfo.z;
@@ -489,11 +505,15 @@ float4 main(PSIn pin) : SV_Target
     }
     float4 ssr = SsrTX.Sample(LinearSampler, pin.uv);
     float3 specAmb = lerp(env, ssr.rgb, clamp(ssr.a, 0.0, 1.0));
-    float3 F0e = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);
+    float3 F0e = lerp(specF0, albedo, metallic);
     float3 fres = F0e + (1.0 - F0e) * pow(1.0 - saturate(dot(N, V)), 5.0);
     col += specAmb * fres * (1.0 - roughness) * ao;
     float4 lm = LightmapTX.Sample(LinearSampler, pin.uv);
     col += albedo * lm.rgb * lm.a;
+    } else {
+        col = albedo;
+    }
+    col += emis;
     if (FogInfo.x > 0.5) {
         float3 toFrag = wpos - CamPos.xyz;
         float fragDist = length(toFrag);
