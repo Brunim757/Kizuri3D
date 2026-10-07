@@ -73,6 +73,7 @@ struct EditorApp {
   bool viewFog;
   float viewFogDensity;
   float viewFogColor[3];
+  int viewQuality;
   float viewX;
   float viewY;
   float viewW;

@@ -2,6 +2,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include "EditorApp.h"
 #include "Kizuri/Assets/LightmapBaker.h"
+#include "Kizuri/QualityPreset.h"
 #include "FileDialog.h"
 #include "Kizuri/DebugDraw.h"
 #include "Kizuri/Input.h"
@@ -1177,6 +1178,21 @@ void EditorApp::DrawSettings() {
       ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Render")) {
+      int q = viewQuality < 0 ? 2 : (viewQuality > 3 ? 3 : viewQuality);
+      if (ImGui::Combo("Quality", &q, "Low\0Medium\0High\0Ultra\0")) {
+        viewQuality = q;
+        Kizuri::QualitySettings qs = Kizuri::ApplyQualityPreset(static_cast<Kizuri::QualityLevel>(q));
+        viewSsao = qs.ssao;
+        viewSsr = qs.ssr;
+        viewContact = qs.contact;
+        viewSsgi = qs.ssgi;
+        viewDof = qs.dof;
+        viewMotion = qs.motionBlur;
+        viewFxaa = qs.fxaa;
+        viewFog = qs.fog;
+        viewBloom = qs.bloom;
+        viewScale = qs.renderScale;
+      }
       ImGui::SliderFloat("Render Scale", &viewScale, 0.5f, 1.0f);
       ImGui::SliderFloat("Sharpness", &viewSharp, 0.0f, 1.0f);
       ImGui::Checkbox("FXAA", &viewFxaa);

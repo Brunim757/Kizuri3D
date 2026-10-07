@@ -13,6 +13,7 @@
 #include "Kizuri/PBR.h"
 #include "Kizuri/DebugDraw.h"
 #include "Kizuri/Shadows.h"
+#include "Kizuri/QualityPreset.h"
 #include "Kizuri/DeferredRenderer.h"
 #include "Kizuri/Scene.h"
 #include "Kizuri/MultiSelection.h"
@@ -1342,6 +1343,25 @@ bool TestFrustumCullNull() {
   rhi->Shutdown();
   Kizuri::DestroyRHI(rhi);
   return culledOk;
+}
+bool TestQualityPreset() {
+  Kizuri::QualitySettings low = Kizuri::ApplyQualityPreset(Kizuri::QualityLevel::Low);
+  if (low.ssr || low.ssgi || low.dof || low.motionBlur || !low.fxaa || low.bloom != 0.0f || low.renderScale != 0.75f) {
+    return false;
+  }
+  Kizuri::QualitySettings ultra = Kizuri::ApplyQualityPreset(Kizuri::QualityLevel::Ultra);
+  if (!ultra.ssao || !ultra.ssr || !ultra.contact || !ultra.ssgi || !ultra.dof || !ultra.motionBlur || !ultra.fxaa || ultra.bloom != 1.0f || ultra.renderScale != 1.0f) {
+    return false;
+  }
+  Kizuri::QualitySettings high = Kizuri::ApplyQualityPreset(Kizuri::QualityLevel::High);
+  if (!high.ssgi || high.motionBlur || high.bloom != 0.8f) {
+    return false;
+  }
+  Kizuri::QualitySettings med = Kizuri::ApplyQualityPreset(Kizuri::QualityLevel::Medium);
+  if (!med.ssr || med.ssgi || med.renderScale != 0.85f) {
+    return false;
+  }
+  return true;
 }
 bool TestPartMaterial() {
   Kizuri::Scene src;
@@ -5555,6 +5575,7 @@ int main() {
   failures += Check("Scene-RoundTrip", TestSceneRoundTrip());
   failures += Check("Scene-MaterialExt", TestSceneMaterialExt());
   failures += Check("Part-Material", TestPartMaterial());
+  failures += Check("QualityPreset", TestQualityPreset());
   failures += Check("Scene-InvalidFile", TestSceneInvalid());
   failures += Check("Undo-Create", TestUndoCreate());
   failures += Check("Undo-Delete", TestUndoDelete());
