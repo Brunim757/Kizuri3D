@@ -384,6 +384,23 @@ public:
     context->Unmap(it->second.Get(), 0);
     return true;
   }
+  bool UpdateBufferDiscard(RHIBuffer buf, const void* data, size_t bytes) override {
+    auto it = buffers.find(buf);
+    if (it == buffers.end() || data == nullptr || bytes == 0) {
+      return false;
+    }
+    auto sz = sizes.find(buf);
+    if (sz == sizes.end() || bytes > sz->second) {
+      return false;
+    }
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    if (FAILED(context->Map(it->second.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+      return false;
+    }
+    std::memcpy(mapped.pData, data, bytes);
+    context->Unmap(it->second.Get(), 0);
+    return true;
+  }
   void DestroyBuffer(RHIBuffer buf) override {
     buffers.erase(buf);
     strides.erase(buf);
@@ -583,8 +600,72 @@ public:
     layouts[id] = layout;
     return id;
   }
-  void SetInputLayout(RHIInputLayout layout) override {
-    if (curLayout == layout) {
+  RHIInputLayout CreateInputLayoutPNUTInstanced(RHIVertexShader vs) override {
+    auto it = vsBlobs.find(vs);
+    if (it == vsBlobs.end()) {
+      return 0;
+    }
+    D3D11_INPUT_ELEMENT_DESC desc[9];
+    desc[0].SemanticName = "POSITION";
+    desc[0].SemanticIndex = 0;
+    desc[0].Format = DXGI_FORMAT_R32G32B32_FLOAT;
+    desc[0].InputSlot = 0;
+    desc[0].AlignedByteOffset = 0;
+    desc[0].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+    desc[0].InstanceDataStepRate = 0;
+    desc[1].SemanticName = "NORMAL";
+    desc[1].SemanticIndex = 0;
+    desc[1].Format = DXGI_FORMAT_R32G32B32_FLOAT;
+    desc[1].InputSlot = 0;
+    desc[1].AlignedByteOffset = 12;
+    desc[1].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+    desc[1].InstanceDataStepRate = 0;
+    desc[2].SemanticName = "TEXCOORD";
+    desc[2].SemanticIndex = 0;
+    desc[2].Format = DXGI_FORMAT_R32G32_FLOAT;
+    desc[2].InputSlot = 0;
+    desc[2].AlignedByteOffset = 24;
+    desc[2].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+    desc[2].InstanceDataStepRate = 0;
+    desc[3].SemanticName = "TANGENT";
+    desc[3].SemanticIndex = 0;
+    desc[3].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc[3].InputSlot = 0;
+    desc[3].AlignedByteOffset = 32;
+    desc[3].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+    desc[3].InstanceDataStepRate = 0;
+    desc[4].SemanticName = "TEXCOORD";
+    desc[4].SemanticIndex = 1;
+    desc[4].Format = DXGI_FORMAT_R32G32_FLOAT;
+    desc[4].InputSlot = 0;
+    desc[4].AlignedByteOffset = 48;
+    desc[4].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+    desc[4].InstanceDataStepRate = 0;
+    for (int r = 0; r < 4; ++r) {
+      desc[5 + r].SemanticName = "INSTANCE";
+      desc[5 + r].SemanticIndex = r;
+      desc[5 + r].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+      desc[5 + r].InputSlot = 1;
+      desc[5 + r].AlignedByteOffset = static_cast<UINT>(r * 16);
+      desc[5 + r].InputSlotClass = D3D11_INPUT_PER_INSTANCE_DATA;
+      desc[5 + r].InstanceDataStepRate = 1;
+    }
+    ComPtr<ID3D11InputLayout> layout;
+    if (FAILED(device->CreateInputLayout(desc, 9, it->second->GetBufferPointer(), it->second->GetBufferSize(), layout.GetAddressOf()))) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    layouts[id] = layout;
+    return id;
+  }
+  void SetInstanceBuffer(RHIBuffer buf) override {
+    auto it = buffers.find(buf);
+    ID3D11Buffer* b = it == buffers.end() ? nullptr : it->second.Get();
+    UINT stride = 64;
+    UINT offset = 0;
+    context->IASetVertexBuffers(1, 1, &b, &stride, &offset);
+  }
+  void SetInputLayout(RHIInputLayout layout) override {    if (curLayout == layout) {
       Note(true);
       return;
     }
@@ -1222,6 +1303,9 @@ public:
   }
   void DrawIndexed(uint32_t indexCount, uint32_t startIndex, int32_t baseVertex) override {
     context->DrawIndexed(indexCount, startIndex, baseVertex);
+  }
+  void DrawIndexedInstanced(uint32_t indexCount, uint32_t startIndex, int32_t baseVertex, uint32_t instanceCount) override {
+    context->DrawIndexedInstanced(indexCount, instanceCount, startIndex, baseVertex, 0);
   }
   void DrawFullscreenTriangle() override {
     context->IASetVertexBuffers(0, 0, nullptr, nullptr, nullptr);

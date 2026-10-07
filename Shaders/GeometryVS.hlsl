@@ -23,12 +23,12 @@ struct VSOut
     float2 luv : TEXCOORD4;
     float2 uv2 : TEXCOORD5;
 };
-VSOut main(VSIn vin)
+VSOut GeoMain(VSIn vin, float4x4 W)
 {
     VSOut vout;
-    float4 wp = mul(float4(vin.pos, 1.0), World);
+    float4 wp = mul(float4(vin.pos, 1.0), W);
     vout.wpos = wp.xyz;
-    float3x3 wrot = (float3x3)World;
+    float3x3 wrot = (float3x3)W;
     vout.wnrm = normalize(mul(vin.nrm, wrot));
     float4 vp = mul(wp, View);
     vout.pos = mul(vp, Proj);
@@ -42,4 +42,13 @@ VSOut main(VSIn vin)
     float3 toCam = camW - wp.xyz;
     vout.vts = float3(dot(toCam, wt), dot(toCam, wb), dot(toCam, vout.wnrm));
     return vout;
+}
+VSOut main(VSIn vin)
+{
+    return GeoMain(vin, World);
+}
+VSOut mainInst(VSIn vin, float4 i0 : INSTANCE0, float4 i1 : INSTANCE1, float4 i2 : INSTANCE2, float4 i3 : INSTANCE3)
+{
+    float4x4 iw = float4x4(i0, i1, i2, i3);
+    return GeoMain(vin, iw);
 }

@@ -86,6 +86,7 @@ public:
   virtual RHIBuffer CreateBuffer(uint64_t size, uint32_t stride, bool isIndex, const void* initialData) = 0;
   virtual RHIBuffer CreateBufferEmpty(uint64_t size, uint32_t stride, bool isIndex) = 0;
   virtual bool UpdateBufferRange(RHIBuffer buf, uint64_t offset, const void* data, size_t bytes) = 0;
+  virtual bool UpdateBufferDiscard(RHIBuffer buf, const void* data, size_t bytes) = 0;
   virtual void DestroyBuffer(RHIBuffer buf) = 0;
   virtual void SetVertexBuffer(RHIBuffer buf, uint32_t offset) = 0;
   virtual void SetIndexBuffer(RHIBuffer buf) = 0;
@@ -99,6 +100,8 @@ public:
   virtual void SetVertexShader(RHIVertexShader vs) = 0;
   virtual void SetPixelShader(RHIPixelShader ps) = 0;
   virtual RHIInputLayout CreateInputLayoutPNUT(RHIVertexShader vs) = 0;
+  virtual RHIInputLayout CreateInputLayoutPNUTInstanced(RHIVertexShader vs) = 0;
+  virtual void SetInstanceBuffer(RHIBuffer buf) = 0;
   virtual void SetInputLayout(RHIInputLayout layout) = 0;
   virtual void SetViewport(const RHIViewport& vp) = 0;
   virtual void SetTopology(RHITopology topo) = 0;
@@ -128,6 +131,7 @@ public:
   virtual RHIRenderTarget GetEnvCubeFace(RHITexture cube, int face) = 0;
   virtual void GenerateCubeMips(RHITexture cube) = 0;
   virtual void DrawIndexed(uint32_t indexCount, uint32_t startIndex, int32_t baseVertex) = 0;
+  virtual void DrawIndexedInstanced(uint32_t indexCount, uint32_t startIndex, int32_t baseVertex, uint32_t instanceCount) = 0;
   virtual void DrawFullscreenTriangle() = 0;
   virtual RHITimestamp CreateTimestamp() = 0;
   virtual void DestroyTimestamp(RHITimestamp ts) = 0;

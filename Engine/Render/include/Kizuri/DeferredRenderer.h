@@ -132,6 +132,16 @@ struct ForwardDrawItem {
   uint32_t count;
   DeferredMaterial mat;
 };
+struct GeoBatchItem {
+  float world[16];
+  RHIBuffer vb;
+  RHIBuffer ib;
+  uint32_t start;
+  uint32_t count;
+  DeferredMaterial mat;
+  float lodFade;
+  uint64_t matHash;
+};
 struct RenderStats {
   uint32_t geometryDraws = 0;
   uint64_t geometryTris = 0;
@@ -144,6 +154,7 @@ struct RenderStats {
   uint32_t postPasses = 0;
   uint32_t culledDraws = 0;
   uint32_t occludedDraws = 0;
+  uint32_t instancedDraws = 0;
   double msSubmit = 0.0;
   double msShadow = 0.0;
   double msDecal = 0.0;
@@ -314,6 +325,27 @@ public:
   void OccDrawEnd();
   void PollOcclusion();
   void SweepOcclusion();
+  struct OccGroup {
+    RHIOcclusionQuery q = 0;
+    uint64_t samples = 0;
+    bool hasResult = false;
+    uint32_t resultFrame = 0;
+    uint32_t queriedFrame = 0;
+    uint64_t memberHash = 0;
+  };
+  std::unordered_map<uint64_t, OccGroup> occGroups;
+  std::vector<GeoBatchItem> geoQueue;
+  RHIVertexShader geoVSInstanced;
+  RHIInputLayout instLayout;
+  RHIBuffer instVB;
+  uint64_t instCap;
+  bool batchOk;
+  static uint64_t MatHash(const DeferredMaterial& mat);
+  static uint64_t GeoGroupKey(const GeoBatchItem& item);
+  void SetGeoMaterial(const DeferredMaterial& use, float lodFade);
+  void DrawGeoSingle(const GeoBatchItem& item);
+  void DrawGeoInstanced(uint64_t key, const std::vector<size_t>& indices);
+  void FlushGeoQueue();
   bool dynResOn;
   float dynTargetMs;
   float dynMin;

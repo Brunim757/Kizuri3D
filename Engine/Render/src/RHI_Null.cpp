@@ -112,6 +112,17 @@ public:
     std::memcpy(it->second.bytes.data() + static_cast<size_t>(offset), data, bytes);
     return true;
   }
+  bool UpdateBufferDiscard(RHIBuffer buf, const void* data, size_t bytes) override {
+    auto it = buffers.find(buf);
+    if (it == buffers.end() || data == nullptr || bytes == 0) {
+      return false;
+    }
+    if (bytes > it->second.bytes.size()) {
+      return false;
+    }
+    std::memcpy(it->second.bytes.data(), data, bytes);
+    return true;
+  }
   void DestroyBuffer(RHIBuffer buf) override {
     buffers.erase(buf);
   }
@@ -207,6 +218,18 @@ public:
     uint64_t id = nextId++;
     shaders[id] = 1;
     return id;
+  }
+  RHIInputLayout CreateInputLayoutPNUTInstanced(RHIVertexShader vs) override {
+    if (vs == 0) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    shaders[id] = 1;
+    return id;
+  }
+  void SetInstanceBuffer(RHIBuffer buf) override {
+    (void)buf;
+    Note(false);
   }
   void SetInputLayout(RHIInputLayout layout) override {
     if (curLayout == layout) {
@@ -419,6 +442,12 @@ public:
     (void)indexCount;
     (void)startIndex;
     (void)baseVertex;
+  }
+  void DrawIndexedInstanced(uint32_t indexCount, uint32_t startIndex, int32_t baseVertex, uint32_t instanceCount) override {
+    (void)indexCount;
+    (void)startIndex;
+    (void)baseVertex;
+    (void)instanceCount;
   }
   void DrawFullscreenTriangle() override {
   }

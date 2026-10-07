@@ -332,7 +332,12 @@ DeferredRenderer::DeferredRenderer()
   , dynAccum(0.0)
   , occOn(true)
   , occFrame(0)
-  , occActive(0) {
+  , occActive(0)
+  , geoVSInstanced(0)
+  , instLayout(0)
+  , instVB(0)
+  , instCap(0)
+  , batchOk(true) {
   material.albedo[0] = 0.8f;
   material.albedo[1] = 0.2f;
   fogColor[0] = 0.6f;
@@ -500,6 +505,13 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (layout == 0) {
     return false;
   }
+  geoVSInstanced = rhi->CreateVertexShaderFromFile(geoVSPath.c_str(), "mainInst");
+  if (geoVSInstanced != 0) {
+    instLayout = rhi->CreateInputLayoutPNUTInstanced(geoVSInstanced);
+  }
+  if (geoVSInstanced == 0 || instLayout == 0) {
+    batchOk = false;
+  }
   GeoConstants gc;
   std::memset(&gc, 0, sizeof(gc));
   LightConstants lc;
@@ -636,6 +648,17 @@ void DeferredRenderer::Shutdown() {
   }
   occMap.clear();
   occActive = 0;
+  for (auto& kv : occGroups) {
+    if (kv.second.q != 0) {
+      rhi->DestroyOcclusionQuery(kv.second.q);
+    }
+  }
+  occGroups.clear();
+  if (instVB != 0) {
+    rhi->DestroyBuffer(instVB);
+    instVB = 0;
+  }
+  instCap = 0;
   if (gpuShadowTs != 0) {
     rhi->DestroyTimestamp(gpuShadowTs);
     gpuShadowTs = 0;
@@ -1668,6 +1691,20 @@ void DeferredRenderer::PollOcclusion() {
       kv.second.resultFrame = kv.second.queriedFrame;
     }
   }
+  for (auto& kv : occGroups) {
+    if (kv.second.hasResult && kv.second.resultFrame == kv.second.queriedFrame) {
+      continue;
+    }
+    if (kv.second.queriedFrame >= occFrame) {
+      continue;
+    }
+    uint64_t s = 0;
+    if (rhi->GetOcclusionSamples(kv.second.q, &s)) {
+      kv.second.samples = s;
+      kv.second.hasResult = true;
+      kv.second.resultFrame = kv.second.queriedFrame;
+    }
+  }
 }
 void DeferredRenderer::SweepOcclusion() {
   if (occMap.size() <= 1024) {
@@ -1690,6 +1727,18 @@ void DeferredRenderer::SweepOcclusion() {
       }
     }
     occMap.clear();
+  }
+  if (occGroups.size() > 256) {
+    for (auto it = occGroups.begin(); it != occGroups.end();) {
+      if (it->second.queriedFrame + 2 < occFrame) {
+        if (it->second.q != 0 && rhi != nullptr) {
+          rhi->DestroyOcclusionQuery(it->second.q);
+        }
+        it = occGroups.erase(it);
+      } else {
+        ++it;
+      }
+    }
   }
   occActive = 0;
 }
@@ -1717,6 +1766,7 @@ void DeferredRenderer::SetupGeometryPass() {
   shadowDraws.clear();
   decalDraws.clear();
   forwardDraws.clear();
+  geoQueue.clear();
   shadowMapsValid = false;
   ssaoValid = false;
   ssrValid = false;
@@ -1801,17 +1851,16 @@ void DeferredRenderer::DrawObject(const float world[16]) {
     forwardDraws.push_back(fwd);
     return;
   }
-  GeoConstants gc;
-  std::memcpy(gc.world, world, sizeof(gc.world));
-  std::memcpy(gc.view, lastView, sizeof(gc.view));
-  std::memcpy(gc.proj, lastProj, sizeof(gc.proj));
-  rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
-  if (OccDrawBegin(vb, ib, 0, static_cast<uint32_t>(indexCount), world)) {
-    rhi->DrawIndexed(indexCount, 0, 0);
-    OccDrawEnd();
-    ++stats.geometryDraws;
-    stats.geometryTris += indexCount / 3;
-  }
+  GeoBatchItem gi;
+  std::memcpy(gi.world, world, sizeof(gi.world));
+  gi.vb = vb;
+  gi.ib = ib;
+  gi.start = 0;
+  gi.count = indexCount;
+  gi.mat = material;
+  gi.lodFade = 0.0f;
+  gi.matHash = MatHash(material);
+  geoQueue.push_back(gi);
 }
 void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat, float lodFade, const float* aabbMin, const float* aabbMax) {
   if (!begun || world == nullptr || vb == 0 || ib == 0 || count == 0) {
@@ -1827,11 +1876,6 @@ void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuff
   if (CullWorldAABB(world, aabbMin, aabbMax)) {
     return;
   }
-  GeoConstants gc;
-  std::memcpy(gc.world, world, sizeof(gc.world));
-  std::memcpy(gc.view, lastView, sizeof(gc.view));
-  std::memcpy(gc.proj, lastProj, sizeof(gc.proj));
-  rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
   const DeferredMaterial& use = (mat != nullptr) ? *mat : material;
   if (use.transmission > 0.0f || use.alphaMode == 2) {
     ForwardDrawItem fwd;
@@ -1844,6 +1888,46 @@ void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuff
     forwardDraws.push_back(fwd);
     return;
   }
+  GeoBatchItem gi;
+  std::memcpy(gi.world, world, sizeof(gi.world));
+  gi.vb = vb;
+  gi.ib = ib;
+  gi.start = start;
+  gi.count = count;
+  gi.mat = use;
+  gi.lodFade = lodFade;
+  gi.matHash = MatHash(use);
+  geoQueue.push_back(gi);
+}
+uint64_t DeferredRenderer::MatHash(const DeferredMaterial& mat) {
+  uint64_t h = 1469598103934665603ull;
+  const unsigned char* p = reinterpret_cast<const unsigned char*>(&mat);
+  for (size_t i = 0; i < sizeof(DeferredMaterial); ++i) {
+    h ^= static_cast<uint64_t>(p[i]);
+    h *= 1099511628211ull;
+  }
+  return h == 0 ? 1 : h;
+}
+uint64_t DeferredRenderer::GeoGroupKey(const GeoBatchItem& item) {
+  uint64_t h = 1469598103934665603ull;
+  auto mix = [&h](const void* data, size_t bytes) {
+    const unsigned char* p = static_cast<const unsigned char*>(data);
+    for (size_t i = 0; i < bytes; ++i) {
+      h ^= static_cast<uint64_t>(p[i]);
+      h *= 1099511628211ull;
+    }
+  };
+  mix(&item.vb, sizeof(item.vb));
+  mix(&item.ib, sizeof(item.ib));
+  mix(&item.start, sizeof(item.start));
+  mix(&item.count, sizeof(item.count));
+  mix(&item.matHash, sizeof(item.matHash));
+  uint32_t fadeBits = 0;
+  std::memcpy(&fadeBits, &item.lodFade, sizeof(fadeBits));
+  mix(&fadeBits, sizeof(fadeBits));
+  return h == 0 ? 1 : h;
+}
+void DeferredRenderer::SetGeoMaterial(const DeferredMaterial& use, float lodFade) {
   MatConstants mc;
   MatExtConstants mec;
   uint32_t matRow = 0;
@@ -1890,9 +1974,8 @@ void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuff
   rhi->SetPixelSampler(2, geoSampler);
   rhi->SetPixelSampler(3, geoSampler);
   rhi->SetPixelSampler(4, geoSampler);
-  rhi->SetVertexBuffer(vb, 0);
-  rhi->SetIndexBuffer(ib);
-  if (use.doubleSided) {    RHIRasterizer rs;
+  if (use.doubleSided) {
+    RHIRasterizer rs;
     rs.cull = RHICull::None;
     rs.fill = RHIFill::Solid;
     rs.frontCCW = false;
@@ -1906,12 +1989,151 @@ void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuff
     rs.slopeBias = 0.0f;
     rhi->SetRasterizerState(rs);
   }
-  if (OccDrawBegin(vb, ib, start, count, world)) {
-    rhi->DrawIndexed(count, start, 0);
+}
+void DeferredRenderer::DrawGeoSingle(const GeoBatchItem& item) {
+  if (rhi == nullptr) {
+    return;
+  }
+  const DeferredMaterial& use = item.mat;
+  GeoConstants gc;
+  std::memcpy(gc.world, item.world, sizeof(gc.world));
+  std::memcpy(gc.view, lastView, sizeof(gc.view));
+  std::memcpy(gc.proj, lastProj, sizeof(gc.proj));
+  rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
+  rhi->SetVertexShader(geoVS);
+  rhi->SetInputLayout(layout);
+  rhi->SetPixelShader(geoPS);
+  rhi->SetVertexConstantBuffer(0, geoCB);
+  SetGeoMaterial(use, item.lodFade);
+  rhi->SetVertexBuffer(item.vb, 0);
+  rhi->SetIndexBuffer(item.ib);
+  if (OccDrawBegin(item.vb, item.ib, item.start, item.count, item.world)) {
+    rhi->DrawIndexed(item.count, item.start, 0);
     OccDrawEnd();
     ++stats.geometryDraws;
-    stats.geometryTris += count / 3;
+    stats.geometryTris += item.count / 3;
   }
+}
+void DeferredRenderer::DrawGeoInstanced(uint64_t key, const std::vector<size_t>& indices) {
+  if (rhi == nullptr || indices.empty()) {
+    return;
+  }
+  if (!batchOk || indices.size() < 2) {
+    for (size_t i : indices) {
+      DrawGeoSingle(geoQueue[i]);
+    }
+    return;
+  }
+  const GeoBatchItem& first = geoQueue[indices[0]];
+  uint64_t mh = 1469598103934665603ull;
+  for (size_t i : indices) {
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(geoQueue[i].world);
+    for (size_t b = 0; b < sizeof(float) * 16; ++b) {
+      mh ^= static_cast<uint64_t>(p[b]);
+      mh *= 1099511628211ull;
+    }
+  }
+  if (mh == 0) {
+    mh = 1;
+  }
+  auto git = occGroups.find(key);
+  if (!captureMode && git != occGroups.end() && git->second.hasResult && git->second.resultFrame + 1 == occFrame && git->second.memberHash == mh && git->second.samples == 0) {
+    stats.occludedDraws += static_cast<uint32_t>(indices.size());
+    return;
+  }
+  if (git == occGroups.end() && !captureMode) {
+    RHIOcclusionQuery q = rhi->CreateOcclusionQuery();
+    if (q == 0) {
+      for (size_t i : indices) {
+        DrawGeoSingle(geoQueue[i]);
+      }
+      return;
+    }
+    OccGroup g;
+    g.q = q;
+    occGroups[key] = g;
+    git = occGroups.find(key);
+  }
+  SetGeoMaterial(first.mat, first.lodFade);
+  GeoConstants gc;
+  float identity[16] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+  std::memcpy(gc.world, identity, sizeof(gc.world));
+  std::memcpy(gc.view, lastView, sizeof(gc.view));
+  std::memcpy(gc.proj, lastProj, sizeof(gc.proj));
+  rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
+  rhi->SetVertexShader(geoVSInstanced);
+  rhi->SetInputLayout(instLayout);
+  rhi->SetPixelShader(geoPS);
+  rhi->SetVertexConstantBuffer(0, geoCB);
+  rhi->SetVertexBuffer(first.vb, 0);
+  rhi->SetIndexBuffer(first.ib);
+  uint64_t need = static_cast<uint64_t>(indices.size()) * 64;
+  if (instVB == 0 || instCap < need) {
+    if (instVB != 0) {
+      rhi->DestroyBuffer(instVB);
+      instVB = 0;
+    }
+    uint64_t alloc = need < 64 ? 64 : need;
+    instVB = rhi->CreateBufferEmpty(alloc, 64, false);
+    instCap = instVB != 0 ? alloc : 0;
+  }
+  if (instVB == 0) {
+    for (size_t i : indices) {
+      DrawGeoSingle(geoQueue[i]);
+    }
+    return;
+  }
+  std::vector<unsigned char> bytes(static_cast<size_t>(need));
+  for (size_t k = 0; k < indices.size(); ++k) {
+    std::memcpy(bytes.data() + k * 64, geoQueue[indices[k]].world, 64);
+  }
+  if (!rhi->UpdateBufferDiscard(instVB, bytes.data(), static_cast<size_t>(need))) {
+    for (size_t i : indices) {
+      DrawGeoSingle(geoQueue[i]);
+    }
+    return;
+  }
+  rhi->SetInstanceBuffer(instVB);
+  if (!captureMode && git != occGroups.end()) {
+    git->second.memberHash = mh;
+    git->second.queriedFrame = occFrame;
+    rhi->BeginOcclusionQuery(git->second.q);
+    rhi->DrawIndexedInstanced(first.count, first.start, 0, static_cast<uint32_t>(indices.size()));
+    rhi->EndOcclusionQuery(git->second.q);
+  } else {
+    rhi->DrawIndexedInstanced(first.count, first.start, 0, static_cast<uint32_t>(indices.size()));
+  }
+  stats.geometryDraws += static_cast<uint32_t>(indices.size());
+  stats.geometryTris += static_cast<uint64_t>(first.count / 3) * static_cast<uint64_t>(indices.size());
+  ++stats.instancedDraws;
+}
+void DeferredRenderer::FlushGeoQueue() {
+  if (rhi == nullptr || geoQueue.empty()) {
+    geoQueue.clear();
+    return;
+  }
+  std::unordered_map<uint64_t, std::vector<size_t>> groups;
+  std::vector<uint64_t> order;
+  for (size_t i = 0; i < geoQueue.size(); ++i) {
+    uint64_t key = GeoGroupKey(geoQueue[i]);
+    auto it = groups.find(key);
+    if (it == groups.end()) {
+      groups[key] = std::vector<size_t>();
+      order.push_back(key);
+    }
+    groups[key].push_back(i);
+  }
+  for (size_t o = 0; o < order.size(); ++o) {
+    const std::vector<size_t>& idx = groups[order[o]];
+    if (idx.size() < 2 || !batchOk) {
+      for (size_t i : idx) {
+        DrawGeoSingle(geoQueue[i]);
+      }
+    } else {
+      DrawGeoInstanced(order[o], idx);
+    }
+  }
+  geoQueue.clear();
 }
 void DeferredRenderer::DrawDecal(const float world[16], const float invWorld[16], const float size[3], float fade, RHITexture tex) {
   if (!begun || world == nullptr || invWorld == nullptr || size == nullptr || tex == 0) {
@@ -2150,6 +2372,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   }
   begun = false;
   stats.msSubmit = ElapsedMs(frameStart, std::chrono::steady_clock::now());
+  FlushGeoQueue();
   if (!captureMode) {
     BeginShadowSection();
     RenderShadowMaps();
