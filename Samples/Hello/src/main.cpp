@@ -1412,6 +1412,60 @@ bool TestRenderStats() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
+bool TestDynamicResolution() {
+  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  if (rhi == nullptr) {
+    return false;
+  }
+  Kizuri::RHIDesc desc;
+  desc.windowHandle = nullptr;
+  desc.width = 160;
+  desc.height = 100;
+  desc.vsync = false;
+  if (!rhi->Initialize(desc)) {
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  Kizuri::DeferredRenderer renderer;
+  const char* shaderDirs[3] = { "Shaders", "Samples/../Shaders", "." };
+  bool rok = false;
+  for (int i = 0; i < 3 && !rok; ++i) {
+    if (renderer.Initialize(rhi, 160, 100, shaderDirs[i])) {
+      rok = true;
+    } else {
+      renderer.Shutdown();
+    }
+  }
+  if (!rok) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  renderer.SetFsr(0.5f, 0.5f);
+  renderer.SetDynamicResolution(true, 100.0f, 0.5f, 1.0f);
+  if (renderer.GetDynamicScale() != 0.5f) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float cam[3] = { 0, 0, 0 };
+  for (int f = 0; f < 65; ++f) {
+    renderer.BeginObjects(view, proj);
+    renderer.EndObjectsToTexture(cam);
+  }
+  bool ok = renderer.GetDynamicScale() > 0.55f;
+  renderer.SetDynamicResolution(false, 100.0f, 0.5f, 1.0f);
+  float manual = renderer.GetDynamicScale();
+  ok = ok && manual >= 0.5f && manual <= 1.0f;
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
 bool TestQualityPreset() {
   Kizuri::QualitySettings low = Kizuri::ApplyQualityPreset(Kizuri::QualityLevel::Low);
   if (low.ssr || low.ssgi || low.dof || low.motionBlur || !low.fxaa || low.bloom != 0.0f || low.renderScale != 0.75f) {
@@ -5625,6 +5679,7 @@ int main() {
   failures += Check("FrustumCull", TestFrustumCull());
   failures += Check("FrustumCullNull", TestFrustumCullNull());
   failures += Check("RenderStats", TestRenderStats());
+  failures += Check("DynamicResolution", TestDynamicResolution());
   failures += Check("RHI-StateCache", TestStateCache());
   failures += Check("FreeCamera", TestCamera());
   failures += Check("MeshLoader-gltf", TestMeshLoader());

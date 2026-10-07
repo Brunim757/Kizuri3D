@@ -1195,6 +1195,15 @@ void EditorApp::DrawSettings() {
       }
       ImGui::SliderFloat("Render Scale", &viewScale, 0.5f, 1.0f);
       ImGui::SliderFloat("Sharpness", &viewSharp, 0.0f, 1.0f);
+      if (ImGui::Checkbox("Dynamic Resolution", &viewDynRes)) {
+        renderer.SetDynamicResolution(viewDynRes, viewDynTarget, 0.5f, 1.0f);
+      }
+      if (viewDynRes) {
+        if (ImGui::SliderFloat("Target ms", &viewDynTarget, 8.0f, 33.0f)) {
+          renderer.SetDynamicResolution(true, viewDynTarget, 0.5f, 1.0f);
+        }
+        viewScale = renderer.GetDynamicScale();
+      }
       ImGui::Checkbox("FXAA", &viewFxaa);
       ImGui::SliderFloat("Env Intensity", &viewEnv, 0.0f, 4.0f);
       if (ImGui::Button("Bake Environment")) {

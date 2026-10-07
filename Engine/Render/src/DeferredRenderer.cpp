@@ -322,7 +322,14 @@ DeferredRenderer::DeferredRenderer()
   , ready(false)
   , gpuShadowTs(0)
   , gpuLightTs(0)
-  , gpuPostTs(0) {
+  , gpuPostTs(0)
+  , dynResOn(false)
+  , dynTargetMs(16.6f)
+  , dynMin(0.5f)
+  , dynMax(1.0f)
+  , dynScale(1.0f)
+  , dynFrames(0)
+  , dynAccum(0.0) {
   material.albedo[0] = 0.8f;
   material.albedo[1] = 0.2f;
   fogColor[0] = 0.6f;
@@ -1448,6 +1455,62 @@ uint32_t DeferredRenderer::CulledDraws() const {
 }
 const RenderStats& DeferredRenderer::GetStats() const {
   return stats;
+}
+void DeferredRenderer::SetDynamicResolution(bool on, float targetMs, float minScale, float maxScale) {
+  dynResOn = on;
+  if (targetMs > 0.0f) {
+    dynTargetMs = targetMs;
+  }
+  if (minScale < 0.25f) {
+    minScale = 0.25f;
+  }
+  if (maxScale > 1.0f) {
+    maxScale = 1.0f;
+  }
+  if (minScale > maxScale) {
+    minScale = maxScale;
+  }
+  dynMin = minScale;
+  dynMax = maxScale;
+  dynScale = renderScale;
+  if (dynScale < dynMin) {
+    dynScale = dynMin;
+  }
+  if (dynScale > dynMax) {
+    dynScale = dynMax;
+  }
+  dynFrames = 0;
+  dynAccum = 0.0;
+}
+float DeferredRenderer::GetDynamicScale() const {
+  if (!dynResOn) {
+    return renderScale;
+  }
+  return dynScale;
+}
+void DeferredRenderer::UpdateDynamicResolution() {
+  double signal = stats.gpuValid ? stats.gpuMs : stats.msTotal;
+  dynAccum += signal;
+  ++dynFrames;
+  if (dynFrames < 30) {
+    return;
+  }
+  double avg = dynAccum / static_cast<double>(dynFrames);
+  dynFrames = 0;
+  dynAccum = 0.0;
+  if (avg > static_cast<double>(dynTargetMs) * 1.1 && dynScale > dynMin) {
+    dynScale -= 0.05f;
+    if (dynScale < dynMin) {
+      dynScale = dynMin;
+    }
+    SetFsr(dynScale, fsrSharpness);
+  } else if (avg < static_cast<double>(dynTargetMs) * 0.9 && dynScale < dynMax) {
+    dynScale += 0.05f;
+    if (dynScale > dynMax) {
+      dynScale = dynMax;
+    }
+    SetFsr(dynScale, fsrSharpness);
+  }
 }
 double DeferredRenderer::ElapsedMs(const std::chrono::steady_clock::time_point& from, const std::chrono::steady_clock::time_point& to) {
   return std::chrono::duration<double, std::milli>(to - from).count();
@@ -2642,6 +2705,9 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     stats.textureBytes = texB;
     stats.targetBytes = tgtB;
     stats.bufferBytes = bufB;
+    if (dynResOn) {
+      UpdateDynamicResolution();
+    }
     rhi->BindBackbuffer();
   }
 }

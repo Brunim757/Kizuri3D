@@ -206,6 +206,8 @@ public:
   bool IsReady() const;
   uint32_t CulledDraws() const;
   const RenderStats& GetStats() const;
+  void SetDynamicResolution(bool on, float targetMs, float minScale, float maxScale);
+  float GetDynamicScale() const;
  private:
   IRHI* rhi;
   int w;
@@ -293,6 +295,14 @@ public:
   void EndPostSection();
   static double ElapsedMs(const std::chrono::steady_clock::time_point& from, const std::chrono::steady_clock::time_point& to);
   void PollGpuTimers();
+  bool dynResOn;
+  float dynTargetMs;
+  float dynMin;
+  float dynMax;
+  float dynScale;
+  int dynFrames;
+  double dynAccum;
+  void UpdateDynamicResolution();
   float meshMin[3];
   float meshMax[3];
   bool meshHasBounds;
