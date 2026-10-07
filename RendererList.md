@@ -225,7 +225,7 @@ Sem Ray Tracing
 
 11. Geometry / Rendering
 
-- [ ] Frustum culling
+- [x] Frustum culling
 - [ ] Occlusion culling
 - [ ] Hierarchical Z-buffer
 - [ ] GPU culling
@@ -336,11 +336,11 @@ Sem Ray Tracing
 - [ ] Shader permutation statistics
 - [ ] Dynamic resolution
 - [x] Resolution scaling
-- [ ] Quality presets
-- [ ] Low
-- [ ] Medium
-- [ ] High
-- [ ] Ultra
+- [x] Quality presets
+- [x] Low
+- [x] Medium
+- [x] High
+- [x] Ultra
 - [ ] Custom
 - [ ] Automatic quality scaling
 
@@ -412,8 +412,9 @@ Sem Ray Tracing
 - [x] GPU instancing
 - [x] Asset dependency graph
 - [ ] Incremental importing
-- [ ] Import cache
+- [x] Import cache
 - [x] Background importing
+- [x] Parallel import (textures + geometry)
 - [x] Asset hot reload
 - [ ] Asset versioning
 - [ ] Asset validation
