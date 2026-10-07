@@ -247,7 +247,7 @@ bool ReadIndex(const cgltf_accessor* acc, size_t idx, uint32_t& v) {
   }
   return false;
 }
-bool ImportEmbeddedTexture(const cgltf_texture* ctex, const std::string& glbPath, uint64_t hash, int& texCounter, TexKind kind, std::string& guidOut, LogStore* log) {
+bool ImportEmbeddedTexture(const cgltf_texture* ctex, const std::string& glbPath, uint64_t hash, int texIndex, TexKind kind, std::string& guidOut, LogStore* log) {
   guidOut.clear();
   if (ctex == nullptr) {
     return false;
@@ -348,31 +348,113 @@ bool DecodeGltfImageRgba(const cgltf_texture* ctex, const std::string& glbPath, 
   }
   return DecodeWebp(bytes.data(), bytes.size(), rgba, w, h);
 }
-bool ImportOrmTextures(const cgltf_material* mat, const std::string& glbPath, uint64_t hash, int& texCounter, const MeshMaterialData& md, std::string& guidOut) {
-  guidOut.clear();
-  if (mat == nullptr) {
+enum class TexJobType {
+  Single,
+  OrmPack,
+  SgPack
+};
+struct TexJob {
+  TexJobType type = TexJobType::Single;
+  const cgltf_texture* tex = nullptr;
+  TexKind kind = TexKind::Color;
+  const cgltf_texture_view* mrView = nullptr;
+  const cgltf_texture_view* occView = nullptr;
+  float rough = 1.0f;
+  float metal = 0.0f;
+  std::string glbPath;
+  uint64_t hash = 0;
+  int texIndex = 0;
+  size_t matIdx = 0;
+  std::string MeshMaterialData::* guidField = nullptr;
+  bool writeMetallic = false;
+};
+bool RunTexJob(const TexJob& job, std::vector<MeshMaterialData>& outMats, LogStore* log) {
+  if (job.matIdx >= outMats.size() || job.guidField == nullptr) {
     return false;
   }
-  const cgltf_texture_view* mrView = nullptr;
-  if (mat->has_pbr_metallic_roughness && mat->pbr_metallic_roughness.metallic_roughness_texture.texture != nullptr) {
-    mrView = &mat->pbr_metallic_roughness.metallic_roughness_texture;
+  MeshMaterialData& md = outMats[job.matIdx];
+  std::string& guidOut = md.*(job.guidField);
+  guidOut.clear();
+  if (job.type == TexJobType::Single) {
+    return ImportEmbeddedTexture(job.tex, job.glbPath, job.hash, job.texIndex, job.kind, guidOut, log);
   }
-  const cgltf_texture_view* occView = nullptr;
-  if (mat->occlusion_texture.texture != nullptr) {
-    occView = &mat->occlusion_texture;
+  std::filesystem::path glbFile(job.glbPath);
+  std::string texName = glbFile.stem().string() + "_tex" + std::to_string(job.texIndex) + ".kztex";
+  std::string texOut = (glbFile.parent_path() / texName).string();
+  std::string keepTex;
+  TextureAssetData probe;
+  if (DecodeTextureFile(texOut, probe) && !probe.guid.empty()) {
+    keepTex = probe.guid;
   }
+  if (job.type == TexJobType::SgPack) {
+    if (job.tex == nullptr) {
+      return false;
+    }
+    std::vector<unsigned char> rgba;
+    int w = 0;
+    int h = 0;
+    if (!DecodeGltfImageRgba(job.tex, job.glbPath, rgba, w, h)) {
+      if (log != nullptr) {
+        log->Add(LogLevel::Warning, "spec-gloss texture decode failed");
+      }
+      return false;
+    }
+    float metallic = 0.0f;
+    double lumSum = 0.0;
+    size_t lumCount = static_cast<size_t>(w) * static_cast<size_t>(h);
+    for (size_t li = 0; li < lumCount; ++li) {
+      lumSum += (static_cast<double>(rgba[li * 4 + 0]) + static_cast<double>(rgba[li * 4 + 1]) + static_cast<double>(rgba[li * 4 + 2])) / (3.0 * 255.0);
+    }
+    float avgLum = lumCount > 0 ? static_cast<float>(lumSum / static_cast<double>(lumCount)) : 0.0f;
+    if (avgLum > 0.15f) {
+      metallic = (avgLum - 0.04f) / 0.96f;
+      if (metallic < 0.0f) {
+        metallic = 0.0f;
+      }
+      if (metallic > 1.0f) {
+        metallic = 1.0f;
+      }
+      if (log != nullptr) {
+        log->Add(LogLevel::Warning, "spec-gloss metallic inferred from specular texture");
+      }
+    }
+    if (job.writeMetallic) {
+      md.metallic = metallic;
+    }
+    std::vector<unsigned char> orm(static_cast<size_t>(w) * static_cast<size_t>(h) * 4);
+    for (int y = 0; y < h; ++y) {
+      for (int x = 0; x < w; ++x) {
+        size_t s = (static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)) * 4;
+        orm[s + 0] = 255;
+        orm[s + 1] = static_cast<unsigned char>(job.rough * 255.0f + 0.5f);
+        orm[s + 2] = static_cast<unsigned char>(metallic * 255.0f + 0.5f);
+        orm[s + 3] = 255;
+      }
+    }
+    TextureAssetData tdata;
+    if (CompressTexturePixels(orm.data(), w, h, keepTex, tdata, "orm", TexKind::Orm, job.glbPath, job.hash) && EncodeTextureFile(tdata, texOut)) {
+      guidOut = tdata.guid;
+      return true;
+    }
+    return false;
+  }
+  const cgltf_texture_view* mrView = job.mrView;
+  const cgltf_texture_view* occView = job.occView;
   if (mrView == nullptr && occView == nullptr) {
     return false;
   }
   std::vector<unsigned char> mrPx;
   int mrW = 0;
   int mrH = 0;
-  bool hasMr = mrView != nullptr && DecodeGltfImageRgba(mrView->texture, glbPath, mrPx, mrW, mrH);
+  bool hasMr = mrView != nullptr && DecodeGltfImageRgba(mrView->texture, job.glbPath, mrPx, mrW, mrH);
   std::vector<unsigned char> ocPx;
   int ocW = 0;
   int ocH = 0;
-  bool hasOc = occView != nullptr && DecodeGltfImageRgba(occView->texture, glbPath, ocPx, ocW, ocH);
+  bool hasOc = occView != nullptr && DecodeGltfImageRgba(occView->texture, job.glbPath, ocPx, ocW, ocH);
   if (!hasMr && !hasOc) {
+    if (log != nullptr) {
+      log->Add(LogLevel::Warning, "ORM texture decode failed");
+    }
     return false;
   }
   int W = hasMr ? mrW : ocW;
@@ -389,8 +471,8 @@ bool ImportOrmTextures(const cgltf_material* mat, const std::string& glbPath, ui
     for (int x = 0; x < W; ++x) {
       size_t d = (static_cast<size_t>(y) * static_cast<size_t>(W) + static_cast<size_t>(x)) * 4;
       float r = 255.0f;
-      float g = md.roughness * 255.0f;
-      float b = md.metallic * 255.0f;
+      float g = job.rough * 255.0f;
+      float b = job.metal * 255.0f;
       if (hasOc) {
         int sx = x * ocW / W;
         int sy = y * ocH / H;
@@ -401,8 +483,8 @@ bool ImportOrmTextures(const cgltf_material* mat, const std::string& glbPath, ui
         int sx = x * mrW / W;
         int sy = y * mrH / H;
         size_t s = (static_cast<size_t>(sy) * static_cast<size_t>(mrW) + static_cast<size_t>(sx)) * 4;
-        g = md.roughness * static_cast<float>(mrPx[s + 1]);
-        b = md.metallic * static_cast<float>(mrPx[s + 2]);
+        g = job.rough * static_cast<float>(mrPx[s + 1]);
+        b = job.metal * static_cast<float>(mrPx[s + 2]);
       }
       if (r < 0.0f) {
         r = 0.0f;
@@ -425,16 +507,8 @@ bool ImportOrmTextures(const cgltf_material* mat, const std::string& glbPath, ui
       orm[d + 3] = 255;
     }
   }
-  std::filesystem::path glbFile(glbPath);
-  std::string texName = glbFile.stem().string() + "_tex" + std::to_string(texCounter++) + ".kztex";
-  std::string texOut = (glbFile.parent_path() / texName).string();
-  std::string keepTex;
-  TextureAssetData probe;
-  if (DecodeTextureFile(texOut, probe) && !probe.guid.empty()) {
-    keepTex = probe.guid;
-  }
   TextureAssetData tdata;
-  if (!CompressTexturePixels(orm.data(), W, H, keepTex, tdata, "orm", TexKind::Orm, glbPath, hash)) {
+  if (!CompressTexturePixels(orm.data(), W, H, keepTex, tdata, "orm", TexKind::Orm, job.glbPath, job.hash)) {
     return false;
   }
   orm.clear();
@@ -498,7 +572,7 @@ void ReadTextureXform(const cgltf_texture_view& view, MeshMaterialData& md, int 
     x.uvSet = view.transform.texcoord;
   }
 }
-void ParseMaterial(const cgltf_material* cmat, const std::string& glbPath, uint64_t hash, int& texCounter, MeshMaterialData& md, LogStore* log) {
+void ParseMaterialFactors(const cgltf_material* cmat, MeshMaterialData& md, LogStore* log) {
   md.name = cmat->name != nullptr ? cmat->name : "Material";
   md.doubleSided = cmat->double_sided != 0;
   if (cmat->alpha_mode == cgltf_alpha_mode_mask) {
@@ -529,54 +603,9 @@ void ParseMaterial(const cgltf_material* cmat, const std::string& glbPath, uint6
     }
     md.roughness = 1.0f - gloss;
     md.metallic = 0.0f;
-    ImportEmbeddedTexture(sg.diffuse_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.albedoTexGuid, log);
-    ImportEmbeddedTexture(cmat->normal_texture.texture, glbPath, hash, texCounter, TexKind::Normal, md.normalTexGuid, log);
     ReadTextureXform(sg.diffuse_texture, md, 0);
     ReadTextureXform(cmat->normal_texture, md, 1);
-    const cgltf_texture* sgTex = sg.specular_glossiness_texture.texture;
-    if (sgTex != nullptr) {
-      std::vector<unsigned char> rgba;
-      int w = 0;
-      int h = 0;
-      if (DecodeGltfImageRgba(sgTex, glbPath, rgba, w, h)) {
-        double lumSum = 0.0;
-        size_t lumCount = static_cast<size_t>(w) * static_cast<size_t>(h);
-        for (size_t li = 0; li < lumCount; ++li) {
-          lumSum += (static_cast<double>(rgba[li * 4 + 0]) + static_cast<double>(rgba[li * 4 + 1]) + static_cast<double>(rgba[li * 4 + 2])) / (3.0 * 255.0);
-        }
-        float avgLum = lumCount > 0 ? static_cast<float>(lumSum / static_cast<double>(lumCount)) : 0.0f;
-        if (avgLum > 0.15f) {
-          md.metallic = (avgLum - 0.04f) / 0.96f;
-          if (md.metallic < 0.0f) {
-            md.metallic = 0.0f;
-          }
-          if (md.metallic > 1.0f) {
-            md.metallic = 1.0f;
-          }
-          if (log != nullptr) {
-            log->Add(LogLevel::Warning, "spec-gloss metallic inferred from specular texture");
-          }
-        }
-        std::vector<unsigned char> orm(static_cast<size_t>(w) * static_cast<size_t>(h) * 4);
-        for (int y = 0; y < h; ++y) {
-          for (int x = 0; x < w; ++x) {
-            size_t s = (static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)) * 4;
-            orm[s + 0] = 255;
-            orm[s + 1] = static_cast<unsigned char>(md.roughness * 255.0f + 0.5f);
-            orm[s + 2] = static_cast<unsigned char>(md.metallic * 255.0f + 0.5f);
-            orm[s + 3] = 255;
-          }
-        }
-        std::filesystem::path glbFile(glbPath);
-        std::string texName = glbFile.stem().string() + "_tex" + std::to_string(texCounter++) + ".kztex";
-        std::string texOut = (glbFile.parent_path() / texName).string();
-        TextureAssetData tdata;
-        if (CompressTexturePixels(orm.data(), w, h, "", tdata, "orm", TexKind::Orm, glbPath, hash) && EncodeTextureFile(tdata, texOut)) {
-          md.ormTexGuid = tdata.guid;
-        }
-      }
-    }
-  } else if (cmat->has_pbr_metallic_roughness != 0) {
+} else if (cmat->has_pbr_metallic_roughness != 0) {
     const cgltf_pbr_metallic_roughness& mr = cmat->pbr_metallic_roughness;
     md.albedo[0] = mr.base_color_factor[0];
     md.albedo[1] = mr.base_color_factor[1];
@@ -584,14 +613,10 @@ void ParseMaterial(const cgltf_material* cmat, const std::string& glbPath, uint6
     md.alpha = mr.base_color_factor[3];
     md.metallic = mr.metallic_factor;
     md.roughness = mr.roughness_factor;
-    ImportEmbeddedTexture(mr.base_color_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.albedoTexGuid, log);
-    ImportEmbeddedTexture(cmat->normal_texture.texture, glbPath, hash, texCounter, TexKind::Normal, md.normalTexGuid, log);
-    ImportOrmTextures(cmat, glbPath, hash, texCounter, md, md.ormTexGuid);
     ReadTextureXform(mr.base_color_texture, md, 0);
     ReadTextureXform(cmat->normal_texture, md, 1);
     ReadTextureXform(mr.metallic_roughness_texture, md, 2);
   }
-  ImportEmbeddedTexture(cmat->emissive_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.emissiveTexGuid, log);
   ReadTextureXform(cmat->emissive_texture, md, 4);
   if (cmat->has_ior != 0) {
     md.ior = cmat->ior.ior;
@@ -602,27 +627,19 @@ void ParseMaterial(const cgltf_material* cmat, const std::string& glbPath, uint6
     md.specularColor[1] = cmat->specular.specular_color_factor[1];
     md.specularColor[2] = cmat->specular.specular_color_factor[2];
     md.specularStrength = cmat->specular.specular_factor;
-    ImportEmbeddedTexture(cmat->specular.specular_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.specularTexGuid, log);
-    ImportEmbeddedTexture(cmat->specular.specular_color_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.specularColorTexGuid, log);
   }
   if (cmat->has_clearcoat != 0) {
     md.clearcoat = cmat->clearcoat.clearcoat_factor;
     md.clearcoatRoughness = cmat->clearcoat.clearcoat_roughness_factor;
-    ImportEmbeddedTexture(cmat->clearcoat.clearcoat_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.clearcoatTexGuid, log);
-    ImportEmbeddedTexture(cmat->clearcoat.clearcoat_roughness_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.clearcoatRoughnessTexGuid, log);
-    ImportEmbeddedTexture(cmat->clearcoat.clearcoat_normal_texture.texture, glbPath, hash, texCounter, TexKind::Normal, md.clearcoatNormalTexGuid, log);
   }
   if (cmat->has_sheen != 0) {
     md.sheenColor[0] = cmat->sheen.sheen_color_factor[0];
     md.sheenColor[1] = cmat->sheen.sheen_color_factor[1];
     md.sheenColor[2] = cmat->sheen.sheen_color_factor[2];
     md.sheenRoughness = cmat->sheen.sheen_roughness_factor;
-    ImportEmbeddedTexture(cmat->sheen.sheen_color_texture.texture, glbPath, hash, texCounter, TexKind::Color, md.sheenColorTexGuid, log);
-    ImportEmbeddedTexture(cmat->sheen.sheen_roughness_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.sheenRoughnessTexGuid, log);
   }
   if (cmat->has_transmission != 0) {
     md.transmission = cmat->transmission.transmission_factor;
-    ImportEmbeddedTexture(cmat->transmission.transmission_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.transmissionTexGuid, log);
   }
   if (cmat->has_volume != 0) {
     md.thickness = cmat->volume.thickness_factor;
@@ -630,15 +647,12 @@ void ParseMaterial(const cgltf_material* cmat, const std::string& glbPath, uint6
     md.attenuationColor[1] = cmat->volume.attenuation_color[1];
     md.attenuationColor[2] = cmat->volume.attenuation_color[2];
     md.attenuationDistance = cmat->volume.attenuation_distance;
-    ImportEmbeddedTexture(cmat->volume.thickness_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.thicknessTexGuid, log);
   }
   if (cmat->has_iridescence != 0) {
     md.iridescence = cmat->iridescence.iridescence_factor;
     md.iridescenceIor = cmat->iridescence.iridescence_ior;
     md.iridescenceThicknessMin = cmat->iridescence.iridescence_thickness_min;
     md.iridescenceThicknessMax = cmat->iridescence.iridescence_thickness_max;
-    ImportEmbeddedTexture(cmat->iridescence.iridescence_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.iridescenceTexGuid, log);
-    ImportEmbeddedTexture(cmat->iridescence.iridescence_thickness_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.iridescenceThicknessTexGuid, log);
   }
   if (cmat->has_diffuse_transmission != 0) {
     if (log != nullptr) {
@@ -648,31 +662,120 @@ void ParseMaterial(const cgltf_material* cmat, const std::string& glbPath, uint6
     if (dt > md.transmission) {
       md.transmission = dt;
     }
-    if (md.transmissionTexGuid.empty()) {
-      ImportEmbeddedTexture(cmat->diffuse_transmission.diffuse_transmission_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.transmissionTexGuid, log);
-    }
+
   }
   if (cmat->has_anisotropy != 0) {
     md.anisotropy = cmat->anisotropy.anisotropy_strength;
     md.anisotropyRotation = cmat->anisotropy.anisotropy_rotation;
-    ImportEmbeddedTexture(cmat->anisotropy.anisotropy_texture.texture, glbPath, hash, texCounter, TexKind::Orm, md.anisotropyTexGuid, log);
   }
   if (cmat->has_dispersion != 0) {
     md.dispersion = cmat->dispersion.dispersion;
   }
 }
-uint32_t ParseMaterialCached(cgltf_data* data, const cgltf_material* cmat, const std::string& glbPath, uint64_t hash, int& texCounter, MeshAssetData& out, std::vector<long>& matMap, LogStore* log) {
+void AppendTexJob(std::vector<TexJob>& jobs, TexJobType type, const cgltf_texture* tex, TexKind kind, const std::string& glbPath, uint64_t hash, int& texCounter, size_t matIdx, std::string MeshMaterialData::*field) {
+  if (tex == nullptr) {
+    return;
+  }
+  TexJob job;
+  job.type = type;
+  job.tex = tex;
+  job.kind = kind;
+  job.glbPath = glbPath;
+  job.hash = hash;
+  job.texIndex = texCounter++;
+  job.matIdx = matIdx;
+  job.guidField = field;
+  jobs.push_back(job);
+}
+void CollectTexJobs(const cgltf_material* cmat, const std::string& glbPath, uint64_t hash, int& texCounter, size_t matIdx, const MeshMaterialData& md, std::vector<TexJob>& jobs) {
+  if (cmat->has_pbr_specular_glossiness != 0) {
+    const cgltf_pbr_specular_glossiness& sg = cmat->pbr_specular_glossiness;
+    AppendTexJob(jobs, TexJobType::Single, sg.diffuse_texture.texture, TexKind::Color, glbPath, hash, texCounter, matIdx, &MeshMaterialData::albedoTexGuid);
+    AppendTexJob(jobs, TexJobType::Single, cmat->normal_texture.texture, TexKind::Normal, glbPath, hash, texCounter, matIdx, &MeshMaterialData::normalTexGuid);
+    if (sg.specular_glossiness_texture.texture != nullptr) {
+      TexJob job;
+      job.type = TexJobType::SgPack;
+      job.tex = sg.specular_glossiness_texture.texture;
+      job.rough = md.roughness;
+      job.glbPath = glbPath;
+      job.hash = hash;
+      job.texIndex = texCounter++;
+      job.matIdx = matIdx;
+      job.guidField = &MeshMaterialData::ormTexGuid;
+      job.writeMetallic = true;
+      jobs.push_back(job);
+    }
+  } else if (cmat->has_pbr_metallic_roughness != 0) {
+    const cgltf_pbr_metallic_roughness& mr = cmat->pbr_metallic_roughness;
+    AppendTexJob(jobs, TexJobType::Single, mr.base_color_texture.texture, TexKind::Color, glbPath, hash, texCounter, matIdx, &MeshMaterialData::albedoTexGuid);
+    AppendTexJob(jobs, TexJobType::Single, cmat->normal_texture.texture, TexKind::Normal, glbPath, hash, texCounter, matIdx, &MeshMaterialData::normalTexGuid);
+    const cgltf_texture_view* mrView = nullptr;
+    if (mr.metallic_roughness_texture.texture != nullptr) {
+      mrView = &mr.metallic_roughness_texture;
+    }
+    const cgltf_texture_view* occView = nullptr;
+    if (cmat->occlusion_texture.texture != nullptr) {
+      occView = &cmat->occlusion_texture;
+    }
+    if (mrView != nullptr || occView != nullptr) {
+      TexJob job;
+      job.type = TexJobType::OrmPack;
+      job.mrView = mrView;
+      job.occView = occView;
+      job.rough = md.roughness;
+      job.metal = md.metallic;
+      job.glbPath = glbPath;
+      job.hash = hash;
+      job.texIndex = texCounter++;
+      job.matIdx = matIdx;
+      job.guidField = &MeshMaterialData::ormTexGuid;
+      jobs.push_back(job);
+    }
+  }
+  AppendTexJob(jobs, TexJobType::Single, cmat->emissive_texture.texture, TexKind::Color, glbPath, hash, texCounter, matIdx, &MeshMaterialData::emissiveTexGuid);
+  if (cmat->has_specular != 0) {
+    AppendTexJob(jobs, TexJobType::Single, cmat->specular.specular_texture.texture, TexKind::Orm, glbPath, hash, texCounter, matIdx, &MeshMaterialData::specularTexGuid);
+    AppendTexJob(jobs, TexJobType::Single, cmat->specular.specular_color_texture.texture, TexKind::Color, glbPath, hash, texCounter, matIdx, &MeshMaterialData::specularColorTexGuid);
+  }
+  if (cmat->has_clearcoat != 0) {
+    AppendTexJob(jobs, TexJobType::Single, cmat->clearcoat.clearcoat_texture.texture, TexKind::Orm, glbPath, hash, texCounter, matIdx, &MeshMaterialData::clearcoatTexGuid);
+    AppendTexJob(jobs, TexJobType::Single, cmat->clearcoat.clearcoat_roughness_texture.texture, TexKind::Orm, glbPath, hash, texCounter, matIdx, &MeshMaterialData::clearcoatRoughnessTexGuid);
+    AppendTexJob(jobs, TexJobType::Single, cmat->clearcoat.clearcoat_normal_texture.texture, TexKind::Normal, glbPath, hash, texCounter, matIdx, &MeshMaterialData::clearcoatNormalTexGuid);
+  }
+  if (cmat->has_sheen != 0) {
+    AppendTexJob(jobs, TexJobType::Single, cmat->sheen.sheen_color_texture.texture, TexKind::Color, glbPath, hash, texCounter, matIdx, &MeshMaterialData::sheenColorTexGuid);
+    AppendTexJob(jobs, TexJobType::Single, cmat->sheen.sheen_roughness_texture.texture, TexKind::Orm, glbPath, hash, texCounter, matIdx, &MeshMaterialData::sheenRoughnessTexGuid);
+  }
+  if (cmat->has_transmission != 0) {
+    AppendTexJob(jobs, TexJobType::Single, cmat->transmission.transmission_texture.texture, TexKind::Orm, glbPath, hash, texCounter, matIdx, &MeshMaterialData::transmissionTexGuid);
+  }
+  if (cmat->has_volume != 0) {
+    AppendTexJob(jobs, TexJobType::Single, cmat->volume.thickness_texture.texture, TexKind::Orm, glbPath, hash, texCounter, matIdx, &MeshMaterialData::thicknessTexGuid);
+  }
+  if (cmat->has_iridescence != 0) {
+    AppendTexJob(jobs, TexJobType::Single, cmat->iridescence.iridescence_texture.texture, TexKind::Orm, glbPath, hash, texCounter, matIdx, &MeshMaterialData::iridescenceTexGuid);
+    AppendTexJob(jobs, TexJobType::Single, cmat->iridescence.iridescence_thickness_texture.texture, TexKind::Orm, glbPath, hash, texCounter, matIdx, &MeshMaterialData::iridescenceThicknessTexGuid);
+  }
+  if (cmat->has_diffuse_transmission != 0) {
+    AppendTexJob(jobs, TexJobType::Single, cmat->diffuse_transmission.diffuse_transmission_texture.texture, TexKind::Orm, glbPath, hash, texCounter, matIdx, &MeshMaterialData::transmissionTexGuid);
+  }
+  if (cmat->has_anisotropy != 0) {
+    AppendTexJob(jobs, TexJobType::Single, cmat->anisotropy.anisotropy_texture.texture, TexKind::Orm, glbPath, hash, texCounter, matIdx, &MeshMaterialData::anisotropyTexGuid);
+  }
+}
+uint32_t ParseMaterialCached(cgltf_data* data, const cgltf_material* cmat, const std::string& glbPath, uint64_t hash, int& texCounter, MeshAssetData& out, std::vector<long>& matMap, std::vector<TexJob>& jobs, LogStore* log) {
   long gi = static_cast<long>(cmat - data->materials);
   if (gi >= 0 && static_cast<size_t>(gi) < matMap.size() && matMap[static_cast<size_t>(gi)] >= 0) {
     return static_cast<uint32_t>(matMap[static_cast<size_t>(gi)]);
   }
   MeshMaterialData md;
-  ParseMaterial(cmat, glbPath, hash, texCounter, md, log);
+  ParseMaterialFactors(cmat, md, log);
   uint32_t idx = static_cast<uint32_t>(out.materials.size());
   out.materials.push_back(md);
   if (gi >= 0 && static_cast<size_t>(gi) < matMap.size()) {
     matMap[static_cast<size_t>(gi)] = static_cast<long>(idx);
   }
+  CollectTexJobs(cmat, glbPath, hash, texCounter, idx, out.materials[idx], jobs);
   return idx;
 }
 void ComposeTRS(const float t[3], const float q[4], const float s[3], float out[16]) {
@@ -737,6 +840,7 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
   int texCounter = 0;
   bool allTangent = true;
   std::vector<long> matMap(data->materials_count, -1);
+  std::vector<TexJob> texJobs;
   if (cgltf_load_buffers(&options, data, glbPath.c_str()) == cgltf_result_success && data->meshes_count > 0) {
     ok = true;
     std::vector<std::vector<unsigned char>> meshoptBlobs;
@@ -1165,7 +1269,7 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
         }
         uint32_t matIndex = 0;
         if (prim.material != nullptr && prim.material >= data->materials && prim.material < data->materials + data->materials_count) {
-          matIndex = ParseMaterialCached(data, prim.material, glbPath, hash, texCounter, out, matMap, log);
+          matIndex = ParseMaterialCached(data, prim.material, glbPath, hash, texCounter, out, matMap, texJobs, log);
         } else if (out.materials.empty()) {
           MeshMaterialData md;
           md.name = "Default";
@@ -1176,7 +1280,7 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
           if (mp.material == nullptr || mp.material < data->materials || mp.material >= data->materials + data->materials_count) {
             continue;
           }
-          uint32_t mapped = ParseMaterialCached(data, mp.material, glbPath, hash, texCounter, out, matMap, log);
+          uint32_t mapped = ParseMaterialCached(data, mp.material, glbPath, hash, texCounter, out, matMap, texJobs, log);
           MeshVariantAssign va;
           va.part = partIdx;
           va.variant = static_cast<uint32_t>(mp.variant);
@@ -1194,6 +1298,17 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
     }
     if (ok && data->skins_count > 0 && log != nullptr) {
       log->Add(LogLevel::Warning, "Skinned mesh imported in bind pose; skeleton arrives in Fase 8");
+    }
+    for (size_t ti = 0; ti < texJobs.size() && ok; ++ti) {
+      LogStore jl;
+      RunTexJob(texJobs[ti], out.materials, &jl);
+      if (log != nullptr) {
+        for (size_t li = 0; li < jl.Count(); ++li) {
+          if (jl.At(li).level == LogLevel::Warning || jl.At(li).level == LogLevel::Error) {
+            log->Add(jl.At(li).level, jl.At(li).text);
+          }
+        }
+      }
     }
   }
   for (size_t bi = 0; bi < data->buffer_views_count; ++bi) {
