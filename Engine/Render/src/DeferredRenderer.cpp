@@ -2306,12 +2306,6 @@ void DeferredRenderer::DrawGeoInstanced(uint64_t key, const std::vector<size_t>&
     rhi->DrawIndexedInstanced(first.count, first.start, 0, static_cast<uint32_t>(indices.size()));
     rhi->EndOcclusionQuery(git->second.q);
   } else {
-    git->second.memberHash = mh;
-    git->second.queriedFrame = occFrame;
-    rhi->BeginOcclusionQuery(git->second.q);
-    rhi->DrawIndexedInstanced(first.count, first.start, 0, static_cast<uint32_t>(indices.size()));
-    rhi->EndOcclusionQuery(git->second.q);
-  } else {
     rhi->DrawIndexedInstanced(first.count, first.start, 0, static_cast<uint32_t>(indices.size()));
   }
   stats.geometryDraws += static_cast<uint32_t>(indices.size());
