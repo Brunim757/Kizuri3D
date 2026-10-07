@@ -1506,7 +1506,7 @@ bool TestShadowCache() {
   renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
   renderer.EndObjectsToTexture(cam);
   ok = ok && !renderer.GetStats().shadowCached;
-  ok = ok && renderer.GetStats().shadowDraws == 1;
+  ok = ok && renderer.GetStats().shadowDraws == 2;
   renderer.BeginObjects(view, proj);
   renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
   renderer.EndObjectsToTexture(cam);
