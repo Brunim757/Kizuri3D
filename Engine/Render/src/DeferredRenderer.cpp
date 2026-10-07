@@ -337,7 +337,17 @@ DeferredRenderer::DeferredRenderer()
   , instLayout(0)
   , instVB(0)
   , instCap(0)
-  , batchOk(true) {
+  , batchOk(true)
+  , shadowCacheOn(true)
+  , shadowAutoRes(true)
+  , shadowAtlasSize(4096)
+  , shadowTileSize(2048)
+  , shadowCubeSize(512)
+  , shadowResLevel(0)
+  , hasCasterHash(false)
+  , lastCasterHash(0)
+  , shadowAutoFrames(0)
+  , shadowAutoAccum(0.0) {
   material.albedo[0] = 0.8f;
   material.albedo[1] = 0.2f;
   fogColor[0] = 0.6f;
@@ -623,8 +633,8 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (decalCB == 0) {
     return false;
   }
-  shadowAtlas = rhi->CreateRenderTarget(ShadowAtlasSize, ShadowAtlasSize, RHIFormat::R32_DEPTH);
-  shadowCube = rhi->CreateShadowCube(ShadowCubeSize);
+  shadowAtlas = rhi->CreateRenderTarget(shadowAtlasSize, shadowAtlasSize, RHIFormat::R32_DEPTH);
+  shadowCube = rhi->CreateShadowCube(shadowCubeSize);
   shadowSampler = rhi->CreateSamplerShadow();
   shadowsAvailable = shadowAtlas != 0 && shadowCube != 0 && shadowSampler != 0;
   if (!CreateTargets()) {
@@ -1084,6 +1094,12 @@ void DeferredRenderer::SetFog(bool on, float density, const float color[3]) {
   }
 }
 void DeferredRenderer::RenderShadowMaps() {
+  uint64_t casterHash = CasterHash();
+  stats.shadowCached = false;
+  if (shadowCacheOn && hasCasterHash && casterHash == lastCasterHash && shadowAtlas != 0 && shadowCube != 0) {
+    stats.shadowCached = true;
+    return;
+  }
   shadowCascadeActive = 0;
   shadowSpotActive = 0;
   shadowPointActive = false;
@@ -1229,6 +1245,9 @@ void DeferredRenderer::RenderShadowMaps() {
     if (res != 512 && res != 1024 && res != 2048) {
       res = 1024;
     }
+    if (res > shadowTileSize) {
+      res = shadowTileSize;
+    }
     float splits[5] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
     ShadowSplitDepths(mainCam.nearZ, mainCam.farZ, need, dl.lambda, splits);
     for (int c = 0; c < need; ++c) {
@@ -1245,15 +1264,15 @@ void DeferredRenderer::RenderShadowMaps() {
       shadowCascadeSplit[tile] = splits[c + 1];
       shadowCascadeNear[tile] = cn;
       shadowCascadeFar[tile] = cf;
-      float frac = static_cast<float>(res) / static_cast<float>(ShadowTileSize);
+      float frac = static_cast<float>(res) / static_cast<float>(shadowTileSize);
       shadowCascadeUV[tile] = PCSSOrthoUVScale(ce, frac);
       shadowCascadeK[tile] = frac;
       shadowCascadeSize[tile] = dl.effectiveSize;
       shadowCascadeLight[tile] = static_cast<float>(dirEmission[d]);
       rhi->SetRenderTargets(0, nullptr, shadowAtlas);
       RHIViewport tvp;
-      tvp.x = static_cast<float>((tile % 2) * ShadowTileSize);
-      tvp.y = static_cast<float>((tile / 2) * ShadowTileSize);
+      tvp.x = static_cast<float>((tile % 2) * shadowTileSize);
+      tvp.y = static_cast<float>((tile / 2) * shadowTileSize);
       tvp.w = static_cast<float>(res);
       tvp.h = static_cast<float>(res);
       tvp.minD = 0.0f;
@@ -1290,7 +1309,10 @@ void DeferredRenderer::RenderShadowMaps() {
     if (res != 512 && res != 1024 && res != 2048) {
       res = 1024;
     }
-    float frac = static_cast<float>(res) / static_cast<float>(ShadowTileSize);
+    if (res > shadowTileSize) {
+      res = shadowTileSize;
+    }
+    float frac = static_cast<float>(res) / static_cast<float>(shadowTileSize);
     shadowSpotMeta[s][0] = static_cast<float>(tile);
     size_t em = spotEmitBase + spotOrder[s];
     shadowSpotMeta[s][1] = em < 16 ? static_cast<float>(em) : -1.0f;
@@ -1298,8 +1320,8 @@ void DeferredRenderer::RenderShadowMaps() {
     shadowSpotMeta[s][3] = frac;
     rhi->SetRenderTargets(0, nullptr, shadowAtlas);
     RHIViewport tvp;
-    tvp.x = static_cast<float>((tile % 2) * ShadowTileSize);
-    tvp.y = static_cast<float>((tile / 2) * ShadowTileSize);
+    tvp.x = static_cast<float>((tile % 2) * shadowTileSize);
+    tvp.y = static_cast<float>((tile / 2) * shadowTileSize);
     tvp.w = static_cast<float>(res);
     tvp.h = static_cast<float>(res);
     tvp.minD = 0.0f;
@@ -1337,8 +1359,8 @@ void DeferredRenderer::RenderShadowMaps() {
       RHIViewport cvp;
       cvp.x = 0.0f;
       cvp.y = 0.0f;
-      cvp.w = static_cast<float>(ShadowCubeSize);
-      cvp.h = static_cast<float>(ShadowCubeSize);
+      cvp.w = static_cast<float>(shadowCubeSize);
+      cvp.h = static_cast<float>(shadowCubeSize);
       cvp.minD = 0.0f;
       cvp.maxD = 1.0f;
       rhi->SetViewport(cvp);
@@ -1358,6 +1380,8 @@ void DeferredRenderer::RenderShadowMaps() {
     }
   }
   shadowMapsValid = shadowCascadeActive > 0 || shadowSpotActive > 0 || shadowPointActive;
+  lastCasterHash = casterHash;
+  hasCasterHash = true;
 }
 bool DeferredRenderer::Resize(int nw, int nh) {
   if (nw <= 0 || nh <= 0) {
@@ -1621,6 +1645,160 @@ void DeferredRenderer::PollGpuTimers() {
 }
 void DeferredRenderer::SetOcclusionCulling(bool on) {
   occOn = on;
+}
+uint64_t DeferredRenderer::CasterHash() const {
+  uint64_t h = 1469598103934665603ull;
+  auto mix = [&h](const void* data, size_t bytes) {
+    const unsigned char* p = static_cast<const unsigned char*>(data);
+    for (size_t i = 0; i < bytes; ++i) {
+      h ^= static_cast<uint64_t>(p[i]);
+      h *= 1099511628211ull;
+    }
+  };
+  mix(mainCam.camPos, sizeof(mainCam.camPos));
+  mix(mainCam.camFwd, sizeof(mainCam.camFwd));
+  mix(mainCam.camRight, sizeof(mainCam.camRight));
+  mix(mainCam.camUp, sizeof(mainCam.camUp));
+  mix(&mainCam.fovY, sizeof(float));
+  mix(&mainCam.aspect, sizeof(float));
+  mix(&mainCam.nearZ, sizeof(float));
+  mix(&mainCam.farZ, sizeof(float));
+  mix(lastView, sizeof(lastView));
+  mix(lastProj, sizeof(lastProj));
+  size_t np = pointLights.size();
+  size_t ns = spotLights.size();
+  size_t nd = dirLights.size();
+  mix(&np, sizeof(np));
+  mix(&ns, sizeof(ns));
+  mix(&nd, sizeof(nd));
+  for (size_t i = 0; i < np; ++i) {
+    const RenderPointLight& pl = pointLights[i];
+    mix(pl.pos, sizeof(pl.pos));
+    mix(pl.color, sizeof(pl.color));
+    mix(&pl.intensity, sizeof(float));
+    mix(&pl.radius, sizeof(float));
+    mix(&pl.castShadow, sizeof(bool));
+    mix(&pl.effectiveSize, sizeof(float));
+  }
+  for (size_t i = 0; i < ns; ++i) {
+    const RenderSpotLight& sl = spotLights[i];
+    mix(sl.pos, sizeof(sl.pos));
+    mix(sl.dir, sizeof(sl.dir));
+    mix(sl.color, sizeof(sl.color));
+    mix(&sl.intensity, sizeof(float));
+    mix(&sl.radius, sizeof(float));
+    mix(&sl.angle, sizeof(float));
+    mix(&sl.falloff, sizeof(float));
+    mix(&sl.castShadow, sizeof(bool));
+    mix(&sl.effectiveSize, sizeof(float));
+    mix(&sl.shadowSize, sizeof(int));
+  }
+  for (size_t i = 0; i < nd; ++i) {
+    const RenderDirectionalLight& dl = dirLights[i];
+    mix(dl.dir, sizeof(dl.dir));
+    mix(dl.color, sizeof(dl.color));
+    mix(&dl.intensity, sizeof(float));
+    mix(&dl.castShadow, sizeof(bool));
+    mix(&dl.effectiveSize, sizeof(float));
+    mix(&dl.shadowSize, sizeof(int));
+    mix(&dl.cascades, sizeof(int));
+    mix(&dl.lambda, sizeof(float));
+  }
+  size_t nsh = shadowDraws.size();
+  mix(&nsh, sizeof(nsh));
+  for (size_t i = 0; i < nsh; ++i) {
+    const ShadowDrawItem& sd = shadowDraws[i];
+    mix(sd.world, sizeof(sd.world));
+    mix(&sd.vb, sizeof(sd.vb));
+    mix(&sd.ib, sizeof(sd.ib));
+    mix(&sd.start, sizeof(sd.start));
+    mix(&sd.count, sizeof(sd.count));
+  }
+  return h == 0 ? 1 : h;
+}
+void DeferredRenderer::SetShadowCaching(bool on) {
+  shadowCacheOn = on;
+  if (!on) {
+    hasCasterHash = false;
+  }
+}
+void DeferredRenderer::SetShadowAutoRes(bool on) {
+  shadowAutoRes = on;
+  shadowAutoFrames = 0;
+  shadowAutoAccum = 0.0;
+}
+void DeferredRenderer::SetShadowResolution(int atlasSize, int cubeSize) {
+  shadowAutoRes = false;
+  if (atlasSize < 512) {
+    atlasSize = 512;
+  }
+  if (atlasSize > 4096) {
+    atlasSize = 4096;
+  }
+  if (cubeSize < 128) {
+    cubeSize = 128;
+  }
+  if (cubeSize > 1024) {
+    cubeSize = 1024;
+  }
+  if (atlasSize == shadowAtlasSize && cubeSize == shadowCubeSize) {
+    return;
+  }
+  shadowAtlasSize = atlasSize;
+  shadowTileSize = atlasSize / 2;
+  shadowCubeSize = cubeSize;
+  shadowResLevel = atlasSize >= 4096 ? 0 : (atlasSize >= 2048 ? 1 : 2);
+  RecreateShadowTargets();
+}
+void DeferredRenderer::GetShadowSizes(int& atlasSize, int& cubeSize) const {
+  atlasSize = shadowAtlasSize;
+  cubeSize = shadowCubeSize;
+}
+void DeferredRenderer::RecreateShadowTargets() {
+  if (rhi == nullptr) {
+    return;
+  }
+  if (shadowAtlas != 0) {
+    rhi->DestroyRenderTarget(shadowAtlas);
+    shadowAtlas = 0;
+  }
+  if (shadowCube != 0) {
+    rhi->DestroyRenderTarget(shadowCube);
+    shadowCube = 0;
+  }
+  shadowsAvailable = false;
+  shadowAtlas = rhi->CreateRenderTarget(shadowAtlasSize, shadowAtlasSize, RHIFormat::R32_DEPTH);
+  shadowCube = rhi->CreateShadowCube(shadowCubeSize);
+  shadowsAvailable = shadowAtlas != 0 && shadowCube != 0 && shadowSampler != 0;
+  hasCasterHash = false;
+}
+void DeferredRenderer::UpdateShadowAutoRes() {
+  if (!shadowAutoRes) {
+    return;
+  }
+  double signal = stats.gpuValid ? stats.gpuMs : stats.msTotal;
+  shadowAutoAccum += signal;
+  ++shadowAutoFrames;
+  if (shadowAutoFrames < 60) {
+    return;
+  }
+  double avg = shadowAutoAccum / static_cast<double>(shadowAutoFrames);
+  shadowAutoFrames = 0;
+  shadowAutoAccum = 0.0;
+  int want = shadowResLevel;
+  if (avg > static_cast<double>(dynTargetMs) * 1.2 && shadowResLevel < 2) {
+    want = shadowResLevel + 1;
+  } else if (avg < static_cast<double>(dynTargetMs) * 0.7 && shadowResLevel > 0) {
+    want = shadowResLevel - 1;
+  }
+  if (want == shadowResLevel) {
+    return;
+  }
+  shadowResLevel = want;
+  shadowAtlasSize = want == 0 ? 4096 : (want == 1 ? 2048 : 1024);
+  shadowTileSize = shadowAtlasSize / 2;
+  shadowCubeSize = want == 0 ? 512 : (want == 1 ? 256 : 128);
+  RecreateShadowTargets();
 }
 uint64_t DeferredRenderer::OccKey(RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const float* world) {
   uint64_t h = 1469598103934665603ull;
@@ -2680,7 +2858,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   lc.shadowInfo[0] = static_cast<float>(shadowCascadeActive);
   lc.shadowInfo[1] = shadowMapsValid ? 1.0f : 0.0f;
   lc.shadowInfo[2] = shadowDebug ? 1.0f : 0.0f;
-  lc.shadowInfo[3] = 1.0f / static_cast<float>(ShadowAtlasSize);
+  lc.shadowInfo[3] = 1.0f / static_cast<float>(shadowAtlasSize);
   for (int s = 0; s < 4; ++s) {
     std::memcpy(lc.spotVP[s], shadowSpotVP[s], sizeof(lc.spotVP[s]));
     lc.spotMeta[s][0] = shadowSpotMeta[s][0];
@@ -3052,6 +3230,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     if (dynResOn) {
       UpdateDynamicResolution();
     }
+    UpdateShadowAutoRes();
     rhi->BindBackbuffer();
   }
 }

@@ -155,6 +155,7 @@ struct RenderStats {
   uint32_t culledDraws = 0;
   uint32_t occludedDraws = 0;
   uint32_t instancedDraws = 0;
+  bool shadowCached = false;
   double msSubmit = 0.0;
   double msShadow = 0.0;
   double msDecal = 0.0;
@@ -222,6 +223,10 @@ public:
   void SetDynamicResolution(bool on, float targetMs, float minScale, float maxScale);
   float GetDynamicScale() const;
   void SetOcclusionCulling(bool on);
+  void SetShadowCaching(bool on);
+  void SetShadowAutoRes(bool on);
+  void SetShadowResolution(int atlasSize, int cubeSize);
+  void GetShadowSizes(int& atlasSize, int& cubeSize) const;
  private:
   IRHI* rhi;
   int w;
@@ -346,6 +351,19 @@ public:
   void DrawGeoSingle(const GeoBatchItem& item);
   void DrawGeoInstanced(uint64_t key, const std::vector<size_t>& indices);
   void FlushGeoQueue();
+  bool shadowCacheOn;
+  bool shadowAutoRes;
+  int shadowAtlasSize;
+  int shadowTileSize;
+  int shadowCubeSize;
+  int shadowResLevel;
+  bool hasCasterHash;
+  uint64_t lastCasterHash;
+  int shadowAutoFrames;
+  double shadowAutoAccum;
+  uint64_t CasterHash() const;
+  void RecreateShadowTargets();
+  void UpdateShadowAutoRes();
   bool dynResOn;
   float dynTargetMs;
   float dynMin;

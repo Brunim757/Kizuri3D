@@ -107,8 +107,8 @@ Futuro
 - [ ] Shadow bias automático
 - [ ] Normal bias
 - [x] Shadow atlas
-- [ ] Shadow caching
-- [ ] Shadow resolution dinâmica
+- [x] Shadow caching
+- [x] Shadow resolution dinâmica
 - [x] Cascades configuráveis
 - [ ] Distance-based shadow quality
 
@@ -226,7 +226,7 @@ Sem Ray Tracing
 11. Geometry / Rendering
 
 - [x] Frustum culling
-- [ ] Occlusion culling
+- [x] Occlusion culling
 - [ ] Hierarchical Z-buffer
 - [ ] GPU culling
 - [ ] GPU-driven rendering
@@ -234,12 +234,12 @@ Sem Ray Tracing
 - [ ] Multi-draw indirect quando aplicável
 - [x] Instanced rendering
 - [x] GPU instancing
-- [ ] Dynamic batching quando vantajoso
+- [x] Dynamic batching quando vantajoso
 - [ ] Static batching quando vantajoso
 - [x] Mesh LOD
-- [ ] Automatic LOD
-- [ ] LOD groups
-- [ ] LOD streaming
+- [x] Automatic LOD
+- [x] LOD groups
+- [x] LOD streaming
 - [ ] Mesh streaming
 - [ ] Geometry streaming
 - [ ] Meshlet-like organization compatível com DX11
@@ -311,30 +311,30 @@ Sem Ray Tracing
 - [ ] Render graph
 - [ ] Resource lifetime tracking
 - [ ] Transient render targets
-- [ ] Render target pooling
+- [x] Render target pooling
 - [x] Async resource loading
 - [ ] GPU synchronization
 - [ ] CPU/GPU frame pacing
 - [ ] Multi-threaded command preparation
 - [ ] Render thread
 - [ ] Worker threads
-- [ ] GPU profiling
-- [ ] CPU profiling
+- [x] GPU profiling
+- [x] CPU profiling
 
 ---
 
 16. Performance
 
-- [ ] GPU timing
-- [ ] CPU timing
-- [ ] Per-pass GPU timings
-- [ ] Draw call statistics
-- [ ] Triangle statistics
-- [ ] Texture memory statistics
-- [ ] VRAM statistics
-- [ ] Render target statistics
+- [x] GPU timing
+- [x] CPU timing
+- [x] Per-pass GPU timings
+- [x] Draw call statistics
+- [x] Triangle statistics
+- [x] Texture memory statistics
+- [x] VRAM statistics
+- [x] Render target statistics
 - [ ] Shader permutation statistics
-- [ ] Dynamic resolution
+- [x] Dynamic resolution
 - [x] Resolution scaling
 - [x] Quality presets
 - [x] Low
@@ -342,7 +342,7 @@ Sem Ray Tracing
 - [x] High
 - [x] Ultra
 - [ ] Custom
-- [ ] Automatic quality scaling
+- [x] Automatic quality scaling
 
 ---
 
@@ -367,7 +367,7 @@ Sem Ray Tracing
 - [ ] Metallic visualization
 - [ ] Depth visualization
 - [ ] Overdraw visualization
-- [ ] GPU performance overlay
+- [x] GPU performance overlay
 - [ ] RenderDoc-friendly debugging
 
 ---
@@ -391,8 +391,8 @@ Sem Ray Tracing
 - [ ] LOD visualization
 - [ ] Overdraw visualization
 - [ ] Material ID visualization
-- [ ] GPU timing overlay
-- [ ] Render statistics
+- [x] GPU timing overlay
+- [x] Render statistics
 - [ ] Shader debugging
 
 ---
