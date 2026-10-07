@@ -267,7 +267,7 @@ bool ImportEmbeddedTexture(const cgltf_texture* ctex, const std::string& glbPath
     return false;
   }
   std::filesystem::path glbFile(glbPath);
-  std::string texName = glbFile.stem().string() + "_tex" + std::to_string(texCounter++) + ".kztex";
+  std::string texName = glbFile.stem().string() + "_tex" + std::to_string(texIndex) + ".kztex";
   std::string texOut = (glbFile.parent_path() / texName).string();
   std::string keepTex;
   TextureAssetData probe;
