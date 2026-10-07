@@ -8,10 +8,13 @@
 #include "Kizuri/Log.h"
 #include <cgltf.h>
 #include <meshoptimizer.h>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <system_error>
+#include <thread>
+#include <vector>
 namespace Kizuri {
 namespace {
 int Base64Value(char c) {
@@ -1299,13 +1302,46 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
     if (ok && data->skins_count > 0 && log != nullptr) {
       log->Add(LogLevel::Warning, "Skinned mesh imported in bind pose; skeleton arrives in Fase 8");
     }
-    for (size_t ti = 0; ti < texJobs.size() && ok; ++ti) {
+    if (texJobs.size() == 1 && ok) {
       LogStore jl;
-      RunTexJob(texJobs[ti], out.materials, &jl);
+      RunTexJob(texJobs[0], out.materials, &jl);
       if (log != nullptr) {
         for (size_t li = 0; li < jl.Count(); ++li) {
           if (jl.At(li).level == LogLevel::Warning || jl.At(li).level == LogLevel::Error) {
             log->Add(jl.At(li).level, jl.At(li).text);
+          }
+        }
+      }
+    }
+    if (texJobs.size() > 1 && ok) {
+      unsigned int hwThreads = std::thread::hardware_concurrency();
+      if (hwThreads < 1) {
+        hwThreads = 1;
+      }
+      size_t threadCount = texJobs.size() < static_cast<size_t>(hwThreads) ? texJobs.size() : static_cast<size_t>(hwThreads);
+      std::vector<LogStore> jobLogs(texJobs.size());
+      std::atomic<size_t> next(0);
+      std::vector<std::thread> workers;
+      for (size_t t = 0; t < threadCount; ++t) {
+        workers.push_back(std::thread([&]() {
+          for (;;) {
+            size_t i = next.fetch_add(1);
+            if (i >= texJobs.size()) {
+              break;
+            }
+            RunTexJob(texJobs[i], out.materials, &jobLogs[i]);
+          }
+        }));
+      }
+      for (size_t t = 0; t < workers.size(); ++t) {
+        workers[t].join();
+      }
+      if (log != nullptr) {
+        for (size_t ti = 0; ti < jobLogs.size(); ++ti) {
+          for (size_t li = 0; li < jobLogs[ti].Count(); ++li) {
+            if (jobLogs[ti].At(li).level == LogLevel::Warning || jobLogs[ti].At(li).level == LogLevel::Error) {
+              log->Add(jobLogs[ti].At(li).level, jobLogs[ti].At(li).text);
+            }
           }
         }
       }
