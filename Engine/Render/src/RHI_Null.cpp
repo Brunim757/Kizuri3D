@@ -441,8 +441,26 @@ public:
     (void)ms;
     return false;
   }
-  void GetMemoryStats(uint64_t& textureBytes, uint64_t& targetBytes, uint64_t& bufferBytes) const override {
-    textureBytes = 0;
+  RHIOcclusionQuery CreateOcclusionQuery() override {
+    uint64_t id = nextId++;
+    tstamps[id] = 1;
+    return id;
+  }
+  void DestroyOcclusionQuery(RHIOcclusionQuery q) override {
+    tstamps.erase(q);
+  }
+  void BeginOcclusionQuery(RHIOcclusionQuery q) override {
+    (void)q;
+  }
+  void EndOcclusionQuery(RHIOcclusionQuery q) override {
+    (void)q;
+  }
+  bool GetOcclusionSamples(RHIOcclusionQuery q, uint64_t* samples) override {
+    (void)q;
+    (void)samples;
+    return false;
+  }
+  void GetMemoryStats(uint64_t& textureBytes, uint64_t& targetBytes, uint64_t& bufferBytes) const override {    textureBytes = 0;
     for (const auto& kv : textures) {
       textureBytes += TextureBytes(kv.second.w, kv.second.h, kv.second.mips, kv.second.fmt);
     }

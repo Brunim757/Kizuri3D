@@ -1,6 +1,7 @@
 #pragma once
 #include "Kizuri/RHI.h"
 #include <vector>
+#include <unordered_map>
 #include <chrono>
 #include <stdint.h>
 namespace Kizuri {
@@ -142,6 +143,7 @@ struct RenderStats {
   uint32_t lightingDraws = 0;
   uint32_t postPasses = 0;
   uint32_t culledDraws = 0;
+  uint32_t occludedDraws = 0;
   double msSubmit = 0.0;
   double msShadow = 0.0;
   double msDecal = 0.0;
@@ -208,6 +210,7 @@ public:
   const RenderStats& GetStats() const;
   void SetDynamicResolution(bool on, float targetMs, float minScale, float maxScale);
   float GetDynamicScale() const;
+  void SetOcclusionCulling(bool on);
  private:
   IRHI* rhi;
   int w;
@@ -295,6 +298,22 @@ public:
   void EndPostSection();
   static double ElapsedMs(const std::chrono::steady_clock::time_point& from, const std::chrono::steady_clock::time_point& to);
   void PollGpuTimers();
+  struct OccEntry {
+    RHIOcclusionQuery q = 0;
+    uint64_t samples = 0;
+    uint32_t resultFrame = 0;
+    uint32_t queriedFrame = 0;
+    bool hasResult = false;
+  };
+  bool occOn;
+  uint32_t occFrame;
+  RHIOcclusionQuery occActive;
+  std::unordered_map<uint64_t, OccEntry> occMap;
+  static uint64_t OccKey(RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const float* world);
+  bool OccDrawBegin(RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const float* world);
+  void OccDrawEnd();
+  void PollOcclusion();
+  void SweepOcclusion();
   bool dynResOn;
   float dynTargetMs;
   float dynMin;

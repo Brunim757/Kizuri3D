@@ -100,6 +100,9 @@ struct Tstamp {
   ComPtr<ID3D11Query> begin;
   ComPtr<ID3D11Query> finish;
 };
+struct OccQuery {
+  ComPtr<ID3D11Query> query;
+};
 uint64_t TargetBytes(int tw, int th, RHIFormat fmt) {
   uint64_t bpp = 4;
   if (fmt == RHIFormat::RGBA16F) {
@@ -236,6 +239,8 @@ public:
   void Shutdown() override {
     targets.clear();
     pool.clear();
+    occQueries.clear();
+    tstamps.clear();
     samplers.clear();
     layouts.clear();
     cubes.clear();
@@ -1295,8 +1300,7 @@ public:
     *ms = static_cast<double>(t1 - t0) * 1000.0 / static_cast<double>(dj.Frequency);
     return true;
   }
-  void GetMemoryStats(uint64_t& textureBytes, uint64_t& targetBytes, uint64_t& bufferBytes) const override {
-    textureBytes = 0;
+  void GetMemoryStats(uint64_t& textureBytes, uint64_t& targetBytes, uint64_t& bufferBytes) const override {    textureBytes = 0;
     for (const auto& kv : textures) {
       uint64_t mult = kv.second.isCube ? 6 : 1;
       textureBytes += TextureBytes(kv.second.w, kv.second.h, kv.second.mips, kv.second.fmt) * mult;
@@ -1318,6 +1322,50 @@ public:
     for (const auto& kv : csizes) {
       bufferBytes += kv.second;
     }
+  }
+  RHIOcclusionQuery CreateOcclusionQuery() override {
+    D3D11_QUERY_DESC qd;
+    qd.Query = D3D11_QUERY_OCCLUSION;
+    qd.MiscFlags = 0;
+    OccQuery o;
+    if (FAILED(device->CreateQuery(&qd, o.query.GetAddressOf()))) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    occQueries[id] = o;
+    return id;
+  }
+  void DestroyOcclusionQuery(RHIOcclusionQuery q) override {
+    occQueries.erase(q);
+  }
+  void BeginOcclusionQuery(RHIOcclusionQuery q) override {
+    auto it = occQueries.find(q);
+    if (it == occQueries.end()) {
+      return;
+    }
+    context->Begin(it->second.query.Get());
+  }
+  void EndOcclusionQuery(RHIOcclusionQuery q) override {
+    auto it = occQueries.find(q);
+    if (it == occQueries.end()) {
+      return;
+    }
+    context->End(it->second.query.Get());
+  }
+  bool GetOcclusionSamples(RHIOcclusionQuery q, uint64_t* samples) override {
+    if (samples == nullptr) {
+      return false;
+    }
+    auto it = occQueries.find(q);
+    if (it == occQueries.end()) {
+      return false;
+    }
+    UINT64 data = 0;
+    if (context->GetData(it->second.query.Get(), &data, sizeof(data), 0) != S_OK) {
+      return false;
+    }
+    *samples = static_cast<uint64_t>(data);
+    return true;
   }
 private:
   void Note(bool dup) {
@@ -1392,6 +1440,7 @@ private:
   std::unordered_map<uint64_t, TargetRes> targets;
   std::list<TargetRes> pool;
   std::unordered_map<uint64_t, Tstamp> tstamps;
+  std::unordered_map<uint64_t, OccQuery> occQueries;
   std::unordered_map<uint64_t, ComPtr<ID3D11SamplerState>> samplers;
   std::unordered_map<uint64_t, ShadowCubeRes> cubes;
   uint64_t lastCube = 0;

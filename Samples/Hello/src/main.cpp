@@ -1520,6 +1520,74 @@ bool TestTargetPooling() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
+bool TestOcclusionCull() {
+  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  if (rhi == nullptr) {
+    return false;
+  }
+  Kizuri::RHIDesc desc;
+  desc.windowHandle = nullptr;
+  desc.width = 160;
+  desc.height = 100;
+  desc.vsync = false;
+  if (!rhi->Initialize(desc)) {
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  Kizuri::DeferredRenderer renderer;
+  const char* shaderDirs[3] = { "Shaders", "Samples/../Shaders", "." };
+  bool rok = false;
+  for (int i = 0; i < 3 && !rok; ++i) {
+    if (renderer.Initialize(rhi, 160, 100, shaderDirs[i])) {
+      rok = true;
+    } else {
+      renderer.Shutdown();
+    }
+  }
+  if (!rok) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  renderer.SetOcclusionCulling(true);
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 0 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  bool ok = true;
+  for (int f = 0; f < 3; ++f) {
+    renderer.BeginObjects(view, proj);
+    renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+    renderer.EndObjectsToTexture(cam);
+    const Kizuri::RenderStats& st = renderer.GetStats();
+    ok = ok && st.geometryDraws == 1 && st.occludedDraws == 0;
+  }
+  renderer.SetOcclusionCulling(false);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && renderer.GetStats().geometryDraws == 1;
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
 bool TestQualityPreset() {
   Kizuri::QualitySettings low = Kizuri::ApplyQualityPreset(Kizuri::QualityLevel::Low);
   if (low.ssr || low.ssgi || low.dof || low.motionBlur || !low.fxaa || low.bloom != 0.0f || low.renderScale != 0.75f) {
@@ -5735,6 +5803,7 @@ int main() {
   failures += Check("RenderStats", TestRenderStats());
   failures += Check("DynamicResolution", TestDynamicResolution());
   failures += Check("TargetPooling", TestTargetPooling());
+  failures += Check("OcclusionCull", TestOcclusionCull());
   failures += Check("RHI-StateCache", TestStateCache());
   failures += Check("FreeCamera", TestCamera());
   failures += Check("MeshLoader-gltf", TestMeshLoader());

@@ -329,7 +329,10 @@ DeferredRenderer::DeferredRenderer()
   , dynMax(1.0f)
   , dynScale(1.0f)
   , dynFrames(0)
-  , dynAccum(0.0) {
+  , dynAccum(0.0)
+  , occOn(true)
+  , occFrame(0)
+  , occActive(0) {
   material.albedo[0] = 0.8f;
   material.albedo[1] = 0.2f;
   fogColor[0] = 0.6f;
@@ -626,6 +629,13 @@ void DeferredRenderer::Shutdown() {
     return;
   }
   DestroyTargets();
+  for (auto& kv : occMap) {
+    if (kv.second.q != 0) {
+      rhi->DestroyOcclusionQuery(kv.second.q);
+    }
+  }
+  occMap.clear();
+  occActive = 0;
   if (gpuShadowTs != 0) {
     rhi->DestroyTimestamp(gpuShadowTs);
     gpuShadowTs = 0;
@@ -1425,6 +1435,8 @@ void DeferredRenderer::BeginObjects(const float view[16], const float proj[16]) 
   frustumValid = true;
   culledDraws = 0;
   PollGpuTimers();
+  ++occFrame;
+  PollOcclusion();
   double keepGpu = stats.gpuMs;
   double keepShadow = stats.gpuShadowMs;
   double keepLight = stats.gpuLightMs;
@@ -1584,6 +1596,103 @@ void DeferredRenderer::PollGpuTimers() {
     stats.gpuValid = true;
   }
 }
+void DeferredRenderer::SetOcclusionCulling(bool on) {
+  occOn = on;
+}
+uint64_t DeferredRenderer::OccKey(RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const float* world) {
+  uint64_t h = 1469598103934665603ull;
+  auto mix = [&h](const void* data, size_t bytes) {
+    const unsigned char* p = static_cast<const unsigned char*>(data);
+    for (size_t i = 0; i < bytes; ++i) {
+      h ^= static_cast<uint64_t>(p[i]);
+      h *= 1099511628211ull;
+    }
+  };
+  mix(&vb, sizeof(vb));
+  mix(&ib, sizeof(ib));
+  mix(&start, sizeof(start));
+  mix(&count, sizeof(count));
+  if (world != nullptr) {
+    mix(world, sizeof(float) * 16);
+  }
+  return h == 0 ? 1 : h;
+}
+bool DeferredRenderer::OccDrawBegin(RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const float* world) {
+  if (!occOn || captureMode || rhi == nullptr) {
+    return true;
+  }
+  uint64_t key = OccKey(vb, ib, start, count, world);
+  auto it = occMap.find(key);
+  if (it != occMap.end() && it->second.hasResult && it->second.resultFrame + 1 == occFrame && it->second.samples == 0) {
+    ++stats.occludedDraws;
+    return false;
+  }
+  if (it == occMap.end()) {
+    SweepOcclusion();
+    RHIOcclusionQuery q = rhi->CreateOcclusionQuery();
+    if (q == 0) {
+      return true;
+    }
+    OccEntry e;
+    e.q = q;
+    e.queriedFrame = occFrame;
+    occMap[key] = e;
+    it = occMap.find(key);
+  }
+  it->second.queriedFrame = occFrame;
+  rhi->BeginOcclusionQuery(it->second.q);
+  occActive = it->second.q;
+  return true;
+}
+void DeferredRenderer::OccDrawEnd() {
+  if (occActive != 0 && rhi != nullptr) {
+    rhi->EndOcclusionQuery(occActive);
+  }
+  occActive = 0;
+}
+void DeferredRenderer::PollOcclusion() {
+  if (rhi == nullptr) {
+    return;
+  }
+  for (auto& kv : occMap) {
+    if (kv.second.hasResult && kv.second.resultFrame == kv.second.queriedFrame) {
+      continue;
+    }
+    if (kv.second.queriedFrame >= occFrame) {
+      continue;
+    }
+    uint64_t s = 0;
+    if (rhi->GetOcclusionSamples(kv.second.q, &s)) {
+      kv.second.samples = s;
+      kv.second.hasResult = true;
+      kv.second.resultFrame = kv.second.queriedFrame;
+    }
+  }
+}
+void DeferredRenderer::SweepOcclusion() {
+  if (occMap.size() <= 1024) {
+    return;
+  }
+  for (auto it = occMap.begin(); it != occMap.end();) {
+    if (it->second.queriedFrame + 2 < occFrame) {
+      if (it->second.q != 0 && rhi != nullptr) {
+        rhi->DestroyOcclusionQuery(it->second.q);
+      }
+      it = occMap.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  if (occMap.size() > 1536 && rhi != nullptr) {
+    for (auto& kv : occMap) {
+      if (kv.second.q != 0) {
+        rhi->DestroyOcclusionQuery(kv.second.q);
+      }
+    }
+    occMap.clear();
+  }
+  occActive = 0;
+}
 void DeferredRenderer::BeginEnvFace(int face, const float view[16], const float proj[16]) {
   begun = false;
   if (!ready || rhi == nullptr || captureCube == 0) {
@@ -1697,9 +1806,12 @@ void DeferredRenderer::DrawObject(const float world[16]) {
   std::memcpy(gc.view, lastView, sizeof(gc.view));
   std::memcpy(gc.proj, lastProj, sizeof(gc.proj));
   rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
-  rhi->DrawIndexed(indexCount, 0, 0);
-  ++stats.geometryDraws;
-  stats.geometryTris += indexCount / 3;
+  if (OccDrawBegin(vb, ib, 0, static_cast<uint32_t>(indexCount), world)) {
+    rhi->DrawIndexed(indexCount, 0, 0);
+    OccDrawEnd();
+    ++stats.geometryDraws;
+    stats.geometryTris += indexCount / 3;
+  }
 }
 void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat, float lodFade, const float* aabbMin, const float* aabbMax) {
   if (!begun || world == nullptr || vb == 0 || ib == 0 || count == 0) {
@@ -1794,9 +1906,12 @@ void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuff
     rs.slopeBias = 0.0f;
     rhi->SetRasterizerState(rs);
   }
-  rhi->DrawIndexed(count, start, 0);
-  ++stats.geometryDraws;
-  stats.geometryTris += count / 3;
+  if (OccDrawBegin(vb, ib, start, count, world)) {
+    rhi->DrawIndexed(count, start, 0);
+    OccDrawEnd();
+    ++stats.geometryDraws;
+    stats.geometryTris += count / 3;
+  }
 }
 void DeferredRenderer::DrawDecal(const float world[16], const float invWorld[16], const float size[3], float fade, RHITexture tex) {
   if (!begun || world == nullptr || invWorld == nullptr || size == nullptr || tex == 0) {
@@ -1991,9 +2106,12 @@ void DeferredRenderer::RenderForwardPass(const float camPos[3]) {
     rhi->SetRasterizerState(rs);
     rhi->SetVertexBuffer(d.vb, 0);
     rhi->SetIndexBuffer(d.ib);
-    rhi->DrawIndexed(d.count, d.start, 0);
-    ++stats.forwardDraws;
-    stats.forwardTris += d.count / 3;
+    if (OccDrawBegin(d.vb, d.ib, d.start, d.count, d.world)) {
+      rhi->DrawIndexed(d.count, d.start, 0);
+      OccDrawEnd();
+      ++stats.forwardDraws;
+      stats.forwardTris += d.count / 3;
+    }
   }
   rhi->SetPixelTexture2D(0, 0);
   rhi->SetPixelTexture2D(1, 0);

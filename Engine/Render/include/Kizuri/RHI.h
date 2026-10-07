@@ -41,6 +41,7 @@ using RHIRenderTarget = uint64_t;
 using RHISampler = uint64_t;
 using RHITexture = uint64_t;
 using RHITimestamp = uint64_t;
+using RHIOcclusionQuery = uint64_t;
 struct RHIDesc {
   void* windowHandle;
   int width;
@@ -134,6 +135,11 @@ public:
   virtual void EndTimestamp(RHITimestamp ts) = 0;
   virtual bool GetTimestampMs(RHITimestamp ts, double* ms) = 0;
   virtual void GetMemoryStats(uint64_t& textureBytes, uint64_t& targetBytes, uint64_t& bufferBytes) const = 0;
+  virtual RHIOcclusionQuery CreateOcclusionQuery() = 0;
+  virtual void DestroyOcclusionQuery(RHIOcclusionQuery q) = 0;
+  virtual void BeginOcclusionQuery(RHIOcclusionQuery q) = 0;
+  virtual void EndOcclusionQuery(RHIOcclusionQuery q) = 0;
+  virtual bool GetOcclusionSamples(RHIOcclusionQuery q, uint64_t* samples) = 0;
 };
 IRHI* CreateRHI(RHI_API api);
 void DestroyRHI(IRHI* rhi);

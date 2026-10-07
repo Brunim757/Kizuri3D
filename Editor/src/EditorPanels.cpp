@@ -1216,6 +1216,20 @@ void EditorApp::DrawSettings() {
     }
     if (ImGui::BeginTabItem("Debug")) {
       ImGui::Checkbox("Debug CSM", &debugCascades);
+      if (ImGui::Checkbox("Occlusion Culling", &viewOcc)) {
+        renderer.SetOcclusionCulling(viewOcc);
+      }
+      const Kizuri::RenderStats& rst = renderer.GetStats();
+      ImGui::Text("Draws geo %u shadow %u fwd %u decal %u", rst.geometryDraws, rst.shadowDraws, rst.forwardDraws, rst.decalDraws);
+      ImGui::Text("Tris geo %llu shadow %llu fwd %llu", (unsigned long long)rst.geometryTris, (unsigned long long)rst.shadowTris, (unsigned long long)rst.forwardTris);
+      ImGui::Text("Culled %u occluded %u post %u", rst.culledDraws, rst.occludedDraws, rst.postPasses);
+      ImGui::Text("CPU total %.2f submit %.2f shadow %.2f light %.2f", rst.msTotal, rst.msSubmit, rst.msShadow, rst.msLighting);
+      if (rst.gpuValid) {
+        ImGui::Text("GPU total %.2f shadow %.2f light %.2f post %.2f", rst.gpuMs, rst.gpuShadowMs, rst.gpuLightMs, rst.gpuPostMs);
+      } else {
+        ImGui::Text("GPU n/a");
+      }
+      ImGui::Text("Mem tex %.1fMB targets %.1fMB bufs %.1fMB", rst.textureBytes / 1048576.0, rst.targetBytes / 1048576.0, rst.bufferBytes / 1048576.0);
       ImGui::EndTabItem();
     }
     ImGui::EndTabBar();
