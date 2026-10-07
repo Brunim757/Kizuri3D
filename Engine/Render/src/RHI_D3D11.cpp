@@ -1364,7 +1364,7 @@ public:
       return false;
     }
     D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
-    if (context->GetData(it->second.disjoint.Get(), &dj, sizeof(dj), 0) != S_OK) {
+    if (context->GetData(it->second.disjoint.Get(), &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
       return false;
     }
     if (dj.Disjoint != FALSE) {
@@ -1372,10 +1372,10 @@ public:
     }
     UINT64 t0 = 0;
     UINT64 t1 = 0;
-    if (context->GetData(it->second.begin.Get(), &t0, sizeof(t0), 0) != S_OK) {
+    if (context->GetData(it->second.begin.Get(), &t0, sizeof(t0), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
       return false;
     }
-    if (context->GetData(it->second.finish.Get(), &t1, sizeof(t1), 0) != S_OK) {
+    if (context->GetData(it->second.finish.Get(), &t1, sizeof(t1), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
       return false;
     }
     if (dj.Frequency == 0 || t1 < t0) {
@@ -1445,7 +1445,7 @@ public:
       return false;
     }
     UINT64 data = 0;
-    if (context->GetData(it->second.query.Get(), &data, sizeof(data), 0) != S_OK) {
+    if (context->GetData(it->second.query.Get(), &data, sizeof(data), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
       return false;
     }
     *samples = static_cast<uint64_t>(data);
