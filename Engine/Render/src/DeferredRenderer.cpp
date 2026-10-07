@@ -1330,6 +1330,9 @@ bool DeferredRenderer::Resize(int nw, int nh) {
   if (nw <= 0 || nh <= 0) {
     return false;
   }
+  if (nw == outW && nh == outH) {
+    return true;
+  }
   outW = nw;
   outH = nh;
   w = static_cast<int>(static_cast<float>(nw) * renderScale);

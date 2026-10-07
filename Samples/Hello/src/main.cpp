@@ -1466,6 +1466,60 @@ bool TestDynamicResolution() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
+bool TestTargetPooling() {
+  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  if (rhi == nullptr) {
+    return false;
+  }
+  Kizuri::RHIDesc desc;
+  desc.windowHandle = nullptr;
+  desc.width = 64;
+  desc.height = 64;
+  desc.vsync = false;
+  if (!rhi->Initialize(desc)) {
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  const uint64_t entry = 64 * 64 * 4;
+  uint64_t texB = 0;
+  uint64_t tgtB = 0;
+  uint64_t bufB = 0;
+  Kizuri::RHIRenderTarget first = rhi->CreateRenderTarget(64, 64, Kizuri::RHIFormat::RGBA8_UNORM);
+  if (first == 0) {
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  rhi->DestroyRenderTarget(first);
+  rhi->GetMemoryStats(texB, tgtB, bufB);
+  bool ok = tgtB == entry;
+  Kizuri::RHIRenderTarget ids[40];
+  for (int i = 0; i < 40; ++i) {
+    ids[i] = rhi->CreateRenderTarget(64, 64, Kizuri::RHIFormat::RGBA8_UNORM);
+    if (ids[i] == 0) {
+      ok = false;
+      break;
+    }
+  }
+  for (int i = 0; i < 40; ++i) {
+    if (ids[i] != 0) {
+      rhi->DestroyRenderTarget(ids[i]);
+    }
+  }
+  rhi->GetMemoryStats(texB, tgtB, bufB);
+  ok = ok && tgtB == 32 * entry;
+  Kizuri::RHIRenderTarget reuse = rhi->CreateRenderTarget(64, 64, Kizuri::RHIFormat::RGBA8_UNORM);
+  rhi->GetMemoryStats(texB, tgtB, bufB);
+  ok = ok && reuse != 0 && tgtB == 32 * entry;
+  Kizuri::RHIRenderTarget other = rhi->CreateRenderTarget(128, 128, Kizuri::RHIFormat::RGBA8_UNORM);
+  rhi->GetMemoryStats(texB, tgtB, bufB);
+  ok = ok && other != 0 && tgtB == 32 * entry + 128u * 128u * 4u;
+  rhi->DestroyRenderTarget(reuse);
+  rhi->DestroyRenderTarget(other);
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
 bool TestQualityPreset() {
   Kizuri::QualitySettings low = Kizuri::ApplyQualityPreset(Kizuri::QualityLevel::Low);
   if (low.ssr || low.ssgi || low.dof || low.motionBlur || !low.fxaa || low.bloom != 0.0f || low.renderScale != 0.75f) {
@@ -5680,6 +5734,7 @@ int main() {
   failures += Check("FrustumCullNull", TestFrustumCullNull());
   failures += Check("RenderStats", TestRenderStats());
   failures += Check("DynamicResolution", TestDynamicResolution());
+  failures += Check("TargetPooling", TestTargetPooling());
   failures += Check("RHI-StateCache", TestStateCache());
   failures += Check("FreeCamera", TestCamera());
   failures += Check("MeshLoader-gltf", TestMeshLoader());

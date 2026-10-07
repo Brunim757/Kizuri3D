@@ -1,6 +1,7 @@
 #include "Kizuri/RHI.h"
 #include <unordered_map>
 #include <vector>
+#include <list>
 #include <cstring>
 #include <set>
 namespace Kizuri {
@@ -40,6 +41,7 @@ public:
     buffers.clear();
     cbuffers.clear();
     targets.clear();
+    pool.clear();
     w = 0;
     h = 0;
   }
@@ -258,6 +260,15 @@ public:
     if (tw <= 0 || th <= 0) {
       return 0;
     }
+    for (auto it = pool.begin(); it != pool.end(); ++it) {
+      if (it->w == tw && it->h == th && it->fmt == fmt) {
+        NullTarget t = *it;
+        pool.erase(it);
+        uint64_t id = nextId++;
+        targets[id] = t;
+        return id;
+      }
+    }
     uint64_t id = nextId++;
     NullTarget t;
     t.w = tw;
@@ -267,7 +278,14 @@ public:
     return id;
   }
   void DestroyRenderTarget(RHIRenderTarget rt) override {
-    targets.erase(rt);
+    auto it = targets.find(rt);
+    if (it == targets.end()) {
+      return;
+    }
+    if (pool.size() < 32) {
+      pool.push_back(it->second);
+    }
+    targets.erase(it);
   }
   void SetRenderTargets(uint32_t count, const RHIRenderTarget* colorRTs, RHIRenderTarget depthRT) override {
     (void)count;
@@ -432,6 +450,9 @@ public:
     for (const auto& kv : targets) {
       targetBytes += TargetBytes(kv.second.w, kv.second.h, kv.second.fmt);
     }
+    for (const auto& p : pool) {
+      targetBytes += TargetBytes(p.w, p.h, p.fmt);
+    }
     bufferBytes = 0;
     for (const auto& kv : buffers) {
       bufferBytes += static_cast<uint64_t>(kv.second.bytes.size());
@@ -463,6 +484,7 @@ private:
     RHIFormat fmt = RHIFormat::RGBA8_UNORM;
   };
   std::unordered_map<uint64_t, NullTarget> targets;
+  std::list<NullTarget> pool;
   std::unordered_map<uint64_t, int> shaders;
   std::unordered_map<uint64_t, int> tstamps;
   struct NullTexture {

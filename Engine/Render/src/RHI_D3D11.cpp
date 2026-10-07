@@ -8,6 +8,8 @@
 #include <wrl/client.h>
 #include <unordered_map>
 #include <vector>
+#include <list>
+#include <utility>
 #include <set>
 namespace Kizuri {
 using Microsoft::WRL::ComPtr;
@@ -233,6 +235,7 @@ public:
   }
   void Shutdown() override {
     targets.clear();
+    pool.clear();
     samplers.clear();
     layouts.clear();
     cubes.clear();
@@ -707,6 +710,14 @@ public:
     if (tw <= 0 || th <= 0) {
       return 0;
     }
+    for (auto it = pool.begin(); it != pool.end(); ++it) {
+      if (it->w == tw && it->h == th && it->fmt == fmt && it->isDepth == (fmt == RHIFormat::D24S8 || fmt == RHIFormat::R32_DEPTH)) {
+        uint64_t id = nextId++;
+        targets[id] = std::move(*it);
+        pool.erase(it);
+        return id;
+      }
+    }
     TargetRes res;
     res.w = tw;
     res.h = th;
@@ -772,7 +783,19 @@ public:
     return id;
   }
   void DestroyRenderTarget(RHIRenderTarget rt) override {
-    targets.erase(rt);
+    auto it = targets.find(rt);
+    if (it == targets.end()) {
+      cubes.erase(rt);
+      if (lastCube == rt) {
+        lastCube = 0;
+        lastCubeFace = -1;
+      }
+      return;
+    }
+    if (pool.size() < 32) {
+      pool.push_back(std::move(it->second));
+    }
+    targets.erase(it);
     cubes.erase(rt);
     if (lastCube == rt) {
       lastCube = 0;
@@ -1282,6 +1305,9 @@ public:
     for (const auto& kv : targets) {
       targetBytes += TargetBytes(kv.second.w, kv.second.h, kv.second.fmt);
     }
+    for (const auto& p : pool) {
+      targetBytes += TargetBytes(p.w, p.h, p.fmt);
+    }
     for (const auto& kv : cubes) {
       targetBytes += static_cast<uint64_t>(kv.second.size) * static_cast<uint64_t>(kv.second.size) * 4 * 6;
     }
@@ -1364,6 +1390,7 @@ private:
   std::unordered_map<uint64_t, ComPtr<ID3D11PixelShader>> psMap;
   std::unordered_map<uint64_t, ComPtr<ID3D11InputLayout>> layouts;
   std::unordered_map<uint64_t, TargetRes> targets;
+  std::list<TargetRes> pool;
   std::unordered_map<uint64_t, Tstamp> tstamps;
   std::unordered_map<uint64_t, ComPtr<ID3D11SamplerState>> samplers;
   std::unordered_map<uint64_t, ShadowCubeRes> cubes;
