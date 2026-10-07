@@ -207,6 +207,9 @@ DeferredRenderer::DeferredRenderer()
   , matTableRows(0)
   , neutralBlack(0)
   , neutralAniso(0)
+  , frustumValid(false)
+  , meshHasBounds(false)
+  , culledDraws(0)
   , geoVS(0)
   , geoPS(0)
   , forwardPS(0)
@@ -725,6 +728,33 @@ bool DeferredRenderer::SetMesh(const float* positions, const float* normals, con
   if (vertexCount == 0 || idxCount == 0) {
     return false;
   }
+  meshMin[0] = positions[0];
+  meshMin[1] = positions[1];
+  meshMin[2] = positions[2];
+  meshMax[0] = positions[0];
+  meshMax[1] = positions[1];
+  meshMax[2] = positions[2];
+  for (size_t i = 1; i < vertexCount; ++i) {
+    if (positions[i * 3 + 0] < meshMin[0]) {
+      meshMin[0] = positions[i * 3 + 0];
+    }
+    if (positions[i * 3 + 1] < meshMin[1]) {
+      meshMin[1] = positions[i * 3 + 1];
+    }
+    if (positions[i * 3 + 2] < meshMin[2]) {
+      meshMin[2] = positions[i * 3 + 2];
+    }
+    if (positions[i * 3 + 0] > meshMax[0]) {
+      meshMax[0] = positions[i * 3 + 0];
+    }
+    if (positions[i * 3 + 1] > meshMax[1]) {
+      meshMax[1] = positions[i * 3 + 1];
+    }
+    if (positions[i * 3 + 2] > meshMax[2]) {
+      meshMax[2] = positions[i * 3 + 2];
+    }
+  }
+  meshHasBounds = true;
   std::vector<float> interleaved;
   interleaved.reserve(vertexCount * 14);
   for (size_t i = 0; i < vertexCount; ++i) {
@@ -1350,8 +1380,29 @@ void DeferredRenderer::BeginObjects(const float view[16], const float proj[16]) 
   std::memcpy(prevProj, lastProj, sizeof(prevProj));
   std::memcpy(lastView, view, sizeof(lastView));
   std::memcpy(lastProj, proj, sizeof(lastProj));
+  float vp[16];
+  MulViewProj(lastView, lastProj, vp);
+  ExtractFrustumPlanes(vp, frustumPlanes);
+  frustumValid = true;
+  culledDraws = 0;
   SetupGeometryPass();
   begun = true;
+}
+bool DeferredRenderer::CullWorldAABB(const float world[16], const float inMin[3], const float inMax[3]) {
+  if (!frustumValid || inMin == nullptr || inMax == nullptr) {
+    return false;
+  }
+  float c[3];
+  float e[3];
+  TransformAABB(world, inMin, inMax, c, e);
+  if (CullAABB(frustumPlanes, c, e)) {
+    ++culledDraws;
+    return true;
+  }
+  return false;
+}
+uint32_t DeferredRenderer::CulledDraws() const {
+  return culledDraws;
 }
 void DeferredRenderer::BeginEnvFace(int face, const float view[16], const float proj[16]) {
   begun = false;
@@ -1365,6 +1416,11 @@ void DeferredRenderer::BeginEnvFace(int face, const float view[16], const float 
   captureMode = true;
   std::memcpy(lastView, view, sizeof(lastView));
   std::memcpy(lastProj, proj, sizeof(lastProj));
+  float vp[16];
+  MulViewProj(lastView, lastProj, vp);
+  ExtractFrustumPlanes(vp, frustumPlanes);
+  frustumValid = true;
+  culledDraws = 0;
   SetupGeometryPass();
   begun = true;
 }
@@ -1442,6 +1498,9 @@ void DeferredRenderer::DrawObject(const float world[16]) {
   item.start = 0;
   item.count = indexCount;
   shadowDraws.push_back(item);
+  if (meshHasBounds && CullWorldAABB(world, meshMin, meshMax)) {
+    return;
+  }
   if (material.transmission > 0.0f || material.alphaMode == 2) {
     ForwardDrawItem fwd;
     std::memcpy(fwd.world, world, sizeof(fwd.world));
@@ -1460,7 +1519,7 @@ void DeferredRenderer::DrawObject(const float world[16]) {
   rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
   rhi->DrawIndexed(indexCount, 0, 0);
 }
-void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat, float lodFade) {
+void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat, float lodFade, const float* aabbMin, const float* aabbMax) {
   if (!begun || world == nullptr || vb == 0 || ib == 0 || count == 0) {
     return;
   }
@@ -1471,6 +1530,9 @@ void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuff
   item.start = start;
   item.count = count;
   shadowDraws.push_back(item);
+  if (CullWorldAABB(world, aabbMin, aabbMax)) {
+    return;
+  }
   GeoConstants gc;
   std::memcpy(gc.world, world, sizeof(gc.world));
   std::memcpy(gc.view, lastView, sizeof(gc.view));

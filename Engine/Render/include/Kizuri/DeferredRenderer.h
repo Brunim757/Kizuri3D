@@ -171,11 +171,12 @@ public:
   void SetEnvIntensity(float intensity);
   void SetEnvProbes(int count, const RHITexture* cubes, const float (*boxMin)[4], const float (*boxMax)[4]);
   void DrawObject(const float world[16]);
-  void DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat, float lodFade = 0.0f);
+  void DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat, float lodFade = 0.0f, const float* aabbMin = nullptr, const float* aabbMax = nullptr);
   void DrawDecal(const float world[16], const float invWorld[16], const float size[3], float fade, RHITexture tex);
   void EndObjectsToTexture(const float camPos[3]);
   void EndObjectsToBackbuffer(const float camPos[3]);
   bool IsReady() const;
+  uint32_t CulledDraws() const;
 private:
   IRHI* rhi;
   int w;
@@ -244,6 +245,13 @@ private:
   std::vector<DecalDrawItem> decalDraws;
   std::vector<ForwardDrawItem> forwardDraws;
   void RenderForwardPass(const float camPos[3]);
+  bool CullWorldAABB(const float world[16], const float inMin[3], const float inMax[3]);
+  float frustumPlanes[6][4];
+  bool frustumValid;
+  float meshMin[3];
+  float meshMax[3];
+  bool meshHasBounds;
+  uint32_t culledDraws;
   RHIPixelShader bloomBrightPS;
   RHIPixelShader bloomBlurPS;
   RHIPixelShader bloomAddPS;

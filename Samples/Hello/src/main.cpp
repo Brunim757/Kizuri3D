@@ -1217,6 +1217,132 @@ bool TestSceneMaterialExt() {
   }
   return true;
 }
+bool TestFrustumCull() {
+  float vp[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float persp[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float vpOut[16] = { 0 };
+  Kizuri::MulViewProj(vp, persp, vpOut);
+  for (int i = 0; i < 16; ++i) {
+    if (std::fabs(vpOut[i] - persp[i]) > 1e-6f) {
+      return false;
+    }
+  }
+  float planes[6][4];
+  Kizuri::ExtractFrustumPlanes(vp, planes);
+  float c0[3] = { 0, 0, 0.5f };
+  float e0[3] = { 0.5f, 0.5f, 0.5f };
+  if (Kizuri::CullAABB(planes, c0, e0)) {
+    return false;
+  }
+  float c1[3] = { 5, 0, 0.5f };
+  if (!Kizuri::CullAABB(planes, c1, e0)) {
+    return false;
+  }
+  float c2[3] = { 0, 0, -5 };
+  if (!Kizuri::CullAABB(planes, c2, e0)) {
+    return false;
+  }
+  float persp[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float pp[6][4];
+  Kizuri::ExtractFrustumPlanes(persp, pp);
+  float c3[3] = { 0, 0, 5 };
+  float e3[3] = { 1, 1, 1 };
+  if (Kizuri::CullAABB(pp, c3, e3)) {
+    return false;
+  }
+  float c4[3] = { 0, 0, 50 };
+  if (!Kizuri::CullAABB(pp, c4, e3)) {
+    return false;
+  }
+  float c5[3] = { 20, 0, 5 };
+  if (!Kizuri::CullAABB(pp, c5, e3)) {
+    return false;
+  }
+  float iw[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 10,0,0,1 };
+  float inMin[3] = { -1, -1, -1 };
+  float inMax[3] = { 1, 1, 1 };
+  float oc[3] = { 0, 0, 0 };
+  float oe[3] = { 0, 0, 0 };
+  Kizuri::TransformAABB(iw, inMin, inMax, oc, oe);
+  if (oc[0] != 10.0f || oc[1] != 0.0f || oc[2] != 0.0f || oe[0] != 1.0f || oe[1] != 1.0f || oe[2] != 1.0f) {
+    return false;
+  }
+  return true;
+}
+bool TestFrustumCullNull() {
+  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  if (rhi == nullptr) {
+    return false;
+  }
+  Kizuri::RHIDesc desc;
+  desc.windowHandle = nullptr;
+  desc.width = 320;
+  desc.height = 200;
+  desc.vsync = false;
+  if (!rhi->Initialize(desc)) {
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  Kizuri::DeferredRenderer renderer;
+  const char* shaderDirs[3] = { "Shaders", "Samples/../Shaders", "." };
+  bool rok = false;
+  for (int i = 0; i < 3 && !rok; ++i) {
+    if (renderer.Initialize(rhi, 320, 200, shaderDirs[i])) {
+      rok = true;
+    } else {
+      renderer.Shutdown();
+    }
+  }
+  if (!rok) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 0 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float moved[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,50,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  renderer.BeginObjects(view, proj);
+  if (renderer.CulledDraws() != 0) {
+    renderer.EndObjectsToTexture(cam);
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  if (renderer.CulledDraws() != 0) {
+    renderer.EndObjectsToTexture(cam);
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  renderer.DrawObjectEx(moved, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  bool culledOk = renderer.CulledDraws() == 1;
+  renderer.EndObjectsToTexture(cam);
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return culledOk;
+}
 bool TestPartMaterial() {
   Kizuri::Scene src;
   Kizuri::UndoStack undo;
@@ -5318,6 +5444,8 @@ int main() {
   failures += Check("JobSystem", TestJobSystem());
   failures += Check("OriginRebasing", TestOrigin());
   failures += Check("RHI-Null", TestRHINull());
+  failures += Check("FrustumCull", TestFrustumCull());
+  failures += Check("FrustumCullNull", TestFrustumCullNull());
   failures += Check("RHI-StateCache", TestStateCache());
   failures += Check("FreeCamera", TestCamera());
   failures += Check("MeshLoader-gltf", TestMeshLoader());

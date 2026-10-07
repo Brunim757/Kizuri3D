@@ -24,4 +24,8 @@ float ShadowLinearizeDepth(float ndcZ, float nearZ, float farZ);
 float PCSSPenumbraWidth(float receiverDist, float blockerDist, float effectiveSize);
 float PCSSOrthoUVScale(float orthoExtent, float tileFrac);
 float PCSSPerspUVScale(float tanHalfFov, float receiverDist, float tileFrac);
+void MulViewProj(const float v[16], const float p[16], float vp[16]);
+void ExtractFrustumPlanes(const float vp[16], float planes[6][4]);
+bool CullAABB(const float planes[6][4], const float center[3], const float extents[3]);
+void TransformAABB(const float world[16], const float inMin[3], const float inMax[3], float outCenter[3], float outExtents[3]);
 }

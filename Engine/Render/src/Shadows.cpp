@@ -309,4 +309,65 @@ float PCSSPerspUVScale(float tanHalfFov, float receiverDist, float tileFrac) {
   }
   return 0.5f * f / (tanHalfFov * receiverDist * 2.0f);
 }
+void MulViewProj(const float v[16], const float p[16], float vp[16]) {
+  for (int i = 0; i < 4; ++i) {
+    for (int j = 0; j < 4; ++j) {
+      vp[i * 4 + j] = v[i * 4 + 0] * p[0 * 4 + j] + v[i * 4 + 1] * p[1 * 4 + j] + v[i * 4 + 2] * p[2 * 4 + j] + v[i * 4 + 3] * p[3 * 4 + j];
+    }
+  }
+}
+void ExtractFrustumPlanes(const float vp[16], float planes[6][4]) {
+  const float* r0 = vp + 0;
+  const float* r1 = vp + 4;
+  const float* r2 = vp + 8;
+  const float* r3 = vp + 12;
+  float raw[6][4] = {
+    { r3[0] + r0[0], r3[1] + r0[1], r3[2] + r0[2], r3[3] + r0[3] },
+    { r3[0] - r0[0], r3[1] - r0[1], r3[2] - r0[2], r3[3] - r0[3] },
+    { r3[0] + r1[0], r3[1] + r1[1], r3[2] + r1[2], r3[3] + r1[3] },
+    { r3[0] - r1[0], r3[1] - r1[1], r3[2] - r1[2], r3[3] - r1[3] },
+    { r2[0], r2[1], r2[2], r2[3] },
+    { r3[0] - r2[0], r3[1] - r2[1], r3[2] - r2[2], r3[3] - r2[3] }
+  };
+  for (int i = 0; i < 6; ++i) {
+    float l = sqrtf(raw[i][0] * raw[i][0] + raw[i][1] * raw[i][1] + raw[i][2] * raw[i][2]);
+    if (l < 1e-9f) {
+      planes[i][0] = 0.0f;
+      planes[i][1] = 0.0f;
+      planes[i][2] = 0.0f;
+      planes[i][3] = 0.0f;
+      continue;
+    }
+    planes[i][0] = raw[i][0] / l;
+    planes[i][1] = raw[i][1] / l;
+    planes[i][2] = raw[i][2] / l;
+    planes[i][3] = raw[i][3] / l;
+  }
+}
+bool CullAABB(const float planes[6][4], const float center[3], const float extents[3]) {
+  for (int i = 0; i < 6; ++i) {
+    float d = planes[i][0] * center[0] + planes[i][1] * center[1] + planes[i][2] * center[2] + planes[i][3];
+    float nx = planes[i][0] < 0.0f ? -planes[i][0] : planes[i][0];
+    float ny = planes[i][1] < 0.0f ? -planes[i][1] : planes[i][1];
+    float nz = planes[i][2] < 0.0f ? -planes[i][2] : planes[i][2];
+    float r = nx * extents[0] + ny * extents[1] + nz * extents[2];
+    if (d < -r) {
+      return true;
+    }
+  }
+  return false;
+}
+void TransformAABB(const float world[16], const float inMin[3], const float inMax[3], float outCenter[3], float outExtents[3]) {
+  float c[3] = { (inMin[0] + inMax[0]) * 0.5f, (inMin[1] + inMax[1]) * 0.5f, (inMin[2] + inMax[2]) * 0.5f };
+  float e[3] = { (inMax[0] - inMin[0]) * 0.5f, (inMax[1] - inMin[1]) * 0.5f, (inMax[2] - inMin[2]) * 0.5f };
+  outCenter[0] = c[0] * world[0] + c[1] * world[4] + c[2] * world[8] + world[12];
+  outCenter[1] = c[0] * world[1] + c[1] * world[5] + c[2] * world[9] + world[13];
+  outCenter[2] = c[0] * world[2] + c[1] * world[6] + c[2] * world[10] + world[14];
+  for (int i = 0; i < 3; ++i) {
+    float a0 = world[0 * 4 + i] < 0.0f ? -world[0 * 4 + i] : world[0 * 4 + i];
+    float a1 = world[1 * 4 + i] < 0.0f ? -world[1 * 4 + i] : world[1 * 4 + i];
+    float a2 = world[2 * 4 + i] < 0.0f ? -world[2 * 4 + i] : world[2 * 4 + i];
+    outExtents[i] = a0 * e[0] + a1 * e[1] + a2 * e[2];
+  }
+}
 }

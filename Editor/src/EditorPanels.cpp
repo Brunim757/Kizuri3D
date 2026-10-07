@@ -482,9 +482,9 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
       const MeshRecord* rec = assets.GetByGuid(drawGuids[li]);
       if (rec != nullptr && rec->loaded && assets.EnsureMeshGpu(drawGuids[li], 4194304)) {
         rec = assets.GetByGuid(drawGuids[li]);
-        if (rec != nullptr && rec->gpuReady) {
-          if (rec->data.parts.empty()) {
-            renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, 0, rec->gpuCount, nullptr, drawFades[li]);
+          if (rec != nullptr && rec->gpuReady) {
+            if (rec->data.parts.empty()) {
+              renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, 0, rec->gpuCount, nullptr, drawFades[li], rec->data.aabbMin, rec->data.aabbMax);
           } else {
           for (size_t p = 0; p < rec->data.parts.size(); ++p) {
             const MeshPartData& part = rec->data.parts[p];
@@ -529,7 +529,7 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
                 partMat.texFlags |= 16u;
               }
             }
-            renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, part.indexOffset, part.indexCount, useMat, drawFades[li]);
+            renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, part.indexOffset, part.indexCount, useMat, drawFades[li], rec->data.aabbMin, rec->data.aabbMax);
           }
         }
         anyDrawn = true;
