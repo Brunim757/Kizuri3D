@@ -1079,7 +1079,7 @@ bool RunPrimJob(cgltf_data* data, const PrimJob& job, PrimResult& r) {
   r.idx = useIdx;
   return true;
 }
-bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, MeshAssetData& out, LogStore* log) {
+bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, MeshAssetData& out, LogStore* log, std::atomic<int>* progress) {
   out = MeshAssetData();
   if (glbPath.empty()) {
     return false;
@@ -1101,6 +1101,9 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
   std::vector<TexJob> texJobs;
   if (cgltf_load_buffers(&options, data, glbPath.c_str()) == cgltf_result_success && data->meshes_count > 0) {
     ok = true;
+    if (progress != nullptr) {
+      progress->store(10);
+    }
     std::vector<std::vector<unsigned char>> meshoptBlobs;
     meshoptBlobs.reserve(data->buffer_views_count);
     for (size_t bi = 0; bi < data->buffer_views_count && ok; ++bi) {
@@ -1316,6 +1319,9 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
       matMap[gi] = static_cast<long>(idx);
       CollectTexJobs(&data->materials[gi], glbPath, hash, texCounter, idx, out.materials[idx], texJobs);
     }
+    if (progress != nullptr) {
+      progress->store(15);
+    }
     std::vector<PrimJob> primJobs;
     for (size_t ii = 0; ii < instances.size(); ++ii) {
       const cgltf_mesh& mesh = data->meshes[instances[ii].meshIndex];
@@ -1346,6 +1352,7 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
       size_t threadCount = primJobs.size() < static_cast<size_t>(hwThreads) ? primJobs.size() : static_cast<size_t>(hwThreads);
       std::atomic<size_t> next(0);
       std::vector<std::thread> workers;
+      std::atomic<size_t> geoDone(0);
       for (size_t t = 0; t < threadCount; ++t) {
         workers.push_back(std::thread([&]() {
           for (;;) {
@@ -1354,6 +1361,10 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
               break;
             }
             RunPrimJob(data, primJobs[i], primResults[i]);
+            size_t d = geoDone.fetch_add(1) + 1;
+            if (progress != nullptr) {
+              progress->store(15 + static_cast<int>(40 * d / primJobs.size()));
+            }
           }
         }));
       }
@@ -1467,6 +1478,7 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
       std::vector<LogStore> jobLogs(texJobs.size());
       std::atomic<size_t> next(0);
       std::vector<std::thread> workers;
+      std::atomic<size_t> texDone(0);
       for (size_t t = 0; t < threadCount; ++t) {
         workers.push_back(std::thread([&]() {
           for (;;) {
@@ -1475,6 +1487,10 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
               break;
             }
             RunTexJob(texJobs[i], out.materials, &jobLogs[i]);
+            size_t d = texDone.fetch_add(1) + 1;
+            if (progress != nullptr) {
+              progress->store(55 + static_cast<int>(30 * d / texJobs.size()));
+            }
           }
         }));
       }
@@ -1529,6 +1545,9 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
     out.sourceTimestamp = static_cast<int64_t>(mtime.time_since_epoch().count());
   }
   ComputeAABB(out.positions, out.aabbMin, out.aabbMax);
+  if (progress != nullptr) {
+    progress->store(95);
+  }
   return true;
 }
 }

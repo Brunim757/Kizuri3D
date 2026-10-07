@@ -66,8 +66,7 @@ void ImportMeshTask::ExecuteRange(enki::TaskSetPartition range, uint32_t threadn
   } else {
     try {
       LogStore log;
-      if (ImportGltfMesh(sourcePath, keepGuid, result.data, &log)) {
-        progress = 60;
+      if (ImportGltfMesh(sourcePath, keepGuid, result.data, &log, &progress)) {
         if (EncodeMeshFile(result.data, meshPath)) {
           result.ok = true;
         }
