@@ -69,6 +69,19 @@ void ImportMeshTask::ExecuteRange(enki::TaskSetPartition range, uint32_t threadn
       if (ImportGltfMesh(sourcePath, keepGuid, result.data, &log, &progress)) {
         if (EncodeMeshFile(result.data, meshPath)) {
           result.ok = true;
+          if (result.data.indices.size() >= 6000) {
+            for (int tier = 1; tier <= 2; ++tier) {
+              std::string sibPath = LodSiblingPath(meshPath, tier);
+              if (!sibPath.empty()) {
+                MeshAssetData lodMesh;
+                float ratio = tier == 1 ? 0.4f : 0.15f;
+                float err = tier == 1 ? 0.01f : 0.02f;
+                if (GenerateLodMesh(result.data, ratio, err, lodMesh)) {
+                  EncodeMeshFile(lodMesh, sibPath);
+                }
+              }
+            }
+          }
         }
       }
       std::string warn;

@@ -92,4 +92,52 @@ bool GenerateLodMesh(const MeshAssetData& src, float targetRatio, float targetEr
   out.sourceTimestamp = 0;
   return true;
 }
+std::string LodSiblingPath(const std::string& baseMeshPath, int tier) {
+  if (tier < 1 || tier > 2 || baseMeshPath.empty()) {
+    return "";
+  }
+  size_t dot = baseMeshPath.find_last_of('.');
+  size_t sep = baseMeshPath.find_last_of("/\\");
+  if (dot == std::string::npos || (sep != std::string::npos && dot < sep)) {
+    return baseMeshPath + "_lod" + static_cast<char>('0' + tier);
+  }
+  std::string tag = "_lod" + std::string(1, static_cast<char>('0' + tier));
+  return baseMeshPath.substr(0, dot) + tag + baseMeshPath.substr(dot);
+}
+void SelectAutoLod(float dist, float nearDist, float farDist, int& tierA, int& tierB, float& fadeB) {
+  tierA = 0;
+  tierB = -1;
+  fadeB = 0.0f;
+  if (farDist <= nearDist) {
+    return;
+  }
+  if (dist <= nearDist) {
+    return;
+  }
+  float span = farDist - nearDist;
+  float b1 = nearDist + span / 3.0f;
+  float b2 = nearDist + span * 2.0f / 3.0f;
+  float hw = span * 0.1f;
+  if (dist < b1 - hw) {
+    tierA = 0;
+    return;
+  }
+  if (dist < b1 + hw) {
+    tierA = 0;
+    tierB = 1;
+    fadeB = (dist - (b1 - hw)) / (hw * 2.0f);
+    return;
+  }
+  if (dist < b2 - hw) {
+    tierA = 1;
+    return;
+  }
+  if (dist < b2 + hw) {
+    tierA = 1;
+    tierB = 2;
+    fadeB = (dist - (b2 - hw)) / (hw * 2.0f);
+    return;
+  }
+  tierA = 2;
+}
 }

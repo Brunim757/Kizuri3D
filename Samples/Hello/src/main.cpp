@@ -4629,6 +4629,52 @@ bool TestLodRoundTrip() {
   }
   return true;
 }
+bool TestAutoLodSelect() {
+  int tierA = -9;
+  int tierB = -9;
+  float fadeB = -1.0f;
+  Kizuri::SelectAutoLod(5.0f, 10.0f, 70.0f, tierA, tierB, fadeB);
+  if (tierA != 0 || tierB != -1) {
+    return false;
+  }
+  Kizuri::SelectAutoLod(10.0f, 10.0f, 70.0f, tierA, tierB, fadeB);
+  if (tierA != 0 || tierB != -1) {
+    return false;
+  }
+  Kizuri::SelectAutoLod(30.0f, 10.0f, 70.0f, tierA, tierB, fadeB);
+  if (tierA != 0 || tierB != 1 || fadeB < 0.0f || fadeB > 1.0f) {
+    return false;
+  }
+  Kizuri::SelectAutoLod(40.0f, 10.0f, 70.0f, tierA, tierB, fadeB);
+  if (tierA != 1 || tierB != -1) {
+    return false;
+  }
+  Kizuri::SelectAutoLod(50.0f, 10.0f, 70.0f, tierA, tierB, fadeB);
+  if (tierA != 1 || tierB != 2 || fadeB < 0.0f || fadeB > 1.0f) {
+    return false;
+  }
+  Kizuri::SelectAutoLod(80.0f, 10.0f, 70.0f, tierA, tierB, fadeB);
+  if (tierA != 2 || tierB != -1) {
+    return false;
+  }
+  Kizuri::SelectAutoLod(30.0f, 70.0f, 10.0f, tierA, tierB, fadeB);
+  if (tierA != 0 || tierB != -1) {
+    return false;
+  }
+  if (Kizuri::LodSiblingPath("Meshes/rock.kzmesh", 1) != "Meshes/rock_lod1.kzmesh") {
+    return false;
+  }
+  if (Kizuri::LodSiblingPath("Meshes/rock.kzmesh", 2) != "Meshes/rock_lod2.kzmesh") {
+    return false;
+  }
+  if (!Kizuri::LodSiblingPath("Meshes/rock.kzmesh", 0).empty() || !Kizuri::LodSiblingPath("Meshes/rock.kzmesh", 3).empty()) {
+    return false;
+  }
+  if (!Kizuri::LodSiblingPath("", 1).empty()) {
+    return false;
+  }
+  return true;
+}
 bool TestLodUndo() {
   Kizuri::Scene scene;
   Kizuri::UndoStack undo;
@@ -5963,6 +6009,7 @@ int main() {
   failures += Check("LodDefaults", TestLodDefaults());
   failures += Check("LodSimplify", TestLodSimplify());
   failures += Check("LodRoundTrip", TestLodRoundTrip());
+  failures += Check("AutoLodSelect", TestAutoLodSelect());
   failures += Check("LodUndo", TestLodUndo());
   failures += Check("LightmapDefaults", TestLightmapDefaults());
   failures += Check("LightmapRoundTrip", TestLightmapRoundTrip());

@@ -463,7 +463,53 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
     int drawCount = 1;
     drawGuids[0] = e->meshGuid;
     drawGuids[1] = "";
-    if (e->hasLod && !e->lod.farGuid.empty() && e->lod.farGuid != e->meshGuid && e->lod.farDist > e->lod.nearDist) {
+    if (e->hasLod && e->lod.farGuid.empty() && e->lod.farDist > e->lod.nearDist) {
+      const MeshRecord* baseRec = assets.GetByGuid(e->meshGuid);
+      if (baseRec != nullptr) {
+        float ldx = e->transform.position[0] - cpos[0];
+        float ldy = e->transform.position[1] - cpos[1];
+        float ldz = e->transform.position[2] - cpos[2];
+        float ldist = sqrtf(ldx * ldx + ldy * ldy + ldz * ldz);
+        int tierA = 0;
+        int tierB = -1;
+        float fadeB = 0.0f;
+        Kizuri::SelectAutoLod(ldist, e->lod.nearDist, e->lod.farDist, tierA, tierB, fadeB);
+        std::string tierGuids[3];
+        tierGuids[0] = e->meshGuid;
+        tierGuids[1] = "";
+        tierGuids[2] = "";
+        for (int t = 1; t <= 2; ++t) {
+          std::string sp = Kizuri::LodSiblingPath(baseRec->meshPath, t);
+          if (!sp.empty()) {
+            const MeshRecord* sr = assets.GetByMeshPath(sp);
+            if (sr != nullptr) {
+              tierGuids[t] = sr->guid;
+            }
+          }
+        }
+        std::string guidA = e->meshGuid;
+        for (int t = tierA; t >= 0; --t) {
+          if (!tierGuids[t].empty()) {
+            guidA = tierGuids[t];
+            break;
+          }
+        }
+        drawGuids[0] = guidA;
+        if (tierB >= 0) {
+          std::string guidB = e->meshGuid;
+          for (int t = tierB; t >= 0; --t) {
+            if (!tierGuids[t].empty()) {
+              guidB = tierGuids[t];
+              break;
+            }
+          }
+          drawGuids[1] = guidB;
+          drawFades[0] = 1.0f - fadeB;
+          drawFades[1] = fadeB;
+          drawCount = 2;
+        }
+      }
+    } else if (e->hasLod && !e->lod.farGuid.empty() && e->lod.farGuid != e->meshGuid && e->lod.farDist > e->lod.nearDist) {
       float ldx = e->transform.position[0] - cpos[0];
       float ldy = e->transform.position[1] - cpos[1];
       float ldz = e->transform.position[2] - cpos[2];
@@ -1553,6 +1599,21 @@ void EditorApp::DrawInspector() {
       }
     }
     if (e->lod.farGuid.empty() && !e->meshGuid.empty()) {
+      const MeshRecord* autoBase = assets.GetByGuid(e->meshGuid);
+      if (autoBase != nullptr) {
+        int autoFound = 0;
+        for (int t = 1; t <= 2; ++t) {
+          std::string sp = Kizuri::LodSiblingPath(autoBase->meshPath, t);
+          if (!sp.empty() && assets.GetByMeshPath(sp) != nullptr) {
+            ++autoFound;
+          }
+        }
+        if (autoFound > 0) {
+          ImGui::Text("Auto LOD tiers: %d/2", autoFound);
+        } else {
+          ImGui::TextDisabled("Auto LOD tiers: none");
+        }
+      }
       if (ImGui::Button("Generate LOD")) {
         const MeshRecord* base = assets.GetByGuid(e->meshGuid);
         if (base == nullptr || !base->loaded) {
