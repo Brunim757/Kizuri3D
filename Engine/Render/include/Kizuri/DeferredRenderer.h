@@ -1,6 +1,7 @@
 #pragma once
 #include "Kizuri/RHI.h"
 #include <vector>
+#include <chrono>
 #include <stdint.h>
 namespace Kizuri {
 struct DeferredUvXform {
@@ -130,6 +131,33 @@ struct ForwardDrawItem {
   uint32_t count;
   DeferredMaterial mat;
 };
+struct RenderStats {
+  uint32_t geometryDraws = 0;
+  uint64_t geometryTris = 0;
+  uint32_t shadowDraws = 0;
+  uint64_t shadowTris = 0;
+  uint32_t forwardDraws = 0;
+  uint64_t forwardTris = 0;
+  uint32_t decalDraws = 0;
+  uint32_t lightingDraws = 0;
+  uint32_t postPasses = 0;
+  uint32_t culledDraws = 0;
+  double msSubmit = 0.0;
+  double msShadow = 0.0;
+  double msDecal = 0.0;
+  double msLighting = 0.0;
+  double msForward = 0.0;
+  double msPost = 0.0;
+  double msTotal = 0.0;
+  double gpuMs = 0.0;
+  double gpuShadowMs = 0.0;
+  double gpuLightMs = 0.0;
+  double gpuPostMs = 0.0;
+  bool gpuValid = false;
+  uint64_t textureBytes = 0;
+  uint64_t targetBytes = 0;
+  uint64_t bufferBytes = 0;
+};
 class DeferredRenderer {
 public:
   DeferredRenderer();
@@ -177,7 +205,8 @@ public:
   void EndObjectsToBackbuffer(const float camPos[3]);
   bool IsReady() const;
   uint32_t CulledDraws() const;
-private:
+  const RenderStats& GetStats() const;
+ private:
   IRHI* rhi;
   int w;
   int h;
@@ -248,6 +277,22 @@ private:
   bool CullWorldAABB(const float world[16], const float inMin[3], const float inMax[3]);
   float frustumPlanes[6][4];
   bool frustumValid;
+  RenderStats stats;
+  std::chrono::steady_clock::time_point frameStart;
+  std::chrono::steady_clock::time_point sectionStart;
+  RHITimestamp gpuShadowTs;
+  RHITimestamp gpuLightTs;
+  RHITimestamp gpuPostTs;
+  void NoteFullscreen();
+  void NoteLighting();
+  void BeginShadowSection();
+  void EndShadowSection();
+  void BeginLightSection();
+  void EndLightSection();
+  void BeginPostSection();
+  void EndPostSection();
+  static double ElapsedMs(const std::chrono::steady_clock::time_point& from, const std::chrono::steady_clock::time_point& to);
+  void PollGpuTimers();
   float meshMin[3];
   float meshMax[3];
   bool meshHasBounds;

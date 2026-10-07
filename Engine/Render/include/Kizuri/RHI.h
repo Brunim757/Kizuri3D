@@ -40,6 +40,7 @@ using RHIInputLayout = uint64_t;
 using RHIRenderTarget = uint64_t;
 using RHISampler = uint64_t;
 using RHITexture = uint64_t;
+using RHITimestamp = uint64_t;
 struct RHIDesc {
   void* windowHandle;
   int width;
@@ -127,6 +128,12 @@ public:
   virtual void GenerateCubeMips(RHITexture cube) = 0;
   virtual void DrawIndexed(uint32_t indexCount, uint32_t startIndex, int32_t baseVertex) = 0;
   virtual void DrawFullscreenTriangle() = 0;
+  virtual RHITimestamp CreateTimestamp() = 0;
+  virtual void DestroyTimestamp(RHITimestamp ts) = 0;
+  virtual void BeginTimestamp(RHITimestamp ts) = 0;
+  virtual void EndTimestamp(RHITimestamp ts) = 0;
+  virtual bool GetTimestampMs(RHITimestamp ts, double* ms) = 0;
+  virtual void GetMemoryStats(uint64_t& textureBytes, uint64_t& targetBytes, uint64_t& bufferBytes) const = 0;
 };
 IRHI* CreateRHI(RHI_API api);
 void DestroyRHI(IRHI* rhi);

@@ -93,6 +93,43 @@ struct ShadowCubeRes {
   ComPtr<ID3D11ShaderResourceView> srv;
   int size = 0;
 };
+struct Tstamp {
+  ComPtr<ID3D11Query> disjoint;
+  ComPtr<ID3D11Query> begin;
+  ComPtr<ID3D11Query> finish;
+};
+uint64_t TargetBytes(int tw, int th, RHIFormat fmt) {
+  uint64_t bpp = 4;
+  if (fmt == RHIFormat::RGBA16F) {
+    bpp = 8;
+  }
+  return static_cast<uint64_t>(tw) * static_cast<uint64_t>(th) * bpp;
+}
+uint64_t TextureBytes(int tw, int th, int mips, RHITextureFormat fmt) {
+  uint64_t total = 0;
+  int mw = tw;
+  int mh = th;
+  for (int m = 0; m < mips; ++m) {
+    if (fmt == RHITextureFormat::RGBA8_UNORM || fmt == RHITextureFormat::RGBA8_UNORM_SRGB) {
+      total += static_cast<uint64_t>(mw) * static_cast<uint64_t>(mh) * 4;
+    } else {
+      uint64_t blockBytes = 16;
+      if (fmt == RHITextureFormat::BC1_UNORM || fmt == RHITextureFormat::BC1_UNORM_SRGB) {
+        blockBytes = 8;
+      }
+      uint64_t bx = (static_cast<uint64_t>(mw) + 3) / 4;
+      uint64_t by = (static_cast<uint64_t>(mh) + 3) / 4;
+      total += bx * by * blockBytes;
+    }
+    if (mw > 1) {
+      mw >>= 1;
+    }
+    if (mh > 1) {
+      mh >>= 1;
+    }
+  }
+  return total;
+}
 }
 class D3D11RHI : public IRHI {
 public:
@@ -407,6 +444,7 @@ public:
     }
     uint64_t id = nextId++;
     cbuffers[id] = buf;
+    csizes[id] = aligned;
     return id;
   }
   void UpdateConstantBuffer(RHIConstBuffer buf, const void* data, uint64_t size) override {
@@ -423,6 +461,7 @@ public:
   }
   void DestroyConstantBuffer(RHIConstBuffer buf) override {
     cbuffers.erase(buf);
+    csizes.erase(buf);
   }
   void SetVertexConstantBuffer(uint32_t slot, RHIConstBuffer buf) override {
     auto it = cbuffers.find(buf);
@@ -1166,6 +1205,94 @@ public:
     curLayout = 0;
     context->Draw(3, 0);
   }
+  RHITimestamp CreateTimestamp() override {
+    D3D11_QUERY_DESC qd;
+    qd.MiscFlags = 0;
+    Tstamp t;
+    qd.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+    if (FAILED(device->CreateQuery(&qd, t.disjoint.GetAddressOf()))) {
+      return 0;
+    }
+    qd.Query = D3D11_QUERY_TIMESTAMP;
+    if (FAILED(device->CreateQuery(&qd, t.begin.GetAddressOf()))) {
+      return 0;
+    }
+    if (FAILED(device->CreateQuery(&qd, t.finish.GetAddressOf()))) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    tstamps[id] = t;
+    return id;
+  }
+  void DestroyTimestamp(RHITimestamp ts) override {
+    tstamps.erase(ts);
+  }
+  void BeginTimestamp(RHITimestamp ts) override {
+    auto it = tstamps.find(ts);
+    if (it == tstamps.end()) {
+      return;
+    }
+    context->Begin(it->second.disjoint.Get());
+    context->End(it->second.begin.Get());
+  }
+  void EndTimestamp(RHITimestamp ts) override {
+    auto it = tstamps.find(ts);
+    if (it == tstamps.end()) {
+      return;
+    }
+    context->End(it->second.finish.Get());
+    context->End(it->second.disjoint.Get());
+  }
+  bool GetTimestampMs(RHITimestamp ts, double* ms) override {
+    if (ms == nullptr) {
+      return false;
+    }
+    auto it = tstamps.find(ts);
+    if (it == tstamps.end()) {
+      return false;
+    }
+    D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
+    if (context->GetData(it->second.disjoint.Get(), &dj, sizeof(dj), 0) != S_OK) {
+      return false;
+    }
+    if (dj.Disjoint != FALSE) {
+      return false;
+    }
+    UINT64 t0 = 0;
+    UINT64 t1 = 0;
+    if (context->GetData(it->second.begin.Get(), &t0, sizeof(t0), 0) != S_OK) {
+      return false;
+    }
+    if (context->GetData(it->second.finish.Get(), &t1, sizeof(t1), 0) != S_OK) {
+      return false;
+    }
+    if (dj.Frequency == 0 || t1 < t0) {
+      return false;
+    }
+    *ms = static_cast<double>(t1 - t0) * 1000.0 / static_cast<double>(dj.Frequency);
+    return true;
+  }
+  void GetMemoryStats(uint64_t& textureBytes, uint64_t& targetBytes, uint64_t& bufferBytes) const override {
+    textureBytes = 0;
+    for (const auto& kv : textures) {
+      uint64_t mult = kv.second.isCube ? 6 : 1;
+      textureBytes += TextureBytes(kv.second.w, kv.second.h, kv.second.mips, kv.second.fmt) * mult;
+    }
+    targetBytes = 0;
+    for (const auto& kv : targets) {
+      targetBytes += TargetBytes(kv.second.w, kv.second.h, kv.second.fmt);
+    }
+    for (const auto& kv : cubes) {
+      targetBytes += static_cast<uint64_t>(kv.second.size) * static_cast<uint64_t>(kv.second.size) * 4 * 6;
+    }
+    bufferBytes = 0;
+    for (const auto& kv : sizes) {
+      bufferBytes += kv.second;
+    }
+    for (const auto& kv : csizes) {
+      bufferBytes += kv.second;
+    }
+  }
 private:
   void Note(bool dup) {
     ++total;
@@ -1231,11 +1358,13 @@ private:
   std::unordered_map<uint64_t, uint32_t> strides;
   std::unordered_map<uint64_t, uint64_t> sizes;
   std::unordered_map<uint64_t, ComPtr<ID3D11Buffer>> cbuffers;
+  std::unordered_map<uint64_t, uint64_t> csizes;
   std::unordered_map<uint64_t, ComPtr<ID3D11VertexShader>> vsMap;
   std::unordered_map<uint64_t, ComPtr<ID3DBlob>> vsBlobs;
   std::unordered_map<uint64_t, ComPtr<ID3D11PixelShader>> psMap;
   std::unordered_map<uint64_t, ComPtr<ID3D11InputLayout>> layouts;
   std::unordered_map<uint64_t, TargetRes> targets;
+  std::unordered_map<uint64_t, Tstamp> tstamps;
   std::unordered_map<uint64_t, ComPtr<ID3D11SamplerState>> samplers;
   std::unordered_map<uint64_t, ShadowCubeRes> cubes;
   uint64_t lastCube = 0;

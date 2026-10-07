@@ -319,7 +319,10 @@ DeferredRenderer::DeferredRenderer()
   , viewX(0.0f)
   , viewY(0.0f)
   , begun(false)
-  , ready(false) {
+  , ready(false)
+  , gpuShadowTs(0)
+  , gpuLightTs(0)
+  , gpuPostTs(0) {
   material.albedo[0] = 0.8f;
   material.albedo[1] = 0.2f;
   fogColor[0] = 0.6f;
@@ -605,6 +608,9 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (!CreateTargets()) {
     return false;
   }
+  gpuShadowTs = rhi->CreateTimestamp();
+  gpuLightTs = rhi->CreateTimestamp();
+  gpuPostTs = rhi->CreateTimestamp();
   ready = true;
   return true;
 }
@@ -613,6 +619,18 @@ void DeferredRenderer::Shutdown() {
     return;
   }
   DestroyTargets();
+  if (gpuShadowTs != 0) {
+    rhi->DestroyTimestamp(gpuShadowTs);
+    gpuShadowTs = 0;
+  }
+  if (gpuLightTs != 0) {
+    rhi->DestroyTimestamp(gpuLightTs);
+    gpuLightTs = 0;
+  }
+  if (gpuPostTs != 0) {
+    rhi->DestroyTimestamp(gpuPostTs);
+    gpuPostTs = 0;
+  }
   if (envCube != 0) {
     rhi->DestroyTexture(envCube);
     envCube = 0;
@@ -1211,6 +1229,8 @@ void DeferredRenderer::RenderShadowMaps() {
         rhi->SetVertexBuffer(shadowDraws[di].vb, 0);
         rhi->SetIndexBuffer(shadowDraws[di].ib);
         rhi->DrawIndexed(shadowDraws[di].count, shadowDraws[di].start, 0);
+        ++stats.shadowDraws;
+        stats.shadowTris += shadowDraws[di].count / 3;
       }
       ++slot;
     }
@@ -1255,6 +1275,8 @@ void DeferredRenderer::RenderShadowMaps() {
       rhi->SetVertexBuffer(shadowDraws[di].vb, 0);
       rhi->SetIndexBuffer(shadowDraws[di].ib);
       rhi->DrawIndexed(shadowDraws[di].count, shadowDraws[di].start, 0);
+      ++stats.shadowDraws;
+      stats.shadowTris += shadowDraws[di].count / 3;
     }
   }
   shadowSpotActive = static_cast<int>(spotsMapped > 4 ? 4 : spotsMapped);
@@ -1290,6 +1312,8 @@ void DeferredRenderer::RenderShadowMaps() {
         rhi->SetVertexBuffer(shadowDraws[di].vb, 0);
         rhi->SetIndexBuffer(shadowDraws[di].ib);
         rhi->DrawIndexed(shadowDraws[di].count, shadowDraws[di].start, 0);
+        ++stats.shadowDraws;
+        stats.shadowTris += shadowDraws[di].count / 3;
       }
     }
   }
@@ -1390,6 +1414,19 @@ void DeferredRenderer::BeginObjects(const float view[16], const float proj[16]) 
   ExtractFrustumPlanes(vp, frustumPlanes);
   frustumValid = true;
   culledDraws = 0;
+  PollGpuTimers();
+  double keepGpu = stats.gpuMs;
+  double keepShadow = stats.gpuShadowMs;
+  double keepLight = stats.gpuLightMs;
+  double keepPost = stats.gpuPostMs;
+  bool keepValid = stats.gpuValid;
+  stats = RenderStats();
+  stats.gpuMs = keepGpu;
+  stats.gpuShadowMs = keepShadow;
+  stats.gpuLightMs = keepLight;
+  stats.gpuPostMs = keepPost;
+  stats.gpuValid = keepValid;
+  frameStart = std::chrono::steady_clock::now();
   SetupGeometryPass();
   begun = true;
 }
@@ -1408,6 +1445,78 @@ bool DeferredRenderer::CullWorldAABB(const float world[16], const float inMin[3]
 }
 uint32_t DeferredRenderer::CulledDraws() const {
   return culledDraws;
+}
+const RenderStats& DeferredRenderer::GetStats() const {
+  return stats;
+}
+double DeferredRenderer::ElapsedMs(const std::chrono::steady_clock::time_point& from, const std::chrono::steady_clock::time_point& to) {
+  return std::chrono::duration<double, std::milli>(to - from).count();
+}
+void DeferredRenderer::NoteFullscreen() {
+  rhi->DrawFullscreenTriangle();
+  ++stats.postPasses;
+}
+void DeferredRenderer::NoteLighting() {
+  rhi->DrawFullscreenTriangle();
+  ++stats.lightingDraws;
+}
+void DeferredRenderer::BeginShadowSection() {
+  sectionStart = std::chrono::steady_clock::now();
+  if (gpuShadowTs != 0) {
+    rhi->BeginTimestamp(gpuShadowTs);
+  }
+}
+void DeferredRenderer::EndShadowSection() {
+  stats.msShadow = ElapsedMs(sectionStart, std::chrono::steady_clock::now());
+  if (gpuShadowTs != 0) {
+    rhi->EndTimestamp(gpuShadowTs);
+  }
+}
+void DeferredRenderer::BeginLightSection() {
+  sectionStart = std::chrono::steady_clock::now();
+  if (gpuLightTs != 0) {
+    rhi->BeginTimestamp(gpuLightTs);
+  }
+}
+void DeferredRenderer::EndLightSection() {
+  stats.msLighting = ElapsedMs(sectionStart, std::chrono::steady_clock::now());
+  if (gpuLightTs != 0) {
+    rhi->EndTimestamp(gpuLightTs);
+  }
+}
+void DeferredRenderer::BeginPostSection() {
+  sectionStart = std::chrono::steady_clock::now();
+  if (gpuPostTs != 0) {
+    rhi->BeginTimestamp(gpuPostTs);
+  }
+}
+void DeferredRenderer::EndPostSection() {
+  if (gpuPostTs != 0) {
+    rhi->EndTimestamp(gpuPostTs);
+  }
+}
+void DeferredRenderer::PollGpuTimers() {
+  if (rhi == nullptr) {
+    return;
+  }
+  double ms = 0.0;
+  bool any = false;
+  if (gpuShadowTs != 0 && rhi->GetTimestampMs(gpuShadowTs, &ms)) {
+    stats.gpuShadowMs = ms;
+    any = true;
+  }
+  if (gpuLightTs != 0 && rhi->GetTimestampMs(gpuLightTs, &ms)) {
+    stats.gpuLightMs = ms;
+    any = true;
+  }
+  if (gpuPostTs != 0 && rhi->GetTimestampMs(gpuPostTs, &ms)) {
+    stats.gpuPostMs = ms;
+    any = true;
+  }
+  if (any) {
+    stats.gpuMs = stats.gpuShadowMs + stats.gpuLightMs + stats.gpuPostMs;
+    stats.gpuValid = true;
+  }
 }
 void DeferredRenderer::BeginEnvFace(int face, const float view[16], const float proj[16]) {
   begun = false;
@@ -1523,6 +1632,8 @@ void DeferredRenderer::DrawObject(const float world[16]) {
   std::memcpy(gc.proj, lastProj, sizeof(gc.proj));
   rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
   rhi->DrawIndexed(indexCount, 0, 0);
+  ++stats.geometryDraws;
+  stats.geometryTris += indexCount / 3;
 }
 void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat, float lodFade, const float* aabbMin, const float* aabbMax) {
   if (!begun || world == nullptr || vb == 0 || ib == 0 || count == 0) {
@@ -1603,8 +1714,7 @@ void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuff
   rhi->SetPixelSampler(4, geoSampler);
   rhi->SetVertexBuffer(vb, 0);
   rhi->SetIndexBuffer(ib);
-  if (use.doubleSided) {
-    RHIRasterizer rs;
+  if (use.doubleSided) {    RHIRasterizer rs;
     rs.cull = RHICull::None;
     rs.fill = RHIFill::Solid;
     rs.frontCCW = false;
@@ -1619,6 +1729,8 @@ void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuff
     rhi->SetRasterizerState(rs);
   }
   rhi->DrawIndexed(count, start, 0);
+  ++stats.geometryDraws;
+  stats.geometryTris += count / 3;
 }
 void DeferredRenderer::DrawDecal(const float world[16], const float invWorld[16], const float size[3], float fade, RHITexture tex) {
   if (!begun || world == nullptr || invWorld == nullptr || size == nullptr || tex == 0) {
@@ -1700,6 +1812,7 @@ void DeferredRenderer::RenderDecals() {
     rhi->UpdateConstantBuffer(decalCB, &dc, sizeof(dc));
     rhi->SetPixelTexture2D(0, d.tex);
     rhi->DrawIndexed(36, 0, 0);
+    ++stats.decalDraws;
   }
   rhi->SetPixelTexture2D(0, 0);
   blend.enable = false;
@@ -1750,7 +1863,7 @@ void DeferredRenderer::RenderForwardPass(const float camPos[3]) {
   rhi->SetPixelShader(copyPS);
   rhi->SetPixelTexture(0, gLight);
   rhi->SetPixelSampler(0, sampler);
-  rhi->DrawFullscreenTriangle();
+  NoteFullscreen();
   rhi->SetPixelTexture(0, 0);
   RHIRenderTarget fwds[1] = { gLight };
   rhi->SetRenderTargets(1, fwds, gDepth);
@@ -1813,6 +1926,8 @@ void DeferredRenderer::RenderForwardPass(const float camPos[3]) {
     rhi->SetVertexBuffer(d.vb, 0);
     rhi->SetIndexBuffer(d.ib);
     rhi->DrawIndexed(d.count, d.start, 0);
+    ++stats.forwardDraws;
+    stats.forwardTris += d.count / 3;
   }
   rhi->SetPixelTexture2D(0, 0);
   rhi->SetPixelTexture2D(1, 0);
@@ -1850,10 +1965,15 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     return;
   }
   begun = false;
+  stats.msSubmit = ElapsedMs(frameStart, std::chrono::steady_clock::now());
   if (!captureMode) {
+    BeginShadowSection();
     RenderShadowMaps();
+    EndShadowSection();
   }
+  auto decalStart = std::chrono::steady_clock::now();
   RenderDecals();
+  stats.msDecal = ElapsedMs(decalStart, std::chrono::steady_clock::now());
   float ssaoVP[16] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
   for (int cc = 0; cc < 4; ++cc) {
     for (int rr = 0; rr < 4; ++rr) {
@@ -1896,7 +2016,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelTexture(0, gPosition);
     rhi->SetPixelTexture(1, gNormalRough);
     rhi->SetPixelTexture(2, gAlbedo);
-    rhi->DrawFullscreenTriangle();
+    NoteFullscreen();
     ssrValid = true;
     rhi->SetPixelTexture(0, 0);
     rhi->SetPixelTexture(1, 0);
@@ -1935,7 +2055,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelShader(contactPS);
     rhi->SetPixelTexture(0, gPosition);
     rhi->SetPixelTexture(1, gNormalRough);
-    rhi->DrawFullscreenTriangle();
+    NoteFullscreen();
     rhi->SetPixelTexture(0, 0);
     rhi->SetPixelTexture(1, 0);
   } else if (contactA != 0) {
@@ -1969,7 +2089,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelShader(ssaoPS);
     rhi->SetPixelTexture(0, gPosition);
     rhi->SetPixelTexture(1, gNormalRough);
-    rhi->DrawFullscreenTriangle();
+    NoteFullscreen();
     float bh[4] = { 1.0f / static_cast<float>(ssaoW), 0.0f, ssaoRadius, 0.0f };
     rhi->UpdateConstantBuffer(ssaoCB, &bh, sizeof(bh));
     rhi->SetRenderTargets(1, &ssaoB, 0);
@@ -1977,14 +2097,14 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelTexture(0, ssaoA);
     rhi->SetPixelTexture(1, gPosition);
     rhi->SetPixelTexture(2, gNormalRough);
-    rhi->DrawFullscreenTriangle();
+    NoteFullscreen();
     float bv[4] = { 0.0f, 1.0f / static_cast<float>(ssaoH), ssaoRadius, 0.0f };
     rhi->UpdateConstantBuffer(ssaoCB, &bv, sizeof(bv));
     rhi->SetRenderTargets(1, &ssaoA, 0);
     rhi->SetPixelTexture(0, ssaoB);
     rhi->SetPixelTexture(1, gPosition);
     rhi->SetPixelTexture(2, gNormalRough);
-    rhi->DrawFullscreenTriangle();
+    NoteFullscreen();
     ssaoValid = true;
     rhi->SetPixelTexture(0, 0);
     rhi->SetPixelTexture(1, 0);
@@ -2231,6 +2351,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     lc.probeBoxMax[pi][2] = probeBoxMax[pi][2];
     lc.probeBoxMax[pi][3] = 0.0f;
   }
+  BeginLightSection();
   rhi->UpdateConstantBuffer(lightCB, &lc, sizeof(lc));
   rhi->SetPixelConstantBuffer(0, lightCB);
   if (shadowMapsValid) {
@@ -2255,7 +2376,9 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture2D(12, probeCubes[1]);
   rhi->SetPixelTexture2D(13, probeCubes[2]);
   rhi->SetPixelTexture2D(14, probeCubes[3]);
-  rhi->DrawFullscreenTriangle();
+  NoteLighting();
+  EndLightSection();
+  BeginPostSection();
   rhi->SetPixelTexture(0, 0);
   rhi->SetPixelTexture(1, 0);
   rhi->SetPixelTexture(2, 0);
@@ -2276,13 +2399,18 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture(17, 0);
   rhi->SetPixelTexture2D(18, 0);
   if (toTexture && !captureMode) {
+    auto fwdStart = std::chrono::steady_clock::now();
     RenderForwardPass(camPos);
+    stats.msForward = ElapsedMs(fwdStart, std::chrono::steady_clock::now());
   } else {
     forwardDraws.clear();
   }
   if (captureMode) {
     captureMode = false;
     captureTarget = 0;
+    EndPostSection();
+    stats.msTotal = ElapsedMs(frameStart, std::chrono::steady_clock::now());
+    stats.culledDraws = culledDraws;
     return;
   }
   if (toTexture && ssgiOn && ssgiA != 0 && ssgiPS != 0) {
@@ -2318,7 +2446,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelTexture(1, gNormalRough);
     rhi->SetPixelTexture(2, gAlbedo);
     rhi->SetPixelTexture(3, gLight);
-    rhi->DrawFullscreenTriangle();
+    NoteFullscreen();
     rhi->SetPixelTexture(0, 0);
     rhi->SetPixelTexture(1, 0);
     rhi->SetPixelTexture(2, 0);
@@ -2331,12 +2459,12 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelTexture(0, ssgiA);
     rhi->SetPixelTexture(1, gPosition);
     rhi->SetPixelTexture(2, gNormalRough);
-    rhi->DrawFullscreenTriangle();
+    NoteFullscreen();
     float bv[4] = { 0.0f, 1.0f / static_cast<float>(h), 1.5f, 0.0f };
     rhi->UpdateConstantBuffer(bloomCB, &bv, sizeof(bv));
     rhi->SetRenderTargets(1, &ssgiA, 0);
     rhi->SetPixelTexture(0, ssgiB);
-    rhi->DrawFullscreenTriangle();
+    NoteFullscreen();
     rhi->SetPixelTexture(0, 0);
     rhi->SetPixelTexture(1, 0);
     rhi->SetPixelTexture(2, 0);
@@ -2359,18 +2487,18 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetViewport(bvp);
     rhi->SetPixelShader(bloomBrightPS);
     rhi->SetPixelTexture(0, gLight);
-    rhi->DrawFullscreenTriangle();
+    NoteFullscreen();
     float bh[4] = { 1.0f / static_cast<float>(bloomW), 0.0f, 0.0f, 0.0f };
     rhi->UpdateConstantBuffer(bloomCB, &bh, sizeof(bh));
     rhi->SetRenderTargets(1, &bloomB, 0);
     rhi->SetPixelShader(bloomBlurPS);
     rhi->SetPixelTexture(0, bloomA);
-    rhi->DrawFullscreenTriangle();
+    NoteFullscreen();
     float bv[4] = { 0.0f, 1.0f / static_cast<float>(bloomH), 0.0f, 0.0f };
     rhi->UpdateConstantBuffer(bloomCB, &bv, sizeof(bv));
     rhi->SetRenderTargets(1, &bloomA, 0);
     rhi->SetPixelTexture(0, bloomB);
-    rhi->DrawFullscreenTriangle();
+    NoteFullscreen();
     float ba[4] = { bloomStrength, 0.0f, 0.0f, 0.0f };
     rhi->UpdateConstantBuffer(bloomCB, &ba, sizeof(ba));
     rhi->SetRenderTargets(1, &gViewport, 0);
@@ -2385,7 +2513,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelShader(bloomAddPS);
     rhi->SetPixelTexture(0, gLight);
     rhi->SetPixelTexture(1, bloomA);
-    rhi->DrawFullscreenTriangle();
+    NoteFullscreen();
     rhi->SetPixelTexture(0, 0);
     rhi->SetPixelTexture(1, 0);
     filmActive = false;
@@ -2407,7 +2535,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       rhi->SetViewport(xvp);
       rhi->SetPixelShader(fxaaPS);
       rhi->SetPixelTexture(0, gViewport);
-      rhi->DrawFullscreenTriangle();
+      NoteFullscreen();
       rhi->SetPixelTexture(0, 0);
       filmSrc = fxaaA;
       fxaaRan = true;
@@ -2456,7 +2584,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       rhi->SetPixelTexture(0, filmSrc);
       rhi->SetPixelTexture(1, gPosition);
       rhi->SetPixelTexture(2, ssgiA);
-      rhi->DrawFullscreenTriangle();
+      NoteFullscreen();
       rhi->SetPixelTexture(0, 0);
       rhi->SetPixelTexture(1, 0);
       rhi->SetPixelTexture(2, 0);
@@ -2489,7 +2617,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       rhi->SetViewport(fsvp);
       rhi->SetPixelShader(fsrEasuPS);
       rhi->SetPixelTexture(0, filmSrc);
-      rhi->DrawFullscreenTriangle();
+      NoteFullscreen();
       AU1 rcon[4];
       FsrRcasCon(rcon, (AF1)((1.0f - fsrSharpness) * 2.0f));
       uint32_t rcas[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
@@ -2498,9 +2626,22 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       rhi->SetRenderTargets(1, &fsrOut, 0);
       rhi->SetPixelShader(fsrRcasPS);
       rhi->SetPixelTexture(0, fsrA);
-      rhi->DrawFullscreenTriangle();
+      NoteFullscreen();
       rhi->SetPixelTexture(0, 0);
     }
+    EndPostSection();
+    auto frameEnd = std::chrono::steady_clock::now();
+    stats.msTotal = ElapsedMs(frameStart, frameEnd);
+    double parts = stats.msSubmit + stats.msShadow + stats.msDecal + stats.msLighting + stats.msForward;
+    stats.msPost = stats.msTotal > parts ? stats.msTotal - parts : 0.0;
+    stats.culledDraws = culledDraws;
+    uint64_t texB = 0;
+    uint64_t tgtB = 0;
+    uint64_t bufB = 0;
+    rhi->GetMemoryStats(texB, tgtB, bufB);
+    stats.textureBytes = texB;
+    stats.targetBytes = tgtB;
+    stats.bufferBytes = bufB;
     rhi->BindBackbuffer();
   }
 }

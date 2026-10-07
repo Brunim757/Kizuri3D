@@ -259,7 +259,11 @@ public:
       return 0;
     }
     uint64_t id = nextId++;
-    targets[id] = static_cast<int>(fmt);
+    NullTarget t;
+    t.w = tw;
+    t.h = th;
+    t.fmt = fmt;
+    targets[id] = t;
     return id;
   }
   void DestroyRenderTarget(RHIRenderTarget rt) override {
@@ -318,7 +322,11 @@ public:
       return 0;
     }
     uint64_t id = nextId++;
-    targets[id] = static_cast<int>(RHIFormat::R32_DEPTH);
+    NullTarget t;
+    t.w = size;
+    t.h = size;
+    t.fmt = RHIFormat::R32_DEPTH;
+    targets[id] = t;
     return id;
   }
   void SetShadowCubeFace(RHIRenderTarget cube, int face) override {
@@ -396,6 +404,42 @@ public:
   }
   void DrawFullscreenTriangle() override {
   }
+  RHITimestamp CreateTimestamp() override {
+    uint64_t id = nextId++;
+    tstamps[id] = 1;
+    return id;
+  }
+  void DestroyTimestamp(RHITimestamp ts) override {
+    tstamps.erase(ts);
+  }
+  void BeginTimestamp(RHITimestamp ts) override {
+    (void)ts;
+  }
+  void EndTimestamp(RHITimestamp ts) override {
+    (void)ts;
+  }
+  bool GetTimestampMs(RHITimestamp ts, double* ms) override {
+    (void)ts;
+    (void)ms;
+    return false;
+  }
+  void GetMemoryStats(uint64_t& textureBytes, uint64_t& targetBytes, uint64_t& bufferBytes) const override {
+    textureBytes = 0;
+    for (const auto& kv : textures) {
+      textureBytes += TextureBytes(kv.second.w, kv.second.h, kv.second.mips, kv.second.fmt);
+    }
+    targetBytes = 0;
+    for (const auto& kv : targets) {
+      targetBytes += TargetBytes(kv.second.w, kv.second.h, kv.second.fmt);
+    }
+    bufferBytes = 0;
+    for (const auto& kv : buffers) {
+      bufferBytes += static_cast<uint64_t>(kv.second.bytes.size());
+    }
+    for (const auto& kv : cbuffers) {
+      bufferBytes += static_cast<uint64_t>(kv.second.size());
+    }
+  }
 private:
   void Note(bool dup) {
     ++total;
@@ -413,8 +457,14 @@ private:
   };
   std::unordered_map<uint64_t, NullBuffer> buffers;
   std::unordered_map<uint64_t, std::vector<unsigned char>> cbuffers;
-  std::unordered_map<uint64_t, int> targets;
+  struct NullTarget {
+    int w = 0;
+    int h = 0;
+    RHIFormat fmt = RHIFormat::RGBA8_UNORM;
+  };
+  std::unordered_map<uint64_t, NullTarget> targets;
   std::unordered_map<uint64_t, int> shaders;
+  std::unordered_map<uint64_t, int> tstamps;
   struct NullTexture {
     int w;
     int h;
@@ -423,8 +473,39 @@ private:
     std::set<int> resident;
   };
   std::unordered_map<uint64_t, NullTexture> textures;
-  static bool CheckMip(const NullTexture& t, int mip, int mw, int mh, uint32_t rowPitch, size_t bytes) {
-    if (mip < 0 || mip >= t.mips) {
+  static uint64_t TargetBytes(int tw, int th, RHIFormat fmt) {
+    uint64_t bpp = 4;
+    if (fmt == RHIFormat::RGBA16F) {
+      bpp = 8;
+    }
+    return static_cast<uint64_t>(tw) * static_cast<uint64_t>(th) * bpp;
+  }
+  static uint64_t TextureBytes(int tw, int th, int mips, RHITextureFormat fmt) {
+    uint64_t total = 0;
+    int mw = tw;
+    int mh = th;
+    for (int m = 0; m < mips; ++m) {
+      if (fmt == RHITextureFormat::RGBA8_UNORM || fmt == RHITextureFormat::RGBA8_UNORM_SRGB) {
+        total += static_cast<uint64_t>(mw) * static_cast<uint64_t>(mh) * 4;
+      } else {
+        uint64_t blockBytes = 16;
+        if (fmt == RHITextureFormat::BC1_UNORM || fmt == RHITextureFormat::BC1_UNORM_SRGB) {
+          blockBytes = 8;
+        }
+        uint64_t bx = (static_cast<uint64_t>(mw) + 3) / 4;
+        uint64_t by = (static_cast<uint64_t>(mh) + 3) / 4;
+        total += bx * by * blockBytes;
+      }
+      if (mw > 1) {
+        mw >>= 1;
+      }
+      if (mh > 1) {
+        mh >>= 1;
+      }
+    }
+    return total;
+  }
+  static bool CheckMip(const NullTexture& t, int mip, int mw, int mh, uint32_t rowPitch, size_t bytes) {    if (mip < 0 || mip >= t.mips) {
       return false;
     }
     int ew = t.w >> mip;
