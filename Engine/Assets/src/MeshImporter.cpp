@@ -766,21 +766,6 @@ void CollectTexJobs(const cgltf_material* cmat, const std::string& glbPath, uint
     AppendTexJob(jobs, TexJobType::Single, cmat->anisotropy.anisotropy_texture.texture, TexKind::Orm, glbPath, hash, texCounter, matIdx, &MeshMaterialData::anisotropyTexGuid);
   }
 }
-uint32_t ParseMaterialCached(cgltf_data* data, const cgltf_material* cmat, const std::string& glbPath, uint64_t hash, int& texCounter, MeshAssetData& out, std::vector<long>& matMap, std::vector<TexJob>& jobs, LogStore* log) {
-  long gi = static_cast<long>(cmat - data->materials);
-  if (gi >= 0 && static_cast<size_t>(gi) < matMap.size() && matMap[static_cast<size_t>(gi)] >= 0) {
-    return static_cast<uint32_t>(matMap[static_cast<size_t>(gi)]);
-  }
-  MeshMaterialData md;
-  ParseMaterialFactors(cmat, md, log);
-  uint32_t idx = static_cast<uint32_t>(out.materials.size());
-  out.materials.push_back(md);
-  if (gi >= 0 && static_cast<size_t>(gi) < matMap.size()) {
-    matMap[static_cast<size_t>(gi)] = static_cast<long>(idx);
-  }
-  CollectTexJobs(cmat, glbPath, hash, texCounter, idx, out.materials[idx], jobs);
-  return idx;
-}
 void ComposeTRS(const float t[3], const float q[4], const float s[3], float out[16]) {
   float x = q[0];
   float y = q[1];
@@ -823,6 +808,276 @@ void MulMat4(const float a[16], const float b[16], float out[16]) {
     out[k] = r[k];
   }
 }
+}
+const cgltf_accessor* FindPosAcc(const cgltf_primitive& prim) {
+  for (size_t ai = 0; ai < prim.attributes_count; ++ai) {
+    if (std::strcmp(prim.attributes[ai].name, "POSITION") == 0) {
+      return prim.attributes[ai].data;
+    }
+  }
+  return nullptr;
+}
+struct PrimJob {
+  size_t meshIndex;
+  size_t primIndex;
+  float nodeM[16];
+  float nm[9];
+};
+struct PrimResult {
+  bool ok;
+  bool skipped;
+  bool needTangent;
+  std::vector<float> pos;
+  std::vector<float> nrm;
+  std::vector<float> uv;
+  std::vector<float> tan;
+  std::vector<float> uv2;
+  std::vector<uint32_t> idx;
+  long matGi;
+  const cgltf_primitive* prim;
+  LogStore jobLog;
+  PrimResult()
+    : ok(true)
+    , skipped(false)
+    , needTangent(false)
+    , matGi(-1)
+    , prim(nullptr) {
+  }
+};
+bool RunPrimJob(cgltf_data* data, const PrimJob& job, PrimResult& r) {
+  r.ok = true;
+  r.skipped = false;
+  r.needTangent = false;
+  r.matGi = -1;
+  r.prim = nullptr;
+  const cgltf_mesh& mesh = data->meshes[job.meshIndex];
+  const cgltf_primitive& prim = mesh.primitives[job.primIndex];
+  r.prim = &prim;
+  if (prim.material != nullptr && prim.material >= data->materials && prim.material < data->materials + data->materials_count) {
+    r.matGi = static_cast<long>(prim.material - data->materials);
+  }
+  const float* nodeM = job.nodeM;
+  const float* nm = job.nm;
+  std::vector<float> primPos;
+  std::vector<float> primNrm;
+  std::vector<float> primUv;
+  std::vector<float> primTan;
+  std::vector<uint32_t> primIdx;
+  size_t primCount = 0;
+  const cgltf_accessor* posAcc = nullptr;
+  const cgltf_accessor* nrmAcc = nullptr;
+  const cgltf_accessor* uvAcc = nullptr;
+  const cgltf_accessor* tanAcc = nullptr;
+  const cgltf_accessor* uv2Acc = nullptr;
+  bool readFallback = true;
+  if (prim.has_draco_mesh_compression != 0) {
+    const cgltf_draco_mesh_compression& dc = prim.draco_mesh_compression;
+    const unsigned char* dbase = dc.buffer_view != nullptr ? static_cast<const unsigned char*>(cgltf_buffer_view_data(dc.buffer_view)) : nullptr;
+    int posId = -1;
+    int nrmId = -1;
+    int uvId = -1;
+    if (dbase != nullptr && data->accessors != nullptr) {
+      for (size_t dai = 0; dai < dc.attributes_count; ++dai) {
+        int aid = static_cast<int>(dc.attributes[dai].data - data->accessors);
+        if (std::strcmp(dc.attributes[dai].name, "POSITION") == 0) {
+          posId = aid;
+        } else if (std::strcmp(dc.attributes[dai].name, "NORMAL") == 0) {
+          nrmId = aid;
+        } else if (std::strcmp(dc.attributes[dai].name, "TEXCOORD_0") == 0) {
+          uvId = aid;
+        }
+      }
+    }
+    DracoMeshData dm;
+    if (dbase == nullptr || !DecodeDracoMesh(dbase, dc.buffer_view->size, posId, nrmId, uvId, dm) || dm.positions.empty()) {
+      r.jobLog.Add(LogLevel::Warning, "draco primitive decode failed; skipped");
+      r.skipped = true;
+      return true;
+    }
+    size_t dn = dm.positions.size() / 3;
+    primPos.reserve(dn * 3);
+    primNrm.reserve(dn * 3);
+    primUv.reserve(dn * 2);
+    primTan.reserve(dn * 4);
+    for (size_t vi = 0; vi < dn; ++vi) {
+      float p0 = dm.positions[vi * 3 + 0];
+      float p1 = dm.positions[vi * 3 + 1];
+      float p2 = dm.positions[vi * 3 + 2];
+      float n0 = dm.normals[vi * 3 + 0];
+      float n1 = dm.normals[vi * 3 + 1];
+      float n2 = dm.normals[vi * 3 + 2];
+      float wp0 = nodeM[0] * p0 + nodeM[4] * p1 + nodeM[8] * p2 + nodeM[12];
+      float wp1 = nodeM[1] * p0 + nodeM[5] * p1 + nodeM[9] * p2 + nodeM[13];
+      float wp2 = nodeM[2] * p0 + nodeM[6] * p1 + nodeM[10] * p2 + nodeM[14];
+      float wn0 = nm[0] * n0 + nm[1] * n1 + nm[2] * n2;
+      float wn1 = nm[3] * n0 + nm[4] * n1 + nm[5] * n2;
+      float wn2 = nm[6] * n0 + nm[7] * n1 + nm[8] * n2;
+      float nl = NewtonSqrt(wn0 * wn0 + wn1 * wn1 + wn2 * wn2);
+      if (nl > 1e-12f) {
+        wn0 /= nl;
+        wn1 /= nl;
+        wn2 /= nl;
+      }
+      primPos.push_back(wp0);
+      primPos.push_back(wp1);
+      primPos.push_back(-wp2);
+      primNrm.push_back(wn0);
+      primNrm.push_back(wn1);
+      primNrm.push_back(-wn2);
+      primUv.push_back(dm.uvs[vi * 2 + 0]);
+      primUv.push_back(dm.uvs[vi * 2 + 1]);
+      primTan.push_back(0.0f);
+      primTan.push_back(0.0f);
+      primTan.push_back(0.0f);
+      primTan.push_back(1.0f);
+    }
+    primIdx = dm.indices;
+    primCount = dn;
+    r.needTangent = true;
+    readFallback = false;
+  }
+  if (readFallback) {
+    for (size_t ai = 0; ai < prim.attributes_count; ++ai) {
+      if (std::strcmp(prim.attributes[ai].name, "POSITION") == 0) {
+        posAcc = prim.attributes[ai].data;
+      } else if (std::strcmp(prim.attributes[ai].name, "NORMAL") == 0) {
+        nrmAcc = prim.attributes[ai].data;
+      } else if (std::strcmp(prim.attributes[ai].name, "TEXCOORD_0") == 0) {
+        uvAcc = prim.attributes[ai].data;
+      } else if (std::strcmp(prim.attributes[ai].name, "TANGENT") == 0) {
+        tanAcc = prim.attributes[ai].data;
+      } else if (std::strcmp(prim.attributes[ai].name, "TEXCOORD_1") == 0) {
+        uv2Acc = prim.attributes[ai].data;
+      }
+    }
+    if (posAcc == nullptr || posAcc->count == 0) {
+      r.skipped = true;
+      return true;
+    }
+    primPos.reserve(posAcc->count * 3);
+    primNrm.reserve(posAcc->count * 3);
+    primUv.reserve(posAcc->count * 2);
+    primTan.reserve(posAcc->count * 4);
+    for (size_t vi = 0; vi < posAcc->count; ++vi) {
+      float p[3] = { 0, 0, 0 };
+      float n[3] = { 0, 1, 0 };
+      float uv[2] = { 0, 0 };
+      float tg[4] = { 0, 0, 0, 1 };
+      if (!ReadVec3(posAcc, vi, p)) {
+        r.ok = false;
+        return false;
+      }
+      if (nrmAcc != nullptr && !ReadVec3(nrmAcc, vi, n)) {
+        r.ok = false;
+        return false;
+      }
+      if (uvAcc != nullptr && !ReadVec2(uvAcc, vi, uv)) {
+        r.ok = false;
+        return false;
+      }
+      if (tanAcc != nullptr) {
+        if (!ReadVec4(tanAcc, vi, tg)) {
+          r.ok = false;
+          return false;
+        }
+      } else {
+        r.needTangent = true;
+      }
+      float wp0 = nodeM[0] * p[0] + nodeM[4] * p[1] + nodeM[8] * p[2] + nodeM[12];
+      float wp1 = nodeM[1] * p[0] + nodeM[5] * p[1] + nodeM[9] * p[2] + nodeM[13];
+      float wp2 = nodeM[2] * p[0] + nodeM[6] * p[1] + nodeM[10] * p[2] + nodeM[14];
+      float wn0 = nm[0] * n[0] + nm[1] * n[1] + nm[2] * n[2];
+      float wn1 = nm[3] * n[0] + nm[4] * n[1] + nm[5] * n[2];
+      float wn2 = nm[6] * n[0] + nm[7] * n[1] + nm[8] * n[2];
+      float nl = NewtonSqrt(wn0 * wn0 + wn1 * wn1 + wn2 * wn2);
+      if (nl > 1e-12f) {
+        wn0 /= nl;
+        wn1 /= nl;
+        wn2 /= nl;
+      }
+      primPos.push_back(wp0);
+      primPos.push_back(wp1);
+      primPos.push_back(-wp2);
+      primNrm.push_back(wn0);
+      primNrm.push_back(wn1);
+      primNrm.push_back(-wn2);
+      primUv.push_back(uv[0]);
+      primUv.push_back(uv[1]);
+      primTan.push_back(tg[0]);
+      primTan.push_back(tg[1]);
+      primTan.push_back(-tg[2]);
+      primTan.push_back(-tg[3]);
+    }
+    if (prim.indices != nullptr) {
+      if (prim.indices->count % 3 != 0) {
+        r.ok = false;
+        return false;
+      }
+      primIdx.reserve(prim.indices->count);
+      for (size_t k = 0; k < prim.indices->count; ++k) {
+        uint32_t idx = 0;
+        if (!ReadIndex(prim.indices, k, idx)) {
+          r.ok = false;
+          return false;
+        }
+        primIdx.push_back(idx);
+      }
+    } else {
+      if (posAcc->count % 3 != 0) {
+        r.ok = false;
+        return false;
+      }
+      primIdx.reserve(posAcc->count);
+      for (size_t vi = 0; vi < posAcc->count; ++vi) {
+        primIdx.push_back(static_cast<uint32_t>(vi));
+      }
+    }
+    primCount = posAcc->count;
+  }
+  std::vector<float> primUv2;
+  std::vector<float> usePos = primPos;
+  std::vector<float> useNrm = primNrm;
+  std::vector<float> useUv = primUv;
+  std::vector<float> useTan = primTan;
+  std::vector<uint32_t> useIdx = primIdx;
+  if (uv2Acc != nullptr) {
+    primUv2.reserve(primCount * 2);
+    for (size_t vi = 0; vi < primCount; ++vi) {
+      float uvv[2] = { 0, 0 };
+      if (!ReadVec2(uv2Acc, vi, uvv)) {
+        r.ok = false;
+        return false;
+      }
+      primUv2.push_back(uvv[0]);
+      primUv2.push_back(uvv[1]);
+    }
+  } else {
+    std::vector<float> uPos;
+    std::vector<float> uNrm;
+    std::vector<float> uUv;
+    std::vector<float> uTan;
+    std::vector<uint32_t> uIdx;
+    if (UnwrapPrim(primPos, primNrm, primUv, primTan, primIdx, uPos, uNrm, uUv, uTan, uIdx, primUv2)) {
+      usePos = uPos;
+      useNrm = uNrm;
+      useUv = uUv;
+      useTan = uTan;
+      useIdx = uIdx;
+    } else {
+      primUv2.assign(primCount * 2, 0.0f);
+    }
+  }
+  if (useIdx.size() % 3 != 0) {
+    r.ok = false;
+    return false;
+  }
+  r.pos = usePos;
+  r.nrm = useNrm;
+  r.uv = useUv;
+  r.tan = useTan;
+  r.uv2 = primUv2;
+  r.idx = useIdx;
+  return true;
 }
 bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, MeshAssetData& out, LogStore* log) {
   out = MeshAssetData();
@@ -1025,278 +1280,168 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
       cgltf_node_transform_world(&node, ld.matrix);
       out.lights.push_back(ld);
     }
-    for (size_t ii = 0; ii < instances.size() && ok; ++ii) {
+    std::vector<char> matNeeded(data->materials_count, 0);
+    for (size_t ii = 0; ii < instances.size(); ++ii) {
       const cgltf_mesh& mesh = data->meshes[instances[ii].meshIndex];
-      float nm[9];
-      InvertNormalMatrix(instances[ii].m, nm);
-      const float* nodeM = instances[ii].m;
-      for (size_t pi = 0; pi < mesh.primitives_count && ok; ++pi) {
+      for (size_t pi = 0; pi < mesh.primitives_count; ++pi) {
         const cgltf_primitive& prim = mesh.primitives[pi];
         if (prim.type != cgltf_primitive_type_triangles) {
           continue;
         }
-        const cgltf_accessor* posAcc = nullptr;
-        const cgltf_accessor* nrmAcc = nullptr;
-        const cgltf_accessor* uvAcc = nullptr;
-        const cgltf_accessor* tanAcc = nullptr;
-        const cgltf_accessor* uv2Acc = nullptr;
-        std::vector<float> primPos;
-        std::vector<float> primNrm;
-        std::vector<float> primUv;
-        std::vector<float> primTan;
-        std::vector<uint32_t> primIdx;
-        size_t primCount = 0;
-        bool readFallback = true;
-        if (prim.has_draco_mesh_compression != 0) {
-          const cgltf_draco_mesh_compression& dc = prim.draco_mesh_compression;
-          const unsigned char* dbase = dc.buffer_view != nullptr ? static_cast<const unsigned char*>(cgltf_buffer_view_data(dc.buffer_view)) : nullptr;
-          int posId = -1;
-          int nrmId = -1;
-          int uvId = -1;
-          if (dbase != nullptr && data->accessors != nullptr) {
-            for (size_t dai = 0; dai < dc.attributes_count; ++dai) {
-              int aid = static_cast<int>(dc.attributes[dai].data - data->accessors);
-              if (std::strcmp(dc.attributes[dai].name, "POSITION") == 0) {
-                posId = aid;
-              } else if (std::strcmp(dc.attributes[dai].name, "NORMAL") == 0) {
-                nrmId = aid;
-              } else if (std::strcmp(dc.attributes[dai].name, "TEXCOORD_0") == 0) {
-                uvId = aid;
-              }
-            }
-          }
-          DracoMeshData dm;
-          if (dbase == nullptr || !DecodeDracoMesh(dbase, dc.buffer_view->size, posId, nrmId, uvId, dm) || dm.positions.empty()) {
-            if (log != nullptr) {
-              log->Add(LogLevel::Warning, "draco primitive decode failed; skipped");
-            }
+        const cgltf_accessor* pa = FindPosAcc(prim);
+        if (pa == nullptr || pa->count == 0) {
+          if (prim.has_draco_mesh_compression == 0) {
             continue;
           }
-          size_t dn = dm.positions.size() / 3;
-          primPos.reserve(dn * 3);
-          primNrm.reserve(dn * 3);
-          primUv.reserve(dn * 2);
-          primTan.reserve(dn * 4);
-          for (size_t vi = 0; vi < dn; ++vi) {
-            float p0 = dm.positions[vi * 3 + 0];
-            float p1 = dm.positions[vi * 3 + 1];
-            float p2 = dm.positions[vi * 3 + 2];
-            float n0 = dm.normals[vi * 3 + 0];
-            float n1 = dm.normals[vi * 3 + 1];
-            float n2 = dm.normals[vi * 3 + 2];
-            float wp0 = nodeM[0] * p0 + nodeM[4] * p1 + nodeM[8] * p2 + nodeM[12];
-            float wp1 = nodeM[1] * p0 + nodeM[5] * p1 + nodeM[9] * p2 + nodeM[13];
-            float wp2 = nodeM[2] * p0 + nodeM[6] * p1 + nodeM[10] * p2 + nodeM[14];
-            float wn0 = nm[0] * n0 + nm[1] * n1 + nm[2] * n2;
-            float wn1 = nm[3] * n0 + nm[4] * n1 + nm[5] * n2;
-            float wn2 = nm[6] * n0 + nm[7] * n1 + nm[8] * n2;
-            float nl = NewtonSqrt(wn0 * wn0 + wn1 * wn1 + wn2 * wn2);
-            if (nl > 1e-12f) {
-              wn0 /= nl;
-              wn1 /= nl;
-              wn2 /= nl;
-            }
-            primPos.push_back(wp0);
-            primPos.push_back(wp1);
-            primPos.push_back(-wp2);
-            primNrm.push_back(wn0);
-            primNrm.push_back(wn1);
-            primNrm.push_back(-wn2);
-            primUv.push_back(dm.uvs[vi * 2 + 0]);
-            primUv.push_back(dm.uvs[vi * 2 + 1]);
-            primTan.push_back(0.0f);
-            primTan.push_back(0.0f);
-            primTan.push_back(0.0f);
-            primTan.push_back(1.0f);
-          }
-          primIdx = dm.indices;
-          primCount = dn;
-          allTangent = false;
-          readFallback = false;
         }
-        if (readFallback) {
-          for (size_t ai = 0; ai < prim.attributes_count; ++ai) {
-            if (std::strcmp(prim.attributes[ai].name, "POSITION") == 0) {
-              posAcc = prim.attributes[ai].data;
-            } else if (std::strcmp(prim.attributes[ai].name, "NORMAL") == 0) {
-              nrmAcc = prim.attributes[ai].data;
-            } else if (std::strcmp(prim.attributes[ai].name, "TEXCOORD_0") == 0) {
-              uvAcc = prim.attributes[ai].data;
-            } else if (std::strcmp(prim.attributes[ai].name, "TANGENT") == 0) {
-              tanAcc = prim.attributes[ai].data;
-            } else if (std::strcmp(prim.attributes[ai].name, "TEXCOORD_1") == 0) {
-              uv2Acc = prim.attributes[ai].data;
-            }
-          }
-          if (posAcc == nullptr || posAcc->count == 0) {
-            continue;
-          }
-          primPos.reserve(posAcc->count * 3);
-          primNrm.reserve(posAcc->count * 3);
-          primUv.reserve(posAcc->count * 2);
-          primTan.reserve(posAcc->count * 4);
-          for (size_t vi = 0; vi < posAcc->count && ok; ++vi) {
-            float p[3] = { 0, 0, 0 };
-            float n[3] = { 0, 1, 0 };
-            float uv[2] = { 0, 0 };
-            float tg[4] = { 0, 0, 0, 1 };
-            if (!ReadVec3(posAcc, vi, p)) {
-              ok = false;
-              break;
-            }
-            if (nrmAcc != nullptr && !ReadVec3(nrmAcc, vi, n)) {
-              ok = false;
-              break;
-            }
-            if (uvAcc != nullptr && !ReadVec2(uvAcc, vi, uv)) {
-              ok = false;
-              break;
-            }
-            if (tanAcc != nullptr) {
-              if (!ReadVec4(tanAcc, vi, tg)) {
-                ok = false;
-                break;
-              }
-            } else {
-              allTangent = false;
-            }
-            float wp0 = nodeM[0] * p[0] + nodeM[4] * p[1] + nodeM[8] * p[2] + nodeM[12];
-            float wp1 = nodeM[1] * p[0] + nodeM[5] * p[1] + nodeM[9] * p[2] + nodeM[13];
-            float wp2 = nodeM[2] * p[0] + nodeM[6] * p[1] + nodeM[10] * p[2] + nodeM[14];
-            float wn0 = nm[0] * n[0] + nm[1] * n[1] + nm[2] * n[2];
-            float wn1 = nm[3] * n[0] + nm[4] * n[1] + nm[5] * n[2];
-            float wn2 = nm[6] * n[0] + nm[7] * n[1] + nm[8] * n[2];
-            float nl = NewtonSqrt(wn0 * wn0 + wn1 * wn1 + wn2 * wn2);
-            if (nl > 1e-12f) {
-              wn0 /= nl;
-              wn1 /= nl;
-              wn2 /= nl;
-            }
-            primPos.push_back(wp0);
-            primPos.push_back(wp1);
-            primPos.push_back(-wp2);
-            primNrm.push_back(wn0);
-            primNrm.push_back(wn1);
-            primNrm.push_back(-wn2);
-            primUv.push_back(uv[0]);
-            primUv.push_back(uv[1]);
-            primTan.push_back(tg[0]);
-            primTan.push_back(tg[1]);
-            primTan.push_back(-tg[2]);
-            primTan.push_back(-tg[3]);
-          }
-          if (!ok) {
-            break;
-          }
-          if (prim.indices != nullptr) {
-            if (prim.indices->count % 3 != 0) {
-              ok = false;
-              break;
-            }
-            primIdx.reserve(prim.indices->count);
-            for (size_t ii = 0; ii < prim.indices->count; ++ii) {
-              uint32_t idx = 0;
-              if (!ReadIndex(prim.indices, ii, idx)) {
-                ok = false;
-                break;
-              }
-              primIdx.push_back(idx);
-            }
-          } else {
-            if (posAcc->count % 3 != 0) {
-              ok = false;
-              break;
-            }
-            primIdx.reserve(posAcc->count);
-            for (size_t vi = 0; vi < posAcc->count; ++vi) {
-              primIdx.push_back(static_cast<uint32_t>(vi));
-            }
-          }
-          if (!ok) {
-            break;
-          }
-          primCount = posAcc->count;
-        }
-        std::vector<float> primUv2;
-        std::vector<float> usePos = primPos;
-        std::vector<float> useNrm = primNrm;
-        std::vector<float> useUv = primUv;
-        std::vector<float> useTan = primTan;
-        std::vector<uint32_t> useIdx = primIdx;
-        if (uv2Acc != nullptr) {
-          primUv2.reserve(primCount * 2);
-          for (size_t vi = 0; vi < primCount && ok; ++vi) {
-            float uvv[2] = { 0, 0 };
-            if (!ReadVec2(uv2Acc, vi, uvv)) {
-              ok = false;
-              break;
-            }
-            primUv2.push_back(uvv[0]);
-            primUv2.push_back(uvv[1]);
-          }
-          if (!ok) {
-            break;
-          }
-        } else {
-          std::vector<float> uPos;
-          std::vector<float> uNrm;
-          std::vector<float> uUv;
-          std::vector<float> uTan;
-          std::vector<uint32_t> uIdx;
-          if (UnwrapPrim(primPos, primNrm, primUv, primTan, primIdx, uPos, uNrm, uUv, uTan, uIdx, primUv2)) {
-            usePos = uPos;
-            useNrm = uNrm;
-            useUv = uUv;
-            useTan = uTan;
-            useIdx = uIdx;
-          } else {
-            primUv2.assign(primCount * 2, 0.0f);
-          }
-        }
-        uint32_t baseVertex = static_cast<uint32_t>(out.positions.size() / 3);
-        if (useIdx.size() % 3 != 0) {
-          ok = false;
-          break;
-        }
-        uint32_t partIdx = static_cast<uint32_t>(out.parts.size());
-        out.positions.insert(out.positions.end(), usePos.begin(), usePos.end());
-        out.normals.insert(out.normals.end(), useNrm.begin(), useNrm.end());
-        out.uvs.insert(out.uvs.end(), useUv.begin(), useUv.end());
-        out.tangents.insert(out.tangents.end(), useTan.begin(), useTan.end());
-        out.uv2s.insert(out.uv2s.end(), primUv2.begin(), primUv2.end());
-        out.indices.reserve(out.indices.size() + useIdx.size());
-        for (size_t ii = 0; ii < useIdx.size(); ii += 3) {
-          out.indices.push_back(baseVertex + useIdx[ii]);
-          out.indices.push_back(baseVertex + useIdx[ii + 2]);
-          out.indices.push_back(baseVertex + useIdx[ii + 1]);
-        }
-        uint32_t matIndex = 0;
         if (prim.material != nullptr && prim.material >= data->materials && prim.material < data->materials + data->materials_count) {
-          matIndex = ParseMaterialCached(data, prim.material, glbPath, hash, texCounter, out, matMap, texJobs, log);
-        } else if (out.materials.empty()) {
-          MeshMaterialData md;
-          md.name = "Default";
-          out.materials.push_back(md);
+          matNeeded[static_cast<size_t>(prim.material - data->materials)] = 1;
         }
-        for (size_t mi2 = 0; mi2 < prim.mappings_count && !useIdx.empty(); ++mi2) {
-          const cgltf_material_mapping& mp = prim.mappings[mi2];
-          if (mp.material == nullptr || mp.material < data->materials || mp.material >= data->materials + data->materials_count) {
-            continue;
+        for (size_t mi2 = 0; mi2 < prim.mappings_count; ++mi2) {
+          const cgltf_material* mm2 = prim.mappings[mi2].material;
+          if (mm2 != nullptr && mm2 >= data->materials && mm2 < data->materials + data->materials_count) {
+            matNeeded[static_cast<size_t>(mm2 - data->materials)] = 1;
           }
-          uint32_t mapped = ParseMaterialCached(data, mp.material, glbPath, hash, texCounter, out, matMap, texJobs, log);
-          MeshVariantAssign va;
-          va.part = partIdx;
-          va.variant = static_cast<uint32_t>(mp.variant);
-          va.material = mapped;
-          out.variantAssigns.push_back(va);
         }
-        MeshPartData part;
-        part.indexOffset = static_cast<uint32_t>(out.indices.size()) - static_cast<uint32_t>(useIdx.size());
-        part.material = matIndex;
-        part.indexCount = static_cast<uint32_t>(useIdx.size());
-        if (part.indexCount > 0) {
-          out.parts.push_back(part);
+      }
+    }
+    for (size_t gi = 0; gi < matNeeded.size(); ++gi) {
+      if (matNeeded[gi] == 0) {
+        continue;
+      }
+      MeshMaterialData md;
+      ParseMaterialFactors(&data->materials[gi], md, log);
+      uint32_t idx = static_cast<uint32_t>(out.materials.size());
+      out.materials.push_back(md);
+      matMap[gi] = static_cast<long>(idx);
+      CollectTexJobs(&data->materials[gi], glbPath, hash, texCounter, idx, out.materials[idx], texJobs);
+    }
+    std::vector<PrimJob> primJobs;
+    for (size_t ii = 0; ii < instances.size(); ++ii) {
+      const cgltf_mesh& mesh = data->meshes[instances[ii].meshIndex];
+      float nm[9];
+      InvertNormalMatrix(instances[ii].m, nm);
+      for (size_t pi = 0; pi < mesh.primitives_count; ++pi) {
+        if (mesh.primitives[pi].type != cgltf_primitive_type_triangles) {
+          continue;
         }
+        PrimJob job;
+        job.meshIndex = instances[ii].meshIndex;
+        job.primIndex = pi;
+        for (int k = 0; k < 16; ++k) {
+          job.nodeM[k] = instances[ii].m[k];
+        }
+        for (int k = 0; k < 9; ++k) {
+          job.nm[k] = nm[k];
+        }
+        primJobs.push_back(job);
+      }
+    }
+    std::vector<PrimResult> primResults(primJobs.size());
+    if (!primJobs.empty()) {
+      unsigned int hwThreads = std::thread::hardware_concurrency();
+      if (hwThreads < 1) {
+        hwThreads = 1;
+      }
+      size_t threadCount = primJobs.size() < static_cast<size_t>(hwThreads) ? primJobs.size() : static_cast<size_t>(hwThreads);
+      std::atomic<size_t> next(0);
+      std::vector<std::thread> workers;
+      for (size_t t = 0; t < threadCount; ++t) {
+        workers.push_back(std::thread([&]() {
+          for (;;) {
+            size_t i = next.fetch_add(1);
+            if (i >= primJobs.size()) {
+              break;
+            }
+            RunPrimJob(data, primJobs[i], primResults[i]);
+          }
+        }));
+      }
+      for (size_t t = 0; t < workers.size(); ++t) {
+        workers[t].join();
+      }
+    }
+    for (size_t ji = 0; ji < primJobs.size() && ok; ++ji) {
+      PrimResult& r = primResults[ji];
+      if (log != nullptr) {
+        for (size_t li = 0; li < r.jobLog.Count(); ++li) {
+          if (r.jobLog.At(li).level == LogLevel::Warning || r.jobLog.At(li).level == LogLevel::Error) {
+            log->Add(r.jobLog.At(li).level, r.jobLog.At(li).text);
+          }
+        }
+      }
+      if (!r.ok) {
+        ok = false;
+        break;
+      }
+      if (r.skipped || r.prim == nullptr) {
+        continue;
+      }
+      if (r.needTangent) {
+        allTangent = false;
+      }
+      const cgltf_primitive& prim = *r.prim;
+      uint32_t baseVertex = static_cast<uint32_t>(out.positions.size() / 3);
+      if (r.idx.size() % 3 != 0) {
+        ok = false;
+        break;
+      }
+      uint32_t partIdx = static_cast<uint32_t>(out.parts.size());
+      out.positions.insert(out.positions.end(), r.pos.begin(), r.pos.end());
+      out.normals.insert(out.normals.end(), r.nrm.begin(), r.nrm.end());
+      out.uvs.insert(out.uvs.end(), r.uv.begin(), r.uv.end());
+      out.tangents.insert(out.tangents.end(), r.tan.begin(), r.tan.end());
+      out.uv2s.insert(out.uv2s.end(), r.uv2.begin(), r.uv2.end());
+      out.indices.reserve(out.indices.size() + r.idx.size());
+      for (size_t k = 0; k < r.idx.size(); k += 3) {
+        out.indices.push_back(baseVertex + r.idx[k]);
+        out.indices.push_back(baseVertex + r.idx[k + 2]);
+        out.indices.push_back(baseVertex + r.idx[k + 1]);
+      }
+      uint32_t matIndex = 0;
+      if (r.matGi >= 0 && static_cast<size_t>(r.matGi) < matMap.size() && matMap[static_cast<size_t>(r.matGi)] >= 0) {
+        matIndex = static_cast<uint32_t>(matMap[static_cast<size_t>(r.matGi)]);
+      } else if (r.matGi >= 0 && static_cast<size_t>(r.matGi) < matMap.size()) {
+        MeshMaterialData md;
+        ParseMaterialFactors(&data->materials[static_cast<size_t>(r.matGi)], md, log);
+        matIndex = static_cast<uint32_t>(out.materials.size());
+        out.materials.push_back(md);
+        matMap[static_cast<size_t>(r.matGi)] = static_cast<long>(matIndex);
+        CollectTexJobs(&data->materials[static_cast<size_t>(r.matGi)], glbPath, hash, texCounter, matIndex, out.materials[matIndex], texJobs);
+      } else if (out.materials.empty()) {
+        MeshMaterialData md;
+        md.name = "Default";
+        out.materials.push_back(md);
+      }
+      for (size_t mi2 = 0; mi2 < prim.mappings_count && !r.idx.empty(); ++mi2) {
+        const cgltf_material_mapping& mp = prim.mappings[mi2];
+        if (mp.material == nullptr || mp.material < data->materials || mp.material >= data->materials + data->materials_count) {
+          continue;
+        }
+        long mgi = static_cast<long>(mp.material - data->materials);
+        uint32_t mapped = 0;
+        if (matMap[static_cast<size_t>(mgi)] >= 0) {
+          mapped = static_cast<uint32_t>(matMap[static_cast<size_t>(mgi)]);
+        } else {
+          MeshMaterialData md;
+          ParseMaterialFactors(mp.material, md, log);
+          mapped = static_cast<uint32_t>(out.materials.size());
+          out.materials.push_back(md);
+          matMap[static_cast<size_t>(mgi)] = static_cast<long>(mapped);
+          CollectTexJobs(mp.material, glbPath, hash, texCounter, mapped, out.materials[mapped], texJobs);
+        }
+        MeshVariantAssign va;
+        va.part = partIdx;
+        va.variant = static_cast<uint32_t>(mp.variant);
+        va.material = mapped;
+        out.variantAssigns.push_back(va);
+      }
+      MeshPartData part;
+      part.indexOffset = static_cast<uint32_t>(out.indices.size()) - static_cast<uint32_t>(r.idx.size());
+      part.material = matIndex;
+      part.indexCount = static_cast<uint32_t>(r.idx.size());
+      if (part.indexCount > 0) {
+        out.parts.push_back(part);
       }
     }
     if (ok && data->skins_count > 0 && log != nullptr) {
