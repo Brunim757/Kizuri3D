@@ -1116,6 +1116,8 @@ void DeferredRenderer::RenderShadowMaps() {
     shadowSpotMeta[i][3] = 0.0f;
   }
   if (!shadowsAvailable || rhi == nullptr || shadowDraws.empty()) {
+    lastCasterHash = casterHash;
+    hasCasterHash = true;
     return;
   }
   struct Candidate {
@@ -1215,6 +1217,8 @@ void DeferredRenderer::RenderShadowMaps() {
     }
   }
   if (!anyDir && spotsMapped == 0 && pointKept == static_cast<size_t>(-1)) {
+    lastCasterHash = casterHash;
+    hasCasterHash = true;
     return;
   }
   float identity[16] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
