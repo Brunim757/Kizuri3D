@@ -338,6 +338,9 @@ DeferredRenderer::DeferredRenderer()
   , instLayout(0)
   , instVB(0)
   , instCap(0)
+  , instHasLast(false)
+  , instLastKey(0)
+  , instLastHash(0)
   , batchOk(true)
   , shadowCacheOn(true)
   , shadowAutoRes(false)
@@ -672,6 +675,7 @@ void DeferredRenderer::Shutdown() {
     instVB = 0;
   }
   instCap = 0;
+  instHasLast = false;
   if (gpuShadowTs != 0) {
     rhi->DestroyTimestamp(gpuShadowTs);
     gpuShadowTs = 0;
@@ -2280,6 +2284,7 @@ void DeferredRenderer::DrawGeoInstanced(uint64_t key, const std::vector<size_t>&
     uint64_t alloc = need < 64 ? 64 : need;
     instVB = rhi->CreateBufferEmpty(alloc, 64, false);
     instCap = instVB != 0 ? alloc : 0;
+    instHasLast = false;
   }
   if (instVB == 0) {
     for (size_t i : indices) {
@@ -2287,15 +2292,20 @@ void DeferredRenderer::DrawGeoInstanced(uint64_t key, const std::vector<size_t>&
     }
     return;
   }
-  std::vector<unsigned char> bytes(static_cast<size_t>(need));
-  for (size_t k = 0; k < indices.size(); ++k) {
-    std::memcpy(bytes.data() + k * 64, geoQueue[indices[k]].world, 64);
-  }
-  if (!rhi->UpdateBufferDiscard(instVB, bytes.data(), static_cast<size_t>(need))) {
-    for (size_t i : indices) {
-      DrawGeoSingle(geoQueue[i]);
+  if (!instHasLast || instLastKey != key || instLastHash != mh) {
+    std::vector<unsigned char> bytes(static_cast<size_t>(need));
+    for (size_t k = 0; k < indices.size(); ++k) {
+      std::memcpy(bytes.data() + k * 64, geoQueue[indices[k]].world, 64);
     }
-    return;
+    if (!rhi->UpdateBufferDiscard(instVB, bytes.data(), static_cast<size_t>(need))) {
+      for (size_t i : indices) {
+        DrawGeoSingle(geoQueue[i]);
+      }
+      return;
+    }
+    instHasLast = true;
+    instLastKey = key;
+    instLastHash = mh;
   }
   rhi->SetInstanceBuffer(instVB);
   if (occOn && !captureMode && git != occGroups.end() && occBudget > 0) {

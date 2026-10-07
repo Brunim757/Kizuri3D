@@ -345,6 +345,9 @@ public:
   RHIInputLayout instLayout;
   RHIBuffer instVB;
   uint64_t instCap;
+  bool instHasLast;
+  uint64_t instLastKey;
+  uint64_t instLastHash;
   bool batchOk;
   static uint64_t MatHash(const DeferredMaterial& mat);
   static uint64_t GeoGroupKey(const GeoBatchItem& item);
