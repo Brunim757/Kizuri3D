@@ -1243,7 +1243,6 @@ bool TestFrustumCull() {
   if (!Kizuri::CullAABB(planes, c2, e0)) {
     return false;
   }
-  float persp[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
   float pp[6][4];
   Kizuri::ExtractFrustumPlanes(persp, pp);
   float c3[3] = { 0, 0, 5 };
