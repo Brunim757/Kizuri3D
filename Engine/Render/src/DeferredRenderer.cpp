@@ -1333,15 +1333,20 @@ void DeferredRenderer::SetFsr(float scale, float sharpness) {
   renderScale = s;
   fsrSharpness = sh;
   if (outW > 0 && outH > 0) {
-    w = static_cast<int>(static_cast<float>(outW) * renderScale);
-    h = static_cast<int>(static_cast<float>(outH) * renderScale);
-    if (w < 1) {
-      w = 1;
+    int nw = static_cast<int>(static_cast<float>(outW) * renderScale);
+    int nh = static_cast<int>(static_cast<float>(outH) * renderScale);
+    if (nw < 1) {
+      nw = 1;
     }
-    if (h < 1) {
-      h = 1;
+    if (nh < 1) {
+      nh = 1;
     }
-  DestroyTargets();
+    if (nw == w && nh == h) {
+      return;
+    }
+    w = nw;
+    h = nh;
+    DestroyTargets();
     CreateTargets();
   }
 }
