@@ -317,17 +317,17 @@ void MulViewProj(const float v[16], const float p[16], float vp[16]) {
   }
 }
 void ExtractFrustumPlanes(const float vp[16], float planes[6][4]) {
-  const float* r0 = vp + 0;
-  const float* r1 = vp + 4;
-  const float* r2 = vp + 8;
-  const float* r3 = vp + 12;
+  float c0[4] = { vp[0], vp[4], vp[8], vp[12] };
+  float c1[4] = { vp[1], vp[5], vp[9], vp[13] };
+  float c2[4] = { vp[2], vp[6], vp[10], vp[14] };
+  float c3[4] = { vp[3], vp[7], vp[11], vp[15] };
   float raw[6][4] = {
-    { r3[0] + r0[0], r3[1] + r0[1], r3[2] + r0[2], r3[3] + r0[3] },
-    { r3[0] - r0[0], r3[1] - r0[1], r3[2] - r0[2], r3[3] - r0[3] },
-    { r3[0] + r1[0], r3[1] + r1[1], r3[2] + r1[2], r3[3] + r1[3] },
-    { r3[0] - r1[0], r3[1] - r1[1], r3[2] - r1[2], r3[3] - r1[3] },
-    { r2[0], r2[1], r2[2], r2[3] },
-    { r3[0] - r2[0], r3[1] - r2[1], r3[2] - r2[2], r3[3] - r2[3] }
+    { c3[0] + c0[0], c3[1] + c0[1], c3[2] + c0[2], c3[3] + c0[3] },
+    { c3[0] - c0[0], c3[1] - c0[1], c3[2] - c0[2], c3[3] - c0[3] },
+    { c3[0] + c1[0], c3[1] + c1[1], c3[2] + c1[2], c3[3] + c1[3] },
+    { c3[0] - c1[0], c3[1] - c1[1], c3[2] - c1[2], c3[3] - c1[3] },
+    { c2[0], c2[1], c2[2], c2[3] },
+    { c3[0] - c2[0], c3[1] - c2[1], c3[2] - c2[2], c3[3] - c2[3] }
   };
   for (int i = 0; i < 6; ++i) {
     float l = sqrtf(raw[i][0] * raw[i][0] + raw[i][1] * raw[i][1] + raw[i][2] * raw[i][2]);
