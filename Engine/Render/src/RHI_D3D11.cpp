@@ -878,7 +878,7 @@ public:
       }
       return;
     }
-    if (pool.size() < 32) {
+    if (pool.size() < 32 && it->second.w <= 2048 && it->second.h <= 2048) {
       pool.push_back(std::move(it->second));
     }
     targets.erase(it);

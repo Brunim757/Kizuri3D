@@ -330,16 +330,19 @@ DeferredRenderer::DeferredRenderer()
   , dynScale(1.0f)
   , dynFrames(0)
   , dynAccum(0.0)
-  , occOn(true)
+  , occOn(false)
   , occFrame(0)
   , occActive(0)
+  , occBudget(0)
   , geoVSInstanced(0)
   , instLayout(0)
   , instVB(0)
   , instCap(0)
   , batchOk(true)
   , shadowCacheOn(true)
-  , shadowAutoRes(true)
+  , shadowAutoRes(false)
+  , shadowStreak(0)
+  , shadowLastWant(0)
   , shadowAtlasSize(4096)
   , shadowTileSize(2048)
   , shadowCubeSize(512)
@@ -1483,6 +1486,7 @@ void DeferredRenderer::BeginObjects(const float view[16], const float proj[16]) 
   culledDraws = 0;
   PollGpuTimers();
   ++occFrame;
+  occBudget = 256;
   PollOcclusion();
   double keepGpu = stats.gpuMs;
   double keepShadow = stats.gpuShadowMs;
@@ -1726,6 +1730,8 @@ void DeferredRenderer::SetShadowAutoRes(bool on) {
   shadowAutoRes = on;
   shadowAutoFrames = 0;
   shadowAutoAccum = 0.0;
+  shadowStreak = 0;
+  shadowLastWant = shadowResLevel;
 }
 void DeferredRenderer::SetShadowResolution(int atlasSize, int cubeSize) {
   shadowAutoRes = false;
@@ -1792,8 +1798,20 @@ void DeferredRenderer::UpdateShadowAutoRes() {
     want = shadowResLevel - 1;
   }
   if (want == shadowResLevel) {
+    shadowStreak = 0;
+    shadowLastWant = want;
     return;
   }
+  if (want == shadowLastWant) {
+    ++shadowStreak;
+  } else {
+    shadowStreak = 1;
+    shadowLastWant = want;
+  }
+  if (shadowStreak < 3) {
+    return;
+  }
+  shadowStreak = 0;
   shadowResLevel = want;
   shadowAtlasSize = want == 0 ? 4096 : (want == 1 ? 2048 : 1024);
   shadowTileSize = shadowAtlasSize / 2;
@@ -1828,6 +1846,9 @@ bool DeferredRenderer::OccDrawBegin(RHIBuffer vb, RHIBuffer ib, uint32_t start, 
     ++stats.occludedDraws;
     return false;
   }
+  if (occBudget <= 0) {
+    return true;
+  }
   if (it == occMap.end()) {
     SweepOcclusion();
     RHIOcclusionQuery q = rhi->CreateOcclusionQuery();
@@ -1841,6 +1862,7 @@ bool DeferredRenderer::OccDrawBegin(RHIBuffer vb, RHIBuffer ib, uint32_t start, 
     it = occMap.find(key);
   }
   it->second.queriedFrame = occFrame;
+  --occBudget;
   rhi->BeginOcclusionQuery(it->second.q);
   occActive = it->second.q;
   return true;
@@ -2215,11 +2237,11 @@ void DeferredRenderer::DrawGeoInstanced(uint64_t key, const std::vector<size_t>&
     mh = 1;
   }
   auto git = occGroups.find(key);
-  if (!captureMode && git != occGroups.end() && git->second.hasResult && git->second.resultFrame + 1 == occFrame && git->second.memberHash == mh && git->second.samples == 0) {
+  if (occOn && !captureMode && git != occGroups.end() && git->second.hasResult && git->second.resultFrame + 1 == occFrame && git->second.memberHash == mh && git->second.samples == 0) {
     stats.occludedDraws += static_cast<uint32_t>(indices.size());
     return;
   }
-  if (git == occGroups.end() && !captureMode) {
+  if (git == occGroups.end() && !captureMode && occOn) {
     RHIOcclusionQuery q = rhi->CreateOcclusionQuery();
     if (q == 0) {
       for (size_t i : indices) {
@@ -2272,7 +2294,14 @@ void DeferredRenderer::DrawGeoInstanced(uint64_t key, const std::vector<size_t>&
     return;
   }
   rhi->SetInstanceBuffer(instVB);
-  if (!captureMode && git != occGroups.end()) {
+  if (occOn && !captureMode && git != occGroups.end() && occBudget > 0) {
+    --occBudget;
+    git->second.memberHash = mh;
+    git->second.queriedFrame = occFrame;
+    rhi->BeginOcclusionQuery(git->second.q);
+    rhi->DrawIndexedInstanced(first.count, first.start, 0, static_cast<uint32_t>(indices.size()));
+    rhi->EndOcclusionQuery(git->second.q);
+  } else {
     git->second.memberHash = mh;
     git->second.queriedFrame = occFrame;
     rhi->BeginOcclusionQuery(git->second.q);

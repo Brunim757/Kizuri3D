@@ -324,6 +324,7 @@ public:
   bool occOn;
   uint32_t occFrame;
   RHIOcclusionQuery occActive;
+  int occBudget;
   std::unordered_map<uint64_t, OccEntry> occMap;
   static uint64_t OccKey(RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const float* world);
   bool OccDrawBegin(RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const float* world);
@@ -353,6 +354,8 @@ public:
   void FlushGeoQueue();
   bool shadowCacheOn;
   bool shadowAutoRes;
+  int shadowStreak;
+  int shadowLastWant;
   int shadowAtlasSize;
   int shadowTileSize;
   int shadowCubeSize;

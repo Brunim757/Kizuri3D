@@ -57,6 +57,7 @@ struct EditorApp {
   bool viewDynRes;
   float viewDynTarget;
   bool viewOcc;
+  bool viewShadowAuto;
   bool viewSsao;
   float viewSsaoIntensity;
   float viewSsaoRadius;

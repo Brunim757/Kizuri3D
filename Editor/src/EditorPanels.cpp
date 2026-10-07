@@ -1265,6 +1265,9 @@ void EditorApp::DrawSettings() {
       if (ImGui::Checkbox("Occlusion Culling", &viewOcc)) {
         renderer.SetOcclusionCulling(viewOcc);
       }
+      if (ImGui::Checkbox("Shadow Auto Res", &viewShadowAuto)) {
+        renderer.SetShadowAutoRes(viewShadowAuto);
+      }
       const Kizuri::RenderStats& rst = renderer.GetStats();
       ImGui::Text("Draws geo %u shadow %u fwd %u decal %u", rst.geometryDraws, rst.shadowDraws, rst.forwardDraws, rst.decalDraws);
       ImGui::Text("Tris geo %llu shadow %llu fwd %llu", (unsigned long long)rst.geometryTris, (unsigned long long)rst.shadowTris, (unsigned long long)rst.forwardTris);

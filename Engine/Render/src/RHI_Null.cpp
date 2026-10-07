@@ -305,7 +305,7 @@ public:
     if (it == targets.end()) {
       return;
     }
-    if (pool.size() < 32) {
+    if (pool.size() < 32 && it->second.w <= 2048 && it->second.h <= 2048) {
       pool.push_back(it->second);
     }
     targets.erase(it);
