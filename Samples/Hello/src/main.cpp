@@ -35,6 +35,7 @@
 #include <draco/mesh/triangle_soup_mesh_builder.h>
 #include <draco/compression/encode.h>
 #include <DirectXMath.h>
+#include <algorithm>
 #include <filesystem>
 #include <TaskScheduler.h>
 #include <cstdio>
@@ -3485,6 +3486,96 @@ bool TestGltfMissingTexture() {
   fs::remove_all(dir, ec);
   return warned;
 }
+bool TestVcacheOpt() {
+  Kizuri::MeshAssetData data;
+  data.guid = "01234567-89ab-cdef-0123-456789abcdef";
+  data.positions = { 0,0,0, 1,0,0, 1,1,0, 0,1,0, 2,0,0, 2,1,0 };
+  data.normals = { 0,0,1, 0,0,1, 0,0,1, 0,0,1, 0,0,1, 0,0,1 };
+  data.uvs = { 0,0, 1,0, 1,1, 0,1, 0,0, 1,1 };
+  data.indices = { 3,2,1, 3,1,0, 4,5,2, 4,2,1 };
+  if (!Kizuri::GenerateTangents(data.positions, data.normals, data.uvs, data.indices, data.tangents)) {
+    return false;
+  }
+  Kizuri::MeshPartData p0;
+  p0.indexOffset = 0;
+  p0.indexCount = 6;
+  p0.material = 0;
+  data.parts.push_back(p0);
+  Kizuri::MeshPartData p1;
+  p1.indexOffset = 6;
+  p1.indexCount = 6;
+  p1.material = 0;
+  data.parts.push_back(p1);
+  std::vector<uint32_t> before = data.indices;
+  if (!Kizuri::OptimizeVertexCache(data)) {
+    return false;
+  }
+  if (data.indices.size() != before.size()) {
+    return false;
+  }
+  for (size_t pi = 0; pi < data.parts.size(); ++pi) {
+    uint32_t off = data.parts[pi].indexOffset;
+    uint32_t count = data.parts[pi].indexCount;
+    if (off + count > data.indices.size()) {
+      return false;
+    }
+    std::vector<uint32_t> trisBefore;
+    std::vector<uint32_t> trisAfter;
+    for (uint32_t i = 0; i + 2 < count; i += 3) {
+      uint32_t b0 = before[off + i];
+      uint32_t b1 = before[off + i + 1];
+      uint32_t b2 = before[off + i + 2];
+      if (b0 > b1) {
+        uint32_t t = b0;
+        b0 = b1;
+        b1 = t;
+      }
+      if (b1 > b2) {
+        uint32_t t = b1;
+        b1 = b2;
+        b2 = t;
+      }
+      if (b0 > b1) {
+        uint32_t t = b0;
+        b0 = b1;
+        b1 = t;
+      }
+      trisBefore.push_back(b0);
+      trisBefore.push_back(b1);
+      trisBefore.push_back(b2);
+      uint32_t a0 = data.indices[off + i];
+      uint32_t a1 = data.indices[off + i + 1];
+      uint32_t a2 = data.indices[off + i + 2];
+      if (a0 > a1) {
+        uint32_t t = a0;
+        a0 = a1;
+        a1 = t;
+      }
+      if (a1 > a2) {
+        uint32_t t = a1;
+        a1 = a2;
+        a2 = t;
+      }
+      if (a0 > a1) {
+        uint32_t t = a0;
+        a0 = a1;
+        a1 = t;
+      }
+      trisAfter.push_back(a0);
+      trisAfter.push_back(a1);
+      trisAfter.push_back(a2);
+    }
+    std::sort(trisBefore.begin(), trisBefore.end());
+    std::sort(trisAfter.begin(), trisAfter.end());
+    if (trisBefore != trisAfter) {
+      return false;
+    }
+  }
+  if (data.positions.size() != 18 || data.tangents.size() != 24) {
+    return false;
+  }
+  return true;
+}
 bool TestMeshCodecExt() {
   Kizuri::MeshAssetData data;
   data.guid = "01234567-89ab-cdef-0123-456789abcdef";
@@ -5510,6 +5601,7 @@ int main() {
   failures += Check("Draco", TestDraco());
   failures += Check("Webp", TestWebp());
   failures += Check("MeshCodecExt", TestMeshCodecExt());
+  failures += Check("VcacheOpt", TestVcacheOpt());
   failures += Check("GltfOrm", TestGltfOrm());
   failures += Check("RHIBuffers", TestRHIBuffers());
   failures += Check("MeshStaging", TestMeshStaging());

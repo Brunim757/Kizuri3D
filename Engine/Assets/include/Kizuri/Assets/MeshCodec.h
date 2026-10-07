@@ -114,5 +114,6 @@ void ComputeAABB(const std::vector<float>& positions, float outMin[3], float out
 bool GenerateTangents(const std::vector<float>& positions, const std::vector<float>& normals, const std::vector<float>& uvs, const std::vector<uint32_t>& indices, std::vector<float>& tangentsOut);
 void OrthogonalizeTangents(const std::vector<float>& normals, std::vector<float>& tangents);
 bool GenerateLodMesh(const MeshAssetData& src, float targetRatio, float targetError, MeshAssetData& out);
+bool OptimizeVertexCache(MeshAssetData& data);
 bool UnwrapPrim(const std::vector<float>& inPos, const std::vector<float>& inNrm, const std::vector<float>& inUv, const std::vector<float>& inTan, const std::vector<uint32_t>& inIdx, std::vector<float>& outPos, std::vector<float>& outNrm, std::vector<float>& outUv, std::vector<float>& outTan, std::vector<uint32_t>& outIdx, std::vector<float>& outUv2);
 }

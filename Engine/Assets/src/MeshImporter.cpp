@@ -1204,6 +1204,7 @@ bool ImportGltfMesh(const std::string& glbPath, const std::string& keepGuid, Mes
     out = MeshAssetData();
     return false;
   }
+  OptimizeVertexCache(out);
   if (!allTangent && !GenerateTangents(out.positions, out.normals, out.uvs, out.indices, out.tangents)) {
     out = MeshAssetData();
     return false;

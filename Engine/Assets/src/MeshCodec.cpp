@@ -2,9 +2,11 @@
 #include "ZstdStream.h"
 #include "kzassets_generated.h"
 #include <flatbuffers/flatbuffers.h>
+#include <meshoptimizer.h>
 #include <zstd.h>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 namespace Kizuri {
 namespace {
 const unsigned char kMagic[4] = { 'K', 'Z', 'M', 'H' };
@@ -568,5 +570,39 @@ bool DecodeMeshFile(const std::string& path, MeshAssetData& out) {
     return false;
   }
   return DecodeMeshMemory(bytes.data(), bytes.size(), out);
+}
+bool OptimizeVertexCache(MeshAssetData& data) {
+  if (data.indices.empty() || data.positions.size() < 3) {
+    return false;
+  }
+  size_t vcount = data.positions.size() / 3;
+  std::vector<unsigned int> tmp;
+  tmp.reserve(1024);
+  bool anyOk = false;
+  if (data.parts.empty()) {
+    tmp.assign(data.indices.size(), 0);
+    meshopt_optimizeVertexCache(tmp.data(), reinterpret_cast<const unsigned int*>(data.indices.data()), data.indices.size(), vcount);
+    for (size_t i = 0; i < data.indices.size(); ++i) {
+      data.indices[i] = tmp[i];
+    }
+    return true;
+  }
+  for (size_t pi = 0; pi < data.parts.size(); ++pi) {
+    uint32_t off = data.parts[pi].indexOffset;
+    uint32_t count = data.parts[pi].indexCount;
+    if (count == 0 || count % 3 != 0) {
+      continue;
+    }
+    if (static_cast<size_t>(off) + static_cast<size_t>(count) > data.indices.size()) {
+      continue;
+    }
+    tmp.assign(count, 0);
+    meshopt_optimizeVertexCache(tmp.data(), reinterpret_cast<const unsigned int*>(&data.indices[off]), count, vcount);
+    for (uint32_t i = 0; i < count; ++i) {
+      data.indices[off + i] = tmp[i];
+    }
+    anyOk = true;
+  }
+  return anyOk;
 }
 }

@@ -168,6 +168,7 @@ add_library(kizuri_meshopt STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/meshopt/indexcodec.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/meshopt/vertexcodec.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/meshopt/vertexfilter.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/meshopt/vcacheoptimizer.cpp
 )
 target_include_directories(kizuri_meshopt PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/meshopt)
 add_library(kizuri_basisu STATIC
