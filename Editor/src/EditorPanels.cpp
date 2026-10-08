@@ -651,6 +651,7 @@ void EditorApp::BakeEnvironment() {
   }
   BakeFaces(px, py, pz);
   renderer.GenerateEnvMips();
+  renderer.BakeIrradiance();
   Announce(LogLevel::Success, "Environment baked");
 }
 void EditorApp::BakeFaces(float px, float py, float pz) {

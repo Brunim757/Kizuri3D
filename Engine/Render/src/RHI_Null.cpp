@@ -422,7 +422,9 @@ public:
     NullTexture t;
     t.w = size;
     t.h = size;
-    t.mips = 1;
+    t.mips = 0;
+    t.fmt = RHITextureFormat::RGBA16F;
+    t.isCube = true;
     textures[id] = t;
     return id;
   }
@@ -491,7 +493,17 @@ public:
   }
   void GetMemoryStats(uint64_t& textureBytes, uint64_t& targetBytes, uint64_t& bufferBytes) const override {    textureBytes = 0;
     for (const auto& kv : textures) {
-      textureBytes += TextureBytes(kv.second.w, kv.second.h, kv.second.mips, kv.second.fmt);
+      if (kv.second.isCube) {
+        int levels = 1;
+        int s = kv.second.w > kv.second.h ? kv.second.w : kv.second.h;
+        while (s > 1) {
+          s >>= 1;
+          ++levels;
+        }
+        textureBytes += TextureBytes(kv.second.w, kv.second.h, levels, kv.second.fmt) * 6;
+      } else {
+        textureBytes += TextureBytes(kv.second.w, kv.second.h, kv.second.mips, kv.second.fmt);
+      }
     }
     targetBytes = 0;
     for (const auto& kv : targets) {
@@ -535,10 +547,11 @@ private:
   std::unordered_map<uint64_t, int> shaders;
   std::unordered_map<uint64_t, int> tstamps;
   struct NullTexture {
-    int w;
-    int h;
-    int mips;
-    RHITextureFormat fmt;
+    int w = 0;
+    int h = 0;
+    int mips = 0;
+    RHITextureFormat fmt = RHITextureFormat::RGBA8_UNORM;
+    bool isCube = false;
     std::set<int> resident;
   };
   std::unordered_map<uint64_t, NullTexture> textures;
@@ -556,6 +569,8 @@ private:
     for (int m = 0; m < mips; ++m) {
       if (fmt == RHITextureFormat::RGBA8_UNORM || fmt == RHITextureFormat::RGBA8_UNORM_SRGB) {
         total += static_cast<uint64_t>(mw) * static_cast<uint64_t>(mh) * 4;
+      } else if (fmt == RHITextureFormat::RGBA16F) {
+        total += static_cast<uint64_t>(mw) * static_cast<uint64_t>(mh) * 8;
       } else {
         uint64_t blockBytes = 16;
         if (fmt == RHITextureFormat::BC1_UNORM || fmt == RHITextureFormat::BC1_UNORM_SRGB) {
@@ -591,6 +606,11 @@ private:
     size_t expect = 0;
     if (t.fmt == RHITextureFormat::RGBA8_UNORM || t.fmt == RHITextureFormat::RGBA8_UNORM_SRGB) {
       if (rowPitch != static_cast<uint32_t>(mw * 4)) {
+        return false;
+      }
+      expect = static_cast<size_t>(rowPitch) * static_cast<size_t>(mh);
+    } else if (t.fmt == RHITextureFormat::RGBA16F) {
+      if (rowPitch != static_cast<uint32_t>(mw * 8)) {
         return false;
       }
       expect = static_cast<size_t>(rowPitch) * static_cast<size_t>(mh);

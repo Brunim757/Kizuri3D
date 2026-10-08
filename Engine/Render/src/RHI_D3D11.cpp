@@ -27,6 +27,9 @@ DXGI_FORMAT ToTextureFormat(RHITextureFormat f) {
   if (f == RHITextureFormat::RGBA8_UNORM_SRGB) {
     return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
   }
+  if (f == RHITextureFormat::RGBA16F) {
+    return DXGI_FORMAT_R16G16B16A16_FLOAT;
+  }
   if (f == RHITextureFormat::BC1_UNORM) {
     return DXGI_FORMAT_BC1_UNORM;
   }
@@ -62,6 +65,11 @@ bool CheckTextureMipParams(int tw, int th, int tmips, RHITextureFormat tfmt, int
   size_t expect = 0;
   if (tfmt == RHITextureFormat::RGBA8_UNORM || tfmt == RHITextureFormat::RGBA8_UNORM_SRGB) {
     if (rowPitch != static_cast<uint32_t>(mw * 4)) {
+      return false;
+    }
+    expect = static_cast<size_t>(rowPitch) * static_cast<size_t>(mh);
+  } else if (tfmt == RHITextureFormat::RGBA16F) {
+    if (rowPitch != static_cast<uint32_t>(mw * 8)) {
       return false;
     }
     expect = static_cast<size_t>(rowPitch) * static_cast<size_t>(mh);
@@ -1222,7 +1230,7 @@ public:
     td.Height = static_cast<UINT>(size);
     td.MipLevels = 0;
     td.ArraySize = 6;
-    td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    td.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     td.SampleDesc.Count = 1;
     td.SampleDesc.Quality = 0;
     td.Usage = D3D11_USAGE_DEFAULT;
@@ -1234,7 +1242,7 @@ public:
       return 0;
     }
     D3D11_SHADER_RESOURCE_VIEW_DESC svd;
-    svd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    svd.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     svd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
     svd.TextureCube.MostDetailedMip = 0;
     svd.TextureCube.MipLevels = static_cast<UINT>(-1);
@@ -1249,11 +1257,11 @@ public:
     entry.w = size;
     entry.h = size;
     entry.mips = 0;
-    entry.fmt = RHITextureFormat::RGBA8_UNORM;
+    entry.fmt = RHITextureFormat::RGBA16F;
     entry.isCube = true;
     for (int f = 0; f < 6; ++f) {
       D3D11_RENDER_TARGET_VIEW_DESC rvd;
-      rvd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+      rvd.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
       rvd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
       rvd.Texture2DArray.MipSlice = 0;
       rvd.Texture2DArray.FirstArraySlice = static_cast<UINT>(f);
@@ -1268,7 +1276,7 @@ public:
       res.rtv = rtv;
       res.w = size;
       res.h = size;
-      res.fmt = RHIFormat::RGBA8_UNORM;
+      res.fmt = RHIFormat::RGBA16F;
       res.isDepth = false;
       uint64_t tid = nextId++;
       targets[tid] = res;
@@ -1386,8 +1394,17 @@ public:
   }
   void GetMemoryStats(uint64_t& textureBytes, uint64_t& targetBytes, uint64_t& bufferBytes) const override {    textureBytes = 0;
     for (const auto& kv : textures) {
-      uint64_t mult = kv.second.isCube ? 6 : 1;
-      textureBytes += TextureBytes(kv.second.w, kv.second.h, kv.second.mips, kv.second.fmt) * mult;
+      if (kv.second.isCube) {
+        int levels = 1;
+        int s = kv.second.w > kv.second.h ? kv.second.w : kv.second.h;
+        while (s > 1) {
+          s >>= 1;
+          ++levels;
+        }
+        textureBytes += TextureBytes(kv.second.w, kv.second.h, levels, kv.second.fmt) * 6;
+      } else {
+        textureBytes += TextureBytes(kv.second.w, kv.second.h, kv.second.mips, kv.second.fmt);
+      }
     }
     targetBytes = 0;
     for (const auto& kv : targets) {

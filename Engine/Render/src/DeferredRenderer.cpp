@@ -47,6 +47,7 @@ struct LightConstants {
   float fogColor[4];
   float probeBoxMin[4][4];
   float probeBoxMax[4][4];
+  float iblInfo[4];
 };
 struct MatConstants {
   float albedo[4];
@@ -297,6 +298,11 @@ DeferredRenderer::DeferredRenderer()
   , gradeCB(0)
   , gradeA(0)
   , toneMode(0)
+  , brdfPS(0)
+  , irrPS(0)
+  , irrCB(0)
+  , brdfLut(0)
+  , irrCube(0)
   , envCube(0)
   , captureTarget(0)
   , captureMode(false)
@@ -523,6 +529,21 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (gradeCB == 0) {
     return false;
   }
+  std::string brdfPath = dir + "/BrdfLutPS.hlsl";
+  brdfPS = rhi->CreatePixelShaderFromFile(brdfPath.c_str(), "main");
+  if (brdfPS == 0) {
+    return false;
+  }
+  std::string irrPath = dir + "/IrradiancePS.hlsl";
+  irrPS = rhi->CreatePixelShaderFromFile(irrPath.c_str(), "main");
+  if (irrPS == 0) {
+    return false;
+  }
+  float irrInit[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+  irrCB = rhi->CreateConstantBuffer(sizeof(irrInit), &irrInit);
+  if (irrCB == 0) {
+    return false;
+  }
   forwardPS = rhi->CreatePixelShaderFromFile(forwardPath.c_str(), "main");
   if (forwardPS == 0) {
     return false;
@@ -660,6 +681,22 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (!CreateTargets()) {
     return false;
   }
+  brdfLut = rhi->CreateRenderTarget(256, 256, RHIFormat::RGBA16F);
+  if (brdfLut == 0) {
+    return false;
+  }
+  rhi->SetRenderTargets(1, &brdfLut, 0);
+  RHIViewport bvp;
+  bvp.x = 0.0f;
+  bvp.y = 0.0f;
+  bvp.w = 256.0f;
+  bvp.h = 256.0f;
+  bvp.minD = 0.0f;
+  bvp.maxD = 1.0f;
+  rhi->SetViewport(bvp);
+  rhi->SetVertexShader(lightVS);
+  rhi->SetPixelShader(brdfPS);
+  rhi->DrawFullscreenTriangle();
   gpuShadowTs = rhi->CreateTimestamp();
   gpuLightTs = rhi->CreateTimestamp();
   gpuPostTs = rhi->CreateTimestamp();
@@ -671,6 +708,14 @@ void DeferredRenderer::Shutdown() {
     return;
   }
   DestroyTargets();
+  if (brdfLut != 0) {
+    rhi->DestroyRenderTarget(brdfLut);
+    brdfLut = 0;
+  }
+  if (irrCube != 0) {
+    rhi->DestroyTexture(irrCube);
+    irrCube = 0;
+  }
   for (auto& kv : occMap) {
     if (kv.second.q != 0) {
       rhi->DestroyOcclusionQuery(kv.second.q);
@@ -810,6 +855,10 @@ void DeferredRenderer::Shutdown() {
   if (gradeCB != 0) {
     rhi->DestroyConstantBuffer(gradeCB);
     gradeCB = 0;
+  }
+  if (irrCB != 0) {
+    rhi->DestroyConstantBuffer(irrCB);
+    irrCB = 0;
   }
   rhi = nullptr;
   ready = false;
@@ -1101,6 +1150,44 @@ void DeferredRenderer::GenerateEnvMips() {
   std::memcpy(lastProj, savedLastProj, sizeof(lastProj));
   std::memcpy(prevView, savedPrevView, sizeof(prevView));
   std::memcpy(prevProj, savedPrevProj, sizeof(prevProj));
+}
+bool DeferredRenderer::BakeIrradiance() {
+  if (rhi == nullptr || irrPS == 0 || envCube == 0) {
+    return false;
+  }
+  if (irrCube != 0) {
+    rhi->DestroyTexture(irrCube);
+    irrCube = 0;
+  }
+  irrCube = rhi->CreateEnvCube(32);
+  if (irrCube == 0) {
+    return false;
+  }
+  for (int f = 0; f < 6; ++f) {
+    RHIRenderTarget face = rhi->GetEnvCubeFace(irrCube, f);
+    if (face == 0) {
+      continue;
+    }
+    float fi[4] = { static_cast<float>(f), 0.0f, 0.0f, 0.0f };
+    rhi->UpdateConstantBuffer(irrCB, &fi, sizeof(fi));
+    rhi->SetPixelConstantBuffer(0, irrCB);
+    rhi->SetPixelSampler(0, sampler);
+    rhi->SetRenderTargets(1, &face, 0);
+    RHIViewport ivp;
+    ivp.x = 0.0f;
+    ivp.y = 0.0f;
+    ivp.w = 32.0f;
+    ivp.h = 32.0f;
+    ivp.minD = 0.0f;
+    ivp.maxD = 1.0f;
+    rhi->SetViewport(ivp);
+    rhi->SetVertexShader(lightVS);
+    rhi->SetPixelShader(irrPS);
+    rhi->SetPixelTexture2D(0, envCube);
+    rhi->DrawFullscreenTriangle();
+    rhi->SetPixelTexture2D(0, 0);
+  }
+  return true;
 }
 void DeferredRenderer::EndEnvFace(const float camPos[3]) {
   if (camPos == nullptr) {
@@ -2788,6 +2875,8 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture(17, gExtA);
   rhi->UpdateTextureMip(matTable, 0, 256, 1, 256 * 4, matTablePx, sizeof(matTablePx));
   rhi->SetPixelTexture2D(18, matTable);
+  rhi->SetPixelTexture2D(19, irrCube);
+  rhi->SetPixelTexture(20, brdfLut);
   rhi->SetPixelSampler(0, sampler);
   LightConstants lc;
   lc.camPos[0] = camPos[0];
@@ -2989,6 +3078,10 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   lc.fogColor[1] = fogColor[1];
   lc.fogColor[2] = fogColor[2];
   lc.fogColor[3] = 0.0f;
+  lc.iblInfo[0] = irrCube != 0 ? 1.0f : 0.0f;
+  lc.iblInfo[1] = 0.0f;
+  lc.iblInfo[2] = 0.0f;
+  lc.iblInfo[3] = 0.0f;
   for (int pi = 0; pi < 4; ++pi) {
     lc.probeBoxMin[pi][0] = probeBoxMin[pi][0];
     lc.probeBoxMin[pi][1] = probeBoxMin[pi][1];
@@ -3046,6 +3139,8 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture(16, 0);
   rhi->SetPixelTexture(17, 0);
   rhi->SetPixelTexture2D(18, 0);
+  rhi->SetPixelTexture2D(19, 0);
+  rhi->SetPixelTexture(20, 0);
   if (toTexture && !captureMode) {
     auto fwdStart = std::chrono::steady_clock::now();
     RenderForwardPass(camPos);

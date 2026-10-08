@@ -445,6 +445,12 @@ public:
   RHIConstBuffer gradeCB;
   RHIRenderTarget gradeA;
   int toneMode;
+  RHIPixelShader brdfPS;
+  RHIPixelShader irrPS;
+  RHIConstBuffer irrCB;
+  RHIRenderTarget brdfLut;
+  RHITexture irrCube;
+  bool BakeIrradiance();
   RHITexture envCube;
   RHIRenderTarget captureTarget;
   bool captureMode;

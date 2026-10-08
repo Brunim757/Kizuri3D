@@ -38,6 +38,7 @@ cbuffer LightCB : register(b0)
     float4 FogColor;
     float4 ProbeBoxMin[4];
     float4 ProbeBoxMax[4];
+    float4 IblInfo;
 };
 Texture2D SSAOTX : register(t6);
 Texture2D SsrTX : register(t7);
@@ -52,6 +53,8 @@ Texture2D EmissiveTX : register(t15);
 Texture2D F0TX : register(t16);
 Texture2D ExtATX : register(t17);
 Texture2D MatTable : register(t18);
+TextureCube IrradianceTX : register(t19);
+Texture2D BrdfTX : register(t20);
 Texture2D ShadowAtlas : register(t4);
 TextureCube PointCube : register(t5);
 SamplerState ShadowSampler : register(s1);
@@ -575,7 +578,11 @@ float4 main(PSIn pin) : SV_Target
     col *= ao;
     float sint2 = max(SkySun.w, 1e-3);
     float3 hemi = SkyGradient(N, normalize(SkySun.xyz), SkyColor.rgb, sint2);
-    amb = albedo * hemi * 0.5 * ao;
+    float3 difEnv = hemi * 0.5;
+    if (IblInfo.x > 0.5) {
+        difEnv = IrradianceTX.Sample(LinearSampler, N).rgb * GradeInfo.z / 3.14159265359;
+    }
+    amb = albedo * difEnv * ao;
     float3 R = reflect(-V, N);
     float3 skyEnv = SkyGradient(R, normalize(SkySun.xyz), SkyColor.rgb, sint2);
     float3 cubeEnv = EnvTX.SampleLevel(LinearSampler, R, clamp(roughness, 0.0, 1.0) * 6.0).rgb * GradeInfo.z;
@@ -613,11 +620,7 @@ float4 main(PSIn pin) : SV_Target
     float3 specAmb = lerp(env, ssr.rgb, clamp(ssr.a, 0.0, 1.0));
     float cosNV = saturate(dot(N, V));
     float3 F0e = lerp(specF0, albedo, metallic);
-    float3 fres = F0e + (1.0 - F0e) * pow(1.0 - cosNV, 5.0);
-    if (lb.iri > 0.001) {
-        float3 filmE = ThinFilm(cosNV, clamp(lb.iriIor, 1.0, 3.0), clamp(lb.iriNm, 0.0, 2000.0));
-        fres = lerp(fres, filmE * (F0e + 0.5), clamp(lb.iri, 0.0, 1.0));
-    }
+    float2 brdf = BrdfTX.Sample(LinearSampler, float2(cosNV, roughness)).rg;
     float ccEnvF = 0.0;
     float3 ccEnv = float3(0.0, 0.0, 0.0);
     if (lb.cc > 0.001) {
@@ -625,7 +628,7 @@ float4 main(PSIn pin) : SV_Target
         ccEnvF = lb.cc * FccE;
         ccEnv = EnvTX.SampleLevel(LinearSampler, R, clamp(lb.ccRough, 0.0, 1.0) * 6.0).rgb * GradeInfo.z;
     }
-    col += specAmb * fres * (1.0 - roughness) * ao * (1.0 - ccEnvF);
+    col += specAmb * (F0e * brdf.x + brdf.y) * ao * (1.0 - ccEnvF);
     col += ccEnv * ccEnvF * ao;
     if (dot(lb.sheen, lb.sheen) > 1e-8) {
         col += lb.sheen * hemi * 0.5 * ao;

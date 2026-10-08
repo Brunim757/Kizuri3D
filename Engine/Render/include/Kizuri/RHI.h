@@ -26,6 +26,7 @@ enum class RHIFill {
 enum class RHITextureFormat {
   RGBA8_UNORM,
   RGBA8_UNORM_SRGB,
+  RGBA16F,
   BC1_UNORM,
   BC1_UNORM_SRGB,
   BC3_UNORM,
