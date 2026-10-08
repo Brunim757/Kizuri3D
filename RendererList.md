@@ -167,7 +167,7 @@ Sem Ray Tracing
 8. Atmosfera
 
 - [x] Sky rendering
-- [ ] HDR sky
+- [x] HDR sky
 - [x] Procedural sky
 - [x] Sun disk
 - [ ] Moon
@@ -183,14 +183,14 @@ Sem Ray Tracing
 
 9. Post Processing
 
-- [ ] HDR pipeline
+- [x] HDR pipeline
 - [x] Exposure
 - [ ] Auto Exposure
 - [ ] Histogram exposure
 - [x] Tone Mapping
 - [x] ACES
-- [ ] AgX
-- [ ] Reinhard
+- [x] AgX
+- [x] Reinhard
 - [x] Bloom
 - [ ] Lens dirt
 - [x] Vignette
