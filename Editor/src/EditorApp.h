@@ -51,6 +51,7 @@ struct EditorApp {
   bool debugCascades;
   float viewExposure;
   bool viewACES;
+  int viewToneMap;
   float viewBloom;
   float viewScale;
   float viewSharp;

@@ -188,6 +188,7 @@ public:
   void SetMainCamera(const MainCameraSetup& setup);
   void SetShadowDebug(bool debug);
   void SetGrade(float exposure, bool aces);
+  void SetToneMapping(int mode);
   void SetBloom(float strength);
   void SetFsr(float scale, float sharpness);
   void SetSsao(bool on, float intensity, float radius);
@@ -440,6 +441,10 @@ public:
   RHIRenderTarget fxaaA;
   bool fxaaOn;
   bool fxaaRan;
+  RHIPixelShader gradePS;
+  RHIConstBuffer gradeCB;
+  RHIRenderTarget gradeA;
+  int toneMode;
   RHITexture envCube;
   RHIRenderTarget captureTarget;
   bool captureMode;

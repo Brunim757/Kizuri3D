@@ -443,14 +443,7 @@ float4 main(PSIn pin) : SV_Target
         if (FogInfo.x > 0.5) {
             sk = ApplyFog(sk, ray, 150.0, pin.uv);
         }
-        float3 se = sk * GradeInfo.x;
-        float3 st = se;
-        if (GradeInfo.y > 0.5) {
-            st = float3(ACESFilm(se.r), ACESFilm(se.g), ACESFilm(se.b));
-        } else {
-            st = pow(saturate(se), 1.0 / 2.2);
-        }
-        return float4(st, 1.0);
+        return float4(sk, 1.0);
     }
     float3 V = normalize(CamPos.xyz - wpos);
     float3 wposB = wpos + N * 0.03;
@@ -652,12 +645,5 @@ float4 main(PSIn pin) : SV_Target
         }
     }
     float3 hdr = col + amb;
-    float3 expo = hdr * GradeInfo.x;
-    float3 outc = expo;
-    if (GradeInfo.y > 0.5) {
-        outc = float3(ACESFilm(expo.r), ACESFilm(expo.g), ACESFilm(expo.b));
-    } else {
-        outc = pow(saturate(expo), 1.0 / 2.2);
-    }
-    return float4(outc, 1.0);
+    return float4(hdr, 1.0);
 }

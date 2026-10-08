@@ -299,7 +299,8 @@ void EditorApp::RenderScene() {
   mainCam.farZ = camera.farZ;
   renderer.SetMainCamera(mainCam);
   renderer.SetShadowDebug(debugCascades);
-  renderer.SetGrade(viewExposure, viewACES);
+  renderer.SetGrade(viewExposure, viewToneMap == 0);
+  renderer.SetToneMapping(viewToneMap);
   renderer.SetBloom(viewBloom);
   renderer.SetSsao(viewSsao, viewSsaoIntensity, viewSsaoRadius);
   renderer.SetSsr(viewSsr);
@@ -1201,7 +1202,11 @@ void EditorApp::DrawSettings() {
   if (ImGui::BeginTabBar("SettingsTabs")) {
     if (ImGui::BeginTabItem("Post")) {
       ImGui::SliderFloat("Exposure", &viewExposure, 0.25f, 4.0f);
-      ImGui::Checkbox("ACES", &viewACES);
+      int tm = viewToneMap < 0 ? 0 : (viewToneMap > 3 ? 3 : viewToneMap);
+      if (ImGui::Combo("Tone Mapper", &tm, "ACES\0Reinhard\0AgX\0None\0")) {
+        viewToneMap = tm;
+        renderer.SetToneMapping(tm);
+      }
       ImGui::SliderFloat("Bloom", &viewBloom, 0.0f, 2.0f);
       ImGui::Separator();
       ImGui::Checkbox("SSAO", &viewSsao);
