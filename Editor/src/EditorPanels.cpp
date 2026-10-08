@@ -2,6 +2,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include "EditorApp.h"
 #include "Kizuri/Assets/LightmapBaker.h"
+#include "Kizuri/Assets/TexCodec.h"
 #include "Kizuri/QualityPreset.h"
 #include "FileDialog.h"
 #include "Kizuri/DebugDraw.h"
@@ -303,6 +304,7 @@ void EditorApp::RenderScene() {
   renderer.SetToneMapping(viewToneMap);
   renderer.SetAutoExposure(viewAutoExp);
   renderer.SetGrading(viewContrast, viewSaturation, viewTemp, viewTint);
+  renderer.SetLutAmount(viewLutAmount);
   renderer.SetBloom(viewBloom);
   renderer.SetSsao(viewSsao, viewSsaoIntensity, viewSsaoRadius);
   renderer.SetSsr(viewSsr);
@@ -1216,6 +1218,23 @@ void EditorApp::DrawSettings() {
       ImGui::SliderFloat("Saturation", &viewSaturation, 0.0f, 3.0f);
       ImGui::SliderFloat("Temperature", &viewTemp, -1.0f, 1.0f);
       ImGui::SliderFloat("Tint", &viewTint, -1.0f, 1.0f);
+      ImGui::SliderFloat("LUT Amount", &viewLutAmount, 0.0f, 1.0f);
+      if (ImGui::Button("Load .cube LUT")) {
+        std::string picked;
+        if (ShowOpenCubeDialog(window.NativeHandle(), picked)) {
+          std::vector<unsigned char> lutPx;
+          int lutSize = 0;
+          if (!Kizuri::ParseCubeLut(picked, lutPx, lutSize)) {
+            Announce(LogLevel::Error, std::string("LUT parse failed: ") + picked);
+          } else if (!renderer.UploadLut(lutPx.data(), lutSize)) {
+            Announce(LogLevel::Error, "LUT upload failed");
+          } else {
+            viewLutAmount = 1.0f;
+            renderer.SetLutAmount(1.0f);
+            log.Add(LogLevel::Success, std::string("LUT loaded: ") + picked);
+          }
+        }
+      }
       ImGui::SliderFloat("Bloom", &viewBloom, 0.0f, 2.0f);
       ImGui::Separator();
       ImGui::Checkbox("SSAO", &viewSsao);

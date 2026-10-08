@@ -464,7 +464,12 @@ public:
   float gradeContrast;
   float gradeSaturation;
   float gradeTemp;
-  float gradeTint;  RHIRenderTarget taaA;
+  float gradeTint;
+  RHITexture3D lutTex;
+  int lutSize;
+  float lutAmount;
+  bool UploadLut(const unsigned char* rgba, int size);
+  void SetLutAmount(float amount);  RHIRenderTarget taaA;
   RHIRenderTarget taaB;
   RHIRenderTarget taaRead;
   RHIRenderTarget taaWrite;

@@ -43,6 +43,7 @@ using RHISampler = uint64_t;
 using RHITexture = uint64_t;
 using RHITimestamp = uint64_t;
 using RHIOcclusionQuery = uint64_t;
+using RHITexture3D = uint64_t;
 struct RHIDesc {
   void* windowHandle;
   int width;
@@ -118,6 +119,7 @@ public:
   virtual void BindBackbuffer() = 0;
   virtual void SetPixelTexture(uint32_t slot, RHIRenderTarget rt) = 0;
   virtual void SetPixelTexture2D(uint32_t slot, RHITexture tex) = 0;
+  virtual void SetPixelTexture3D(uint32_t slot, RHITexture3D tex) = 0;
   virtual RHISampler CreateSamplerLinear() = 0;
   virtual RHISampler CreateSamplerWrap() = 0;
   virtual void SetPixelSampler(uint32_t slot, RHISampler sampler) = 0;
@@ -145,6 +147,9 @@ public:
   virtual void BeginOcclusionQuery(RHIOcclusionQuery q) = 0;
   virtual void EndOcclusionQuery(RHIOcclusionQuery q) = 0;
   virtual bool GetOcclusionSamples(RHIOcclusionQuery q, uint64_t* samples) = 0;
+  virtual RHITexture3D CreateTexture3D(int w, int h, int d, RHITextureFormat fmt) = 0;
+  virtual bool UpdateTexture3D(RHITexture3D tex, int w, int h, int d, uint32_t rowPitch, uint32_t slicePitch, const void* data, size_t bytes) = 0;
+  virtual void DestroyTexture3D(RHITexture3D tex) = 0;
 };
 IRHI* CreateRHI(RHI_API api);
 void DestroyRHI(IRHI* rhi);

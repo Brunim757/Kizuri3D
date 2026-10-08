@@ -1568,8 +1568,89 @@ bool TestIblBake() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
-bool TestAutoExposure() {
+bool TestCubeLut() {
+  std::error_code ec;
+  std::filesystem::path dir = std::filesystem::temp_directory_path(ec) / "kzcubelut_test";
+  if (ec) {
+    return false;
+  }
+  std::filesystem::create_directories(dir, ec);
+  std::filesystem::path fp = dir / "test.cube";
+  {
+    FILE* f = std::fopen(fp.string().c_str(), "wb");
+    if (f == nullptr) {
+      return false;
+    }
+    const char* head = "# test\nTITLE \"t\"\nLUT_3D_SIZE 2\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n";
+    std::fwrite(head, 1, std::strlen(head), f);
+    for (int b = 0; b < 2; ++b) {
+      for (int g = 0; g < 2; ++g) {
+        for (int r = 0; r < 2; ++r) {
+          char line[64];
+          int n = std::snprintf(line, sizeof(line), "%d %d %d\n", r, g, b);
+          std::fwrite(line, 1, static_cast<size_t>(n), f);
+        }
+      }
+    }
+    std::fclose(f);
+  }
+  std::vector<unsigned char> px;
+  int sizeOut = 0;
+  bool ok = Kizuri::ParseCubeLut(fp.string(), px, sizeOut);
+  ok = ok && sizeOut == 2 && px.size() == 32;
+  ok = ok && px[0] == 0 && px[4] == 255 && px[31] == 255;
+  std::vector<unsigned char> bad;
+  int badSize = 0;
+  ok = ok && !Kizuri::ParseCubeLut((dir / "missing.cube").string(), bad, badSize);
   Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  if (rhi == nullptr) {
+    std::filesystem::remove_all(dir, ec);
+    return false;
+  }
+  Kizuri::RHIDesc desc;
+  desc.windowHandle = nullptr;
+  desc.width = 160;
+  desc.height = 100;
+  desc.vsync = false;
+  if (!rhi->Initialize(desc)) {
+    Kizuri::DestroyRHI(rhi);
+    std::filesystem::remove_all(dir, ec);
+    return false;
+  }
+  Kizuri::DeferredRenderer renderer;
+  const char* shaderDirs[3] = { "Shaders", "Samples/../Shaders", "." };
+  bool rok = false;
+  for (int i = 0; i < 3 && !rok; ++i) {
+    if (renderer.Initialize(rhi, 160, 100, shaderDirs[i])) {
+      rok = true;
+    } else {
+      renderer.Shutdown();
+    }
+  }
+  if (!rok) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    std::filesystem::remove_all(dir, ec);
+    return false;
+  }
+  ok = ok && renderer.UploadLut(px.data(), sizeOut);
+  ok = ok && !renderer.UploadLut(nullptr, 2);
+  ok = ok && !renderer.UploadLut(px.data(), 65);
+  renderer.SetLutAmount(0.5f);
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float cam[3] = { 0, 0, 0 };
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && renderer.GetStats().lightingDraws == 1;
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  std::filesystem::remove_all(dir, ec);
+  return ok;
+}
+bool TestAutoExposure() {  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
   if (rhi == nullptr) {
     return false;
   }
@@ -6287,6 +6368,7 @@ int main() {
   failures += Check("IblBake", TestIblBake());
   failures += Check("TaaHistory", TestTaaHistory());
   failures += Check("AutoExposure", TestAutoExposure());
+  failures += Check("CubeLut", TestCubeLut());
   failures += Check("TaaOff", TestTaaOff());
   failures += Check("TaaResize", TestTaaResize());
   failures += Check("TaaPassDelta", TestTaaPassDelta());

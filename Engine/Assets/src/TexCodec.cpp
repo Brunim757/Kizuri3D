@@ -4,6 +4,7 @@
 #include <flatbuffers/flatbuffers.h>
 #include <zstd.h>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 namespace Kizuri {
 namespace {
@@ -185,5 +186,89 @@ bool DecodeTextureFile(const std::string& path, TextureAssetData& out) {
     return false;
   }
   return DecodeTextureMemory(bytes.data(), bytes.size(), out);
+}
+bool ParseCubeLut(const std::string& path, std::vector<unsigned char>& rgbaOut, int& sizeOut) {
+  rgbaOut.clear();
+  sizeOut = 0;
+  FILE* fp = std::fopen(path.c_str(), "rb");
+  if (fp == nullptr) {
+    return false;
+  }
+  std::fseek(fp, 0, SEEK_END);
+  long sz = std::ftell(fp);
+  std::fseek(fp, 0, SEEK_SET);
+  if (sz <= 0 || sz > 16 * 1024 * 1024) {
+    std::fclose(fp);
+    return false;
+  }
+  std::string text(static_cast<size_t>(sz), '\0');
+  size_t n = std::fread(text.data(), 1, text.size(), fp);
+  std::fclose(fp);
+  if (n != text.size()) {
+    return false;
+  }
+  int lutSize = 0;
+  float dmin[3] = { 0.0f, 0.0f, 0.0f };
+  float dmax[3] = { 1.0f, 1.0f, 1.0f };
+  std::vector<float> vals;
+  vals.reserve(32768 * 3);
+  size_t pos = 0;
+  while (pos < text.size()) {
+    size_t eol = text.find('\n', pos);
+    std::string line = text.substr(pos, eol == std::string::npos ? std::string::npos : eol - pos);
+    pos = eol == std::string::npos ? text.size() : eol + 1;
+    while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t')) {
+      line.pop_back();
+    }
+    size_t start = 0;
+    while (start < line.size() && (line[start] == ' ' || line[start] == '\t')) {
+      ++start;
+    }
+    if (start >= line.size() || line[start] == '#') {
+      continue;
+    }
+    std::string body = line.substr(start);
+    if (body.compare(0, 11, "LUT_3D_SIZE") == 0) {
+      lutSize = std::atoi(body.c_str() + 11);
+    } else if (body.compare(0, 10, "DOMAIN_MIN") == 0) {
+      std::sscanf(body.c_str() + 10, "%f %f %f", &dmin[0], &dmin[1], &dmin[2]);
+    } else if (body.compare(0, 10, "DOMAIN_MAX") == 0) {
+      std::sscanf(body.c_str() + 10, "%f %f %f", &dmax[0], &dmax[1], &dmax[2]);
+    } else if (body.compare(0, 5, "TITLE") == 0 || body.compare(0, 13, "LUT_1D_SIZE") == 0) {
+      continue;
+    } else {
+      float r = 0.0f;
+      float g = 0.0f;
+      float b = 0.0f;
+      if (std::sscanf(body.c_str(), "%f %f %f", &r, &g, &b) == 3) {
+        vals.push_back(r);
+        vals.push_back(g);
+        vals.push_back(b);
+      }
+    }
+  }
+  if (lutSize < 2 || lutSize > 64) {
+    return false;
+  }
+  if (vals.size() != static_cast<size_t>(lutSize) * static_cast<size_t>(lutSize) * static_cast<size_t>(lutSize) * 3) {
+    return false;
+  }
+  rgbaOut.resize(vals.size() / 3 * 4);
+  for (size_t i = 0; i < vals.size() / 3; ++i) {
+    for (int c = 0; c < 3; ++c) {
+      float denom = dmax[c] - dmin[c];
+      float v = denom != 0.0f ? (vals[i * 3 + c] - dmin[c]) / denom : vals[i * 3 + c];
+      if (v < 0.0f) {
+        v = 0.0f;
+      }
+      if (v > 1.0f) {
+        v = 1.0f;
+      }
+      rgbaOut[i * 4 + c] = static_cast<unsigned char>(v * 255.0f + 0.5f);
+    }
+    rgbaOut[i * 4 + 3] = 255;
+  }
+  sizeOut = lutSize;
+  return true;
 }
 }

@@ -31,4 +31,5 @@ bool EncodeTextureFile(const TextureAssetData& data, const std::string& path);
 bool DecodeTextureFile(const std::string& path, TextureAssetData& out);
 bool EncodeTextureMemory(const TextureAssetData& data, std::vector<unsigned char>& out);
 bool DecodeTextureMemory(const void* bytes, size_t size, TextureAssetData& out);
+bool ParseCubeLut(const std::string& path, std::vector<unsigned char>& rgbaOut, int& sizeOut);
 }

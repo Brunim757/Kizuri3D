@@ -57,6 +57,7 @@ struct EditorApp {
   float viewSaturation;
   float viewTemp;
   float viewTint;
+  float viewLutAmount;
   float viewBloom;
   float viewScale;
   float viewSharp;

@@ -313,6 +313,9 @@ DeferredRenderer::DeferredRenderer()
   , gradeSaturation(1.0f)
   , gradeTemp(0.0f)
   , gradeTint(0.0f)
+  , lutTex(0)
+  , lutSize(0)
+  , lutAmount(0.0f)
   , taaA(0)
   , taaB(0)
   , taaRead(0)
@@ -546,8 +549,31 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (gradePS == 0) {
     return false;
   }
-  float gradeInit[8] = { 1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+  float gradeInit[12] = { 1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
   gradeCB = rhi->CreateConstantBuffer(sizeof(gradeInit), &gradeInit);
+  if (gradeCB == 0) {
+    return false;
+  }
+  lutTex = rhi->CreateTexture3D(32, 32, 32, RHITextureFormat::RGBA8_UNORM);
+  if (lutTex == 0) {
+    return false;
+  }
+  lutSize = 32;
+  std::vector<unsigned char> lutIdent(32 * 32 * 32 * 4);
+  for (int b = 0; b < 32; ++b) {
+    for (int g = 0; g < 32; ++g) {
+      for (int r = 0; r < 32; ++r) {
+        size_t o = (static_cast<size_t>(b) * 32 * 32 + static_cast<size_t>(g) * 32 + static_cast<size_t>(r)) * 4;
+        lutIdent[o + 0] = static_cast<unsigned char>(r * 255 / 31);
+        lutIdent[o + 1] = static_cast<unsigned char>(g * 255 / 31);
+        lutIdent[o + 2] = static_cast<unsigned char>(b * 255 / 31);
+        lutIdent[o + 3] = 255;
+      }
+    }
+  }
+  if (!rhi->UpdateTexture3D(lutTex, 32, 32, 32, 128, 128 * 32, lutIdent.data(), lutIdent.size())) {
+    return false;
+  }
   if (gradeCB == 0) {
     return false;
   }
@@ -910,6 +936,11 @@ void DeferredRenderer::Shutdown() {
     rhi->DestroyConstantBuffer(lumCB);
     lumCB = 0;
   }
+  if (lutTex != 0) {
+    rhi->DestroyTexture3D(lutTex);
+    lutTex = 0;
+  }
+  lutSize = 0;
   rhi = nullptr;
   ready = false;
 }
@@ -1073,6 +1104,29 @@ void DeferredRenderer::SetGrading(float contrast, float saturation, float temper
   gradeSaturation = saturation < 0.0f ? 0.0f : (saturation > 3.0f ? 3.0f : saturation);
   gradeTemp = temperature < -1.0f ? -1.0f : (temperature > 1.0f ? 1.0f : temperature);
   gradeTint = tint < -1.0f ? -1.0f : (tint > 1.0f ? 1.0f : tint);
+}
+bool DeferredRenderer::UploadLut(const unsigned char* rgba, int size) {
+  if (rhi == nullptr || rgba == nullptr || size < 2 || size > 64) {
+    return false;
+  }
+  if (lutTex == 0 || size != lutSize) {
+    if (lutTex != 0) {
+      rhi->DestroyTexture3D(lutTex);
+      lutTex = 0;
+    }
+    lutTex = rhi->CreateTexture3D(size, size, size, RHITextureFormat::RGBA8_UNORM);
+    if (lutTex == 0) {
+      lutSize = 0;
+      return false;
+    }
+    lutSize = size;
+  }
+  uint32_t row = static_cast<uint32_t>(size) * 4;
+  size_t bytes = static_cast<size_t>(row) * static_cast<size_t>(size) * static_cast<size_t>(size);
+  return rhi->UpdateTexture3D(lutTex, size, size, size, row, row * static_cast<uint32_t>(size), rgba, bytes);
+}
+void DeferredRenderer::SetLutAmount(float amount) {
+  lutAmount = amount < 0.0f ? 0.0f : (amount > 1.0f ? 1.0f : amount);
 }
 void DeferredRenderer::SetTaa(bool on) {
   if (on == taaOn) {
@@ -3406,7 +3460,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       expWrite = expOut;
     }
     float gdExposure = exposure;
-    uint32_t gd[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+    uint32_t gd[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     std::memcpy(&gd[0], &gdExposure, sizeof(uint32_t));
     gd[1] = static_cast<uint32_t>(toneMode);
     std::memcpy(&gd[2], &gradeContrast, sizeof(uint32_t));
@@ -3414,6 +3468,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     std::memcpy(&gd[4], &gradeTemp, sizeof(uint32_t));
     std::memcpy(&gd[5], &gradeTint, sizeof(uint32_t));
     gd[6] = autoExpOn ? 1u : 0u;
+    std::memcpy(&gd[8], &lutAmount, sizeof(uint32_t));
     rhi->UpdateConstantBuffer(gradeCB, &gd, sizeof(gd));
     rhi->SetPixelConstantBuffer(0, gradeCB);
     rhi->SetPixelSampler(0, sampler);
@@ -3423,8 +3478,11 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelShader(gradePS);
     rhi->SetPixelTexture(0, gViewport);
     rhi->SetPixelTexture(1, expRead != 0 ? expRead : expA);
+    rhi->SetPixelTexture3D(2, lutTex);
     NoteFullscreen();
     rhi->SetPixelTexture(0, 0);
+    rhi->SetPixelTexture(1, 0);
+    rhi->SetPixelTexture3D(2, 0);
     filmActive = false;
     fxaaRan = false;
     RHIRenderTarget filmSrc = gradeA;

@@ -1026,6 +1026,16 @@ public:
     }
     context->PSSetShaderResources(slot, 1, &srv);
   }
+  void SetPixelTexture3D(uint32_t slot, RHITexture3D tex) override {
+    ID3D11ShaderResourceView* srv = nullptr;
+    if (tex != 0) {
+      auto it = tex3ds.find(tex);
+      if (it != tex3ds.end()) {
+        srv = it->second.srv.Get();
+      }
+    }
+    context->PSSetShaderResources(slot, 1, &srv);
+  }
   RHISampler CreateSamplerLinear() override {
     D3D11_SAMPLER_DESC sd;
     sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
@@ -1220,6 +1230,63 @@ public:
       }
     }
     textures.erase(tex);
+  }
+  RHITexture3D CreateTexture3D(int tw, int th, int td, RHITextureFormat fmt) override {
+    if (tw <= 0 || th <= 0 || td <= 0 || tw > 64 || th > 64 || td > 64) {
+      return 0;
+    }
+    D3D11_TEXTURE3D_DESC dd;
+    dd.Width = static_cast<UINT>(tw);
+    dd.Height = static_cast<UINT>(th);
+    dd.Depth = static_cast<UINT>(td);
+    dd.MipLevels = 1;
+    dd.Format = ToTextureFormat(fmt);
+    dd.Usage = D3D11_USAGE_DEFAULT;
+    dd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    dd.CPUAccessFlags = 0;
+    dd.MiscFlags = 0;
+    ComPtr<ID3D11Texture3D> tex;
+    if (FAILED(device->CreateTexture3D(&dd, nullptr, tex.GetAddressOf()))) {
+      return 0;
+    }
+    ComPtr<ID3D11ShaderResourceView> srv;
+    if (FAILED(device->CreateShaderResourceView(tex.Get(), nullptr, srv.GetAddressOf()))) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    Tex3DEntry entry;
+    entry.tex = tex;
+    entry.srv = srv;
+    entry.w = tw;
+    entry.h = th;
+    entry.d = td;
+    entry.fmt = fmt;
+    tex3ds[id] = entry;
+    return id;
+  }
+  bool UpdateTexture3D(RHITexture3D tex, int w, int h, int d, uint32_t rowPitch, uint32_t slicePitch, const void* data, size_t bytes) override {
+    auto it = tex3ds.find(tex);
+    if (it == tex3ds.end() || data == nullptr) {
+      return false;
+    }
+    if (w != it->second.w || h != it->second.h || d != it->second.d) {
+      return false;
+    }
+    size_t bpp = 4;
+    if (it->second.fmt == RHITextureFormat::RGBA16F) {
+      bpp = 8;
+    }
+    if (rowPitch != static_cast<uint32_t>(w) * bpp || slicePitch != rowPitch * static_cast<uint32_t>(h)) {
+      return false;
+    }
+    if (bytes != static_cast<size_t>(slicePitch) * static_cast<size_t>(d)) {
+      return false;
+    }
+    context->UpdateSubresource(it->second.tex.Get(), 0, nullptr, data, rowPitch, slicePitch);
+    return true;
+  }
+  void DestroyTexture3D(RHITexture3D tex) override {
+    tex3ds.erase(tex);
   }
   RHITexture CreateEnvCube(int size) override {
     if (size < 16 || size > 512) {
@@ -1559,6 +1626,15 @@ private:
     std::set<int> resident;
   };
   std::unordered_map<uint64_t, TexEntry> textures;
+  struct Tex3DEntry {
+    ComPtr<ID3D11Texture3D> tex;
+    ComPtr<ID3D11ShaderResourceView> srv;
+    int w = 0;
+    int h = 0;
+    int d = 0;
+    RHITextureFormat fmt = RHITextureFormat::RGBA8_UNORM;
+  };
+  std::unordered_map<uint64_t, Tex3DEntry> tex3ds;
   uint64_t curVS;
   uint64_t curPS;
   uint64_t curLayout;

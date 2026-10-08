@@ -343,6 +343,11 @@ public:
     (void)tex;
     Note(false);
   }
+  void SetPixelTexture3D(uint32_t slot, RHITexture3D tex) override {
+    (void)slot;
+    (void)tex;
+    Note(false);
+  }
   RHISampler CreateSamplerLinear() override {
     uint64_t id = nextId++;
     shaders[id] = 1;
@@ -491,6 +496,43 @@ public:
     (void)samples;
     return false;
   }
+  RHITexture3D CreateTexture3D(int tw, int th, int td, RHITextureFormat fmt) override {
+    if (tw <= 0 || th <= 0 || td <= 0 || tw > 64 || th > 64 || td > 64) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    NullTexture3D t;
+    t.w = tw;
+    t.h = th;
+    t.d = td;
+    t.fmt = fmt;
+    tex3ds[id] = t;
+    return id;
+  }
+  bool UpdateTexture3D(RHITexture3D tex, int w, int h, int d, uint32_t rowPitch, uint32_t slicePitch, const void* data, size_t bytes) override {
+    auto it = tex3ds.find(tex);
+    if (it == tex3ds.end() || data == nullptr) {
+      return false;
+    }
+    if (w != it->second.w || h != it->second.h || d != it->second.d) {
+      return false;
+    }
+    size_t bpp = 4;
+    if (it->second.fmt == RHITextureFormat::RGBA16F) {
+      bpp = 8;
+    }
+    if (rowPitch != static_cast<uint32_t>(w) * bpp || slicePitch != rowPitch * static_cast<uint32_t>(h)) {
+      return false;
+    }
+    if (bytes != static_cast<size_t>(slicePitch) * static_cast<size_t>(d)) {
+      return false;
+    }
+    it->second.filled = true;
+    return true;
+  }
+  void DestroyTexture3D(RHITexture3D tex) override {
+    tex3ds.erase(tex);
+  }
   void GetMemoryStats(uint64_t& textureBytes, uint64_t& targetBytes, uint64_t& bufferBytes) const override {    textureBytes = 0;
     for (const auto& kv : textures) {
       if (kv.second.isCube) {
@@ -544,6 +586,14 @@ private:
   };
   std::unordered_map<uint64_t, NullTarget> targets;
   std::list<NullTarget> pool;
+  struct NullTexture3D {
+    int w = 0;
+    int h = 0;
+    int d = 0;
+    RHITextureFormat fmt = RHITextureFormat::RGBA8_UNORM;
+    bool filled = false;
+  };
+  std::unordered_map<uint64_t, NullTexture3D> tex3ds;
   std::unordered_map<uint64_t, int> shaders;
   std::unordered_map<uint64_t, int> tstamps;
   struct NullTexture {

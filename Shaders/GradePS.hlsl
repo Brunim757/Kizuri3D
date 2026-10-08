@@ -8,9 +8,12 @@ cbuffer GradeCB : register(b0)
     float Tint;
     int AutoExp;
     float GradePad;
+    float LutAmount;
+    float3 LutPad;
 };
 Texture2D HdrTX : register(t0);
 Texture2D ExpTX : register(t1);
+Texture3D LutTX : register(t2);
 SamplerState LinearSampler : register(s0);
 struct PSIn
 {
@@ -84,5 +87,10 @@ float4 main(PSIn pin) : SV_Target
     float luma = dot(wc, float3(0.2126, 0.7152, 0.0722));
     float3 sat = lerp(float3(luma, luma, luma), wc, Saturation);
     float3 con = (sat - 0.5) * Contrast + 0.5;
-    return float4(saturate(con), 1.0);
+    float3 graded = saturate(con);
+    if (LutAmount > 0.001) {
+        float3 luted = LutTX.Sample(LinearSampler, saturate(graded)).rgb;
+        graded = lerp(graded, saturate(luted), saturate(LutAmount));
+    }
+    return float4(graded, 1.0);
 }
