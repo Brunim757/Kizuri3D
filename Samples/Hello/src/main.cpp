@@ -1667,8 +1667,30 @@ bool TestTaaOff() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
-bool TestTaaResize() {
+bool TestTaaPassDelta() {
   Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!TestTaaSetup(rhi, renderer)) {
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float cam[3] = { 0, 0, 0 };
+  renderer.SetTaa(false);
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  uint32_t off = renderer.GetStats().postPasses;
+  renderer.SetTaa(true);
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  uint32_t on = renderer.GetStats().postPasses;
+  bool ok = on == off + 1;
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestTaaResize() {  Kizuri::IRHI* rhi = nullptr;
   Kizuri::DeferredRenderer renderer;
   if (!TestTaaSetup(rhi, renderer)) {
     return false;
@@ -6216,6 +6238,7 @@ int main() {
   failures += Check("TaaHistory", TestTaaHistory());
   failures += Check("TaaOff", TestTaaOff());
   failures += Check("TaaResize", TestTaaResize());
+  failures += Check("TaaPassDelta", TestTaaPassDelta());
   failures += Check("RHI-StateCache", TestStateCache());
   failures += Check("FreeCamera", TestCamera());
   failures += Check("MeshLoader-gltf", TestMeshLoader());
