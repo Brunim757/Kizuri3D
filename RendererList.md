@@ -213,13 +213,13 @@ Sem Ray Tracing
 10. Anti-Aliasing
 
 - [x] FXAA
-- [ ] TAA
-- [ ] Temporal jitter
-- [ ] Motion vectors
-- [ ] History buffers
+- [x] TAA
+- [x] Temporal jitter
+- [x] Motion vectors
+- [x] History buffers
 - [ ] TAA sharpening
-- [ ] TAA ghosting reduction
-- [ ] Temporal reconstruction
+- [x] TAA ghosting reduction
+- [x] Temporal reconstruction
 
 ---
 
