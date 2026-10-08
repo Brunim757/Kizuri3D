@@ -1039,6 +1039,9 @@ void DeferredRenderer::SetToneMapping(int mode) {
   acesOn = mode == 0;
 }
 void DeferredRenderer::SetTaa(bool on) {
+  if (on == taaOn) {
+    return;
+  }
   taaOn = on;
   taaValid = false;
 }

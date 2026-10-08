@@ -42,6 +42,10 @@ float4 main(PSIn pin) : SV_Target
         puv = pp.xy / pp.w * float2(0.5, -0.5) + 0.5;
         pdepth = dot(wpos - CamPos.xyz, CamFwd.xyz);
     }
+    float isSky = dot(wpos, wpos) < 1e-8 ? 1.0 : 0.0;
+    if (isSky > 0.5) {
+        puv = pin.uv;
+    }
     float3 hist = CurrentTX.Sample(LinearSampler, pin.uv).rgb;
     float hdepth = pdepth;
     if (puv.x >= 0.0 && puv.x <= 1.0 && puv.y >= 0.0 && puv.y <= 1.0) {
@@ -50,12 +54,9 @@ float4 main(PSIn pin) : SV_Target
         hdepth = hs.a;
     }
     float cdepth = dot(wpos - CamPos.xyz, CamFwd.xyz);
-    float dth = max(cdepth * 0.05, 0.1);
+    float dth = max(abs(cdepth) * 0.05, 0.1);
     float useHist = 1.0;
-    if (abs(cdepth - hdepth) > dth) {
-        useHist = 0.0;
-    }
-    if (dot(wpos, wpos) < 1e-8) {
+    if (isSky < 0.5 && abs(cdepth - hdepth) > dth) {
         useHist = 0.0;
     }
     float3 mn = curr;
