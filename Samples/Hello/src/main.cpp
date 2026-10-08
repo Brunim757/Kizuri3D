@@ -1620,6 +1620,75 @@ bool TestTaaHistory() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
+bool TestTaaSetup(Kizuri::IRHI*& rhi, Kizuri::DeferredRenderer& renderer) {
+  rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  if (rhi == nullptr) {
+    return false;
+  }
+  Kizuri::RHIDesc desc;
+  desc.windowHandle = nullptr;
+  desc.width = 160;
+  desc.height = 100;
+  desc.vsync = false;
+  if (!rhi->Initialize(desc)) {
+    Kizuri::DestroyRHI(rhi);
+    rhi = nullptr;
+    return false;
+  }
+  const char* shaderDirs[3] = { "Shaders", "Samples/../Shaders", "." };
+  for (int i = 0; i < 3; ++i) {
+    if (renderer.Initialize(rhi, 160, 100, shaderDirs[i])) {
+      return true;
+    }
+    renderer.Shutdown();
+  }
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  rhi = nullptr;
+  return false;
+}
+bool TestTaaOff() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!TestTaaSetup(rhi, renderer)) {
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float cam[3] = { 0, 0, 0 };
+  bool ok = !renderer.IsTaaValid();
+  renderer.SetTaa(false);
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && !renderer.IsTaaValid();
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestTaaResize() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!TestTaaSetup(rhi, renderer)) {
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float cam[3] = { 0, 0, 0 };
+  renderer.SetTaa(true);
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  bool ok = renderer.IsTaaValid();
+  renderer.Resize(80, 50);
+  ok = ok && !renderer.IsTaaValid();
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
 bool TestRenderStats() {
   Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
   if (rhi == nullptr) {
@@ -6145,6 +6214,8 @@ int main() {
   failures += Check("ShadowCache", TestShadowCache());
   failures += Check("IblBake", TestIblBake());
   failures += Check("TaaHistory", TestTaaHistory());
+  failures += Check("TaaOff", TestTaaOff());
+  failures += Check("TaaResize", TestTaaResize());
   failures += Check("RHI-StateCache", TestStateCache());
   failures += Check("FreeCamera", TestCamera());
   failures += Check("MeshLoader-gltf", TestMeshLoader());
