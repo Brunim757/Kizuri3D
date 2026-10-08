@@ -1566,6 +1566,7 @@ bool DeferredRenderer::Resize(int nw, int nh) {
     h = 1;
   }
   DestroyTargets();
+  taaValid = false;
   return CreateTargets();
 }
 void DeferredRenderer::SetFsr(float scale, float sharpness) {
@@ -1841,8 +1842,8 @@ uint64_t DeferredRenderer::CasterHash() const {
   mix(&mainCam.aspect, sizeof(float));
   mix(&mainCam.nearZ, sizeof(float));
   mix(&mainCam.farZ, sizeof(float));
-  mix(lastView, sizeof(lastView));
-  mix(lastProj, sizeof(lastProj));
+  mix(lastViewU, sizeof(lastViewU));
+  mix(lastProjU, sizeof(lastProjU));
   size_t np = pointLights.size();
   size_t ns = spotLights.size();
   size_t nd = dirLights.size();
