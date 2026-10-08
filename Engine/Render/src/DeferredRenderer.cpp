@@ -3164,7 +3164,10 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     NoteFullscreen();
     rhi->SetPixelTexture(0, 0);
     rhi->SetPixelTexture(1, 0);
-    float gd[4] = { exposure, static_cast<float>(toneMode), 0.0f, 0.0f };
+    float gdExposure = exposure;
+    uint32_t gd[4] = { 0, 0, 0, 0 };
+    std::memcpy(&gd[0], &gdExposure, sizeof(uint32_t));
+    gd[1] = static_cast<uint32_t>(toneMode);
     rhi->UpdateConstantBuffer(gradeCB, &gd, sizeof(gd));
     rhi->SetPixelConstantBuffer(0, gradeCB);
     rhi->SetPixelSampler(0, sampler);
