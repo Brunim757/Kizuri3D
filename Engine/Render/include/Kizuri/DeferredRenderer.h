@@ -193,6 +193,8 @@ public:
   void SetToneMapping(int mode);
   void SetAutoExposure(bool on);
   void SetGrading(float contrast, float saturation, float temperature, float tint);
+  bool UploadLut(const unsigned char* rgba, int size);
+  void SetLutAmount(float amount);
   void SetBloom(float strength);
   void SetFsr(float scale, float sharpness);
   void SetSsao(bool on, float intensity, float radius);
@@ -467,9 +469,7 @@ public:
   float gradeTint;
   RHITexture3D lutTex;
   int lutSize;
-  float lutAmount;
-  bool UploadLut(const unsigned char* rgba, int size);
-  void SetLutAmount(float amount);  RHIRenderTarget taaA;
+  float lutAmount;  RHIRenderTarget taaA;
   RHIRenderTarget taaB;
   RHIRenderTarget taaRead;
   RHIRenderTarget taaWrite;
