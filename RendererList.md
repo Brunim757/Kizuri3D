@@ -56,13 +56,13 @@ Futuro
 
 2. Image Based Lighting
 
-- [ ] IBL completo
+- [x] IBL completo
 - [x] Environment maps
-- [ ] HDR environment maps
-- [ ] Irradiance maps
+- [x] HDR environment maps
+- [x] Irradiance maps
 - [x] Prefiltered environment maps
-- [ ] BRDF LUT
-- [ ] Image-based diffuse lighting
+- [x] BRDF LUT
+- [x] Image-based diffuse lighting
 - [x] Image-based specular lighting
 - [x] Reflection probes
 - [ ] Reflection probe blending
@@ -263,7 +263,7 @@ Sem Ray Tracing
 - [x] BC5
 - [ ] BC6H
 - [ ] BC7
-- [ ] HDR textures
+- [x] HDR textures
 - [ ] Texture arrays
 - [ ] Texture atlases
 - [ ] Runtime texture generation
