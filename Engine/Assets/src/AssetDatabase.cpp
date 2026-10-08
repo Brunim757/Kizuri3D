@@ -69,19 +69,6 @@ void ImportMeshTask::ExecuteRange(enki::TaskSetPartition range, uint32_t threadn
       if (ImportGltfMesh(sourcePath, keepGuid, result.data, &log, &progress)) {
         if (EncodeMeshFile(result.data, meshPath)) {
           result.ok = true;
-          if (result.data.indices.size() >= 6000) {
-            for (int tier = 1; tier <= 2; ++tier) {
-              std::string sibPath = LodSiblingPath(meshPath, tier);
-              if (!sibPath.empty()) {
-                MeshAssetData lodMesh;
-                float ratio = tier == 1 ? 0.4f : 0.15f;
-                float err = tier == 1 ? 0.01f : 0.02f;
-                if (GenerateLodMesh(result.data, ratio, err, lodMesh)) {
-                  EncodeMeshFile(lodMesh, sibPath);
-                }
-              }
-            }
-          }
         }
       }
       std::string warn;
@@ -140,6 +127,59 @@ void AssetDatabase::EnqueueImport(const std::string& sourcePath, const std::stri
   task->outQueue = &completed;
   jobs.AddTask(task.get());
   pending.push_back(std::move(task));
+}
+LodBakeTask::LodBakeTask()
+  : taskId(0)
+  , progress(0)
+  , outMutex(nullptr)
+  , outQueue(nullptr) {
+  m_SetSize = 1;
+}
+void LodBakeTask::ExecuteRange(enki::TaskSetPartition range, uint32_t threadnum) {
+  (void)range;
+  (void)threadnum;
+  progress = 5;
+  for (int tier = 1; tier <= 2; ++tier) {
+    std::string sibPath = LodSiblingPath(meshPath, tier);
+    progress = tier == 1 ? 30 : 65;
+    if (sibPath.empty()) {
+      continue;
+    }
+    std::error_code ec;
+    if (std::filesystem::exists(sibPath, ec) && !ec) {
+      continue;
+    }
+    MeshAssetData lodMesh;
+    float ratio = tier == 1 ? 0.4f : 0.15f;
+    float err = tier == 1 ? 0.01f : 0.02f;
+    if (GenerateLodMesh(baseData, ratio, err, lodMesh) && EncodeMeshFile(lodMesh, sibPath)) {
+      ImportResult result;
+      result.ok = true;
+      result.taskId = taskId;
+      result.sourcePath = sibPath;
+      result.meshPath = sibPath;
+      result.data = lodMesh;
+      if (outMutex != nullptr && outQueue != nullptr) {
+        std::lock_guard<std::mutex> lock(*outMutex);
+        outQueue->push_back(result);
+      }
+    }
+  }
+  progress = 100;
+}
+void AssetDatabase::EnqueueLodBake(const MeshAssetData& baseData, const std::string& meshPath) {
+  EnsureJobs();
+  if (!jobsReady) {
+    return;
+  }
+  std::unique_ptr<LodBakeTask> task(new LodBakeTask());
+  task->baseData = baseData;
+  task->meshPath = meshPath;
+  task->taskId = nextTaskId++;
+  task->outMutex = &completedMutex;
+  task->outQueue = &completed;
+  jobs.AddTask(task.get());
+  pendingLod.push_back(std::move(task));
 }
 MeshRecord* AssetDatabase::FindByGuid(const std::string& guid) {
   auto it = records.find(guid);
@@ -603,6 +643,9 @@ size_t AssetDatabase::DrainCompleted() {
       }
     } else {
       UpsertResult(results[i]);
+      if (results[i].sourcePath != results[i].meshPath && results[i].data.indices.size() >= 6000) {
+        EnqueueLodBake(results[i].data, results[i].meshPath);
+      }
       if (!results[i].warning.empty()) {
         std::string name = results[i].sourcePath;
         size_t slash = name.find_last_of("/\\");
@@ -615,6 +658,12 @@ size_t AssetDatabase::DrainCompleted() {
     for (size_t p = 0; p < pending.size(); ++p) {
       if (pending[p]->taskId == results[i].taskId) {
         pending.erase(pending.begin() + p);
+        break;
+      }
+    }
+    for (size_t p = 0; p < pendingLod.size(); ++p) {
+      if (pendingLod[p]->taskId == results[i].taskId) {
+        pendingLod.erase(pendingLod.begin() + p);
         break;
       }
     }
@@ -746,7 +795,7 @@ size_t AssetDatabase::DrainCompleted() {
   return results.size() + texResults.size() + hashResults.size();
 }
 size_t AssetDatabase::PendingImports() const {
-  return pending.size() + pendingTex.size();
+  return pending.size() + pendingTex.size() + pendingLod.size();
 }
 std::vector<std::pair<std::string, int>> AssetDatabase::ImportingNow() const {
   std::vector<std::pair<std::string, int>> out;
@@ -774,6 +823,14 @@ std::vector<std::pair<std::string, int>> AssetDatabase::ImportingNow() const {
     }
     out.push_back(std::make_pair(name, pendingHash[i]->progress.load()));
   }
+  for (size_t i = 0; i < pendingLod.size(); ++i) {
+    std::string name = pendingLod[i]->meshPath;
+    size_t slash = name.find_last_of("/\\");
+    if (slash != std::string::npos) {
+      name = name.substr(slash + 1);
+    }
+    out.push_back(std::make_pair(name + " LOD", pendingLod[i]->progress.load()));
+  }
   return out;
 }
 void AssetDatabase::DrainBlocking() {
@@ -790,6 +847,10 @@ void AssetDatabase::DrainBlocking() {
       jobs.WaitForTask(pendingHash[i].get());
     }
     pendingHash.clear();
+    for (size_t i = 0; i < pendingLod.size(); ++i) {
+      jobs.WaitForTask(pendingLod[i].get());
+    }
+    pendingLod.clear();
     DrainCompleted();
     if (PendingImports() == 0) {
       break;

@@ -2468,6 +2468,9 @@ void EditorApp::DrawAssetBrowser() {
     if (rec == nullptr) {
       continue;
     }
+    if (Kizuri::IsAutoLodPath(rec->meshPath)) {
+      continue;
+    }
     std::filesystem::path mp(rec->meshPath);
     std::string label = "M " + mp.filename().string();
     ImGui::PushID(static_cast<int>(i));

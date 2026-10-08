@@ -115,6 +115,7 @@ bool GenerateTangents(const std::vector<float>& positions, const std::vector<flo
 void OrthogonalizeTangents(const std::vector<float>& normals, std::vector<float>& tangents);
 bool GenerateLodMesh(const MeshAssetData& src, float targetRatio, float targetError, MeshAssetData& out);
 std::string LodSiblingPath(const std::string& baseMeshPath, int tier);
+bool IsAutoLodPath(const std::string& path);
 void SelectAutoLod(float dist, float nearDist, float farDist, int& tierA, int& tierB, float& fadeB);
 bool OptimizeVertexCache(MeshAssetData& data);
 bool UnwrapPrim(const std::vector<float>& inPos, const std::vector<float>& inNrm, const std::vector<float>& inUv, const std::vector<float>& inTan, const std::vector<uint32_t>& inIdx, std::vector<float>& outPos, std::vector<float>& outNrm, std::vector<float>& outUv, std::vector<float>& outTan, std::vector<uint32_t>& outIdx, std::vector<float>& outUv2);

@@ -62,6 +62,16 @@ struct ImportMeshTask : public enki::ITaskSet {
   std::mutex* outMutex;
   std::vector<ImportResult>* outQueue;
 };
+struct LodBakeTask : public enki::ITaskSet {
+  LodBakeTask();
+  void ExecuteRange(enki::TaskSetPartition range, uint32_t threadnum) override;
+  MeshAssetData baseData;
+  std::string meshPath;
+  size_t taskId;
+  std::atomic<int> progress;
+  std::mutex* outMutex;
+  std::vector<ImportResult>* outQueue;
+};
 enum class TextureAssetState {
   Ready,
   Outdated,
@@ -174,6 +184,7 @@ private:
   bool jobsReady;
   size_t nextTaskId;
   std::vector<std::unique_ptr<ImportMeshTask>> pending;
+  std::vector<std::unique_ptr<LodBakeTask>> pendingLod;
   std::vector<std::string> inflight;
   std::vector<std::unique_ptr<ImportTexTask>> pendingTex;
   std::vector<std::string> inflightTex;
@@ -197,7 +208,7 @@ private:
   std::map<std::string, std::string> pathToGuid;
   void EnsureJobs();
   void EnqueueImport(const std::string& sourcePath, const std::string& meshPath, const std::string& keepGuid);
-  void EnqueueTexImport(const std::string& sourcePath, const std::string& texPath, const std::string& keepGuid);
+  void EnqueueLodBake(const MeshAssetData& baseData, const std::string& meshPath);  void EnqueueTexImport(const std::string& sourcePath, const std::string& texPath, const std::string& keepGuid);
   void EnqueueDecode(const std::string& compiledPath, bool isTex);
   void EnqueueHash(const std::string& path, const std::string& guid, bool isTex);
   bool HashPendingForPath(const std::string& path) const;

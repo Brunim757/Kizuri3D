@@ -104,8 +104,20 @@ std::string LodSiblingPath(const std::string& baseMeshPath, int tier) {
   std::string tag = "_lod" + std::string(1, static_cast<char>('0' + tier));
   return baseMeshPath.substr(0, dot) + tag + baseMeshPath.substr(dot);
 }
-void SelectAutoLod(float dist, float nearDist, float farDist, int& tierA, int& tierB, float& fadeB) {
-  tierA = 0;
+bool IsAutoLodPath(const std::string& path) {
+  if (path.size() < 12) {
+    return false;
+  }
+  std::string tail = path.substr(path.size() - 12);
+  for (size_t i = 0; i < tail.size(); ++i) {
+    char c = tail[i];
+    if (c >= 'A' && c <= 'Z') {
+      tail[i] = static_cast<char>(c + ('a' - 'A'));
+    }
+  }
+  return tail == "_lod1.kzmesh" || tail == "_lod2.kzmesh";
+}
+void SelectAutoLod(float dist, float nearDist, float farDist, int& tierA, int& tierB, float& fadeB) {  tierA = 0;
   tierB = -1;
   fadeB = 0.0f;
   if (farDist <= nearDist) {

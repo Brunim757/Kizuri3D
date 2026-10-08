@@ -4825,6 +4825,21 @@ bool TestAutoLodSelect() {
   if (!Kizuri::LodSiblingPath("", 1).empty()) {
     return false;
   }
+  if (!Kizuri::IsAutoLodPath("Meshes/rock_lod1.kzmesh")) {
+    return false;
+  }
+  if (!Kizuri::IsAutoLodPath("Meshes/rock_lod2.kzmesh")) {
+    return false;
+  }
+  if (Kizuri::IsAutoLodPath("Meshes/rock.kzmesh")) {
+    return false;
+  }
+  if (Kizuri::IsAutoLodPath("Meshes/rock_lod3.kzmesh")) {
+    return false;
+  }
+  if (Kizuri::IsAutoLodPath("Meshes/lod1.kzmesh")) {
+    return false;
+  }
   return true;
 }
 bool TestLodUndo() {
