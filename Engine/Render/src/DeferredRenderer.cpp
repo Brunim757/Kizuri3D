@@ -300,6 +300,19 @@ DeferredRenderer::DeferredRenderer()
   , toneMode(0)
   , taaPS(0)
   , taaCB(0)
+  , lumPS(0)
+  , lumCB(0)
+  , lumA(0)
+  , lumB(0)
+  , expA(0)
+  , expB(0)
+  , expRead(0)
+  , expWrite(0)
+  , autoExpOn(false)
+  , gradeContrast(1.0f)
+  , gradeSaturation(1.0f)
+  , gradeTemp(0.0f)
+  , gradeTint(0.0f)
   , taaA(0)
   , taaB(0)
   , taaRead(0)
@@ -533,7 +546,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (gradePS == 0) {
     return false;
   }
-  float gradeInit[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
+  float gradeInit[8] = { 1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f };
   gradeCB = rhi->CreateConstantBuffer(sizeof(gradeInit), &gradeInit);
   if (gradeCB == 0) {
     return false;
@@ -561,6 +574,16 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   float taaInit[28] = { 0.0f };
   taaCB = rhi->CreateConstantBuffer(sizeof(taaInit), &taaInit);
   if (taaCB == 0) {
+    return false;
+  }
+  std::string lumPath = dir + "/LumPS.hlsl";
+  lumPS = rhi->CreatePixelShaderFromFile(lumPath.c_str(), "main");
+  if (lumPS == 0) {
+    return false;
+  }
+  float lumInit[8] = { 0.0f };
+  lumCB = rhi->CreateConstantBuffer(sizeof(lumInit), &lumInit);
+  if (lumCB == 0) {
     return false;
   }
   forwardPS = rhi->CreatePixelShaderFromFile(forwardPath.c_str(), "main");
@@ -883,6 +906,10 @@ void DeferredRenderer::Shutdown() {
     rhi->DestroyConstantBuffer(taaCB);
     taaCB = 0;
   }
+  if (lumCB != 0) {
+    rhi->DestroyConstantBuffer(lumCB);
+    lumCB = 0;
+  }
   rhi = nullptr;
   ready = false;
 }
@@ -1037,6 +1064,15 @@ void DeferredRenderer::SetToneMapping(int mode) {
   }
   toneMode = mode;
   acesOn = mode == 0;
+}
+void DeferredRenderer::SetAutoExposure(bool on) {
+  autoExpOn = on;
+}
+void DeferredRenderer::SetGrading(float contrast, float saturation, float temperature, float tint) {
+  gradeContrast = contrast < 0.0f ? 0.0f : (contrast > 2.0f ? 2.0f : contrast);
+  gradeSaturation = saturation < 0.0f ? 0.0f : (saturation > 3.0f ? 3.0f : saturation);
+  gradeTemp = temperature < -1.0f ? -1.0f : (temperature > 1.0f ? 1.0f : temperature);
+  gradeTint = tint < -1.0f ? -1.0f : (tint > 1.0f ? 1.0f : tint);
 }
 void DeferredRenderer::SetTaa(bool on) {
   if (on == taaOn) {
@@ -3316,10 +3352,68 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     NoteFullscreen();
     rhi->SetPixelTexture(0, 0);
     rhi->SetPixelTexture(1, 0);
+    if (autoExpOn && lumA != 0 && lumB != 0 && expA != 0 && expB != 0 && lumPS != 0) {
+      float lc0[8] = { 0.0f, 0.0f, 0.18f, 0.015625f, 0.015625f, 0.0f, 0.0f, 0.0f };
+      uint32_t lc0i[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+      std::memcpy(lc0i, lc0, sizeof(lc0));
+      lc0i[0] = 0;
+      rhi->UpdateConstantBuffer(lumCB, lc0i, sizeof(lc0i));
+      rhi->SetPixelConstantBuffer(0, lumCB);
+      rhi->SetPixelSampler(0, sampler);
+      rhi->SetRenderTargets(1, &lumA, 0);
+      RHIViewport lvp;
+      lvp.x = 0.0f;
+      lvp.y = 0.0f;
+      lvp.w = 64.0f;
+      lvp.h = 64.0f;
+      lvp.minD = 0.0f;
+      lvp.maxD = 1.0f;
+      rhi->SetViewport(lvp);
+      rhi->SetVertexShader(lightVS);
+      rhi->SetPixelShader(lumPS);
+      rhi->SetPixelTexture(0, gLight);
+      NoteFullscreen();
+      float lc1[8] = { 0.0f, 0.0f, 0.18f, 0.125f, 0.125f, 0.0f, 0.0f, 0.0f };
+      uint32_t lc1i[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+      std::memcpy(lc1i, lc1, sizeof(lc1));
+      lc1i[0] = 1;
+      rhi->UpdateConstantBuffer(lumCB, lc1i, sizeof(lc1i));
+      rhi->SetRenderTargets(1, &lumB, 0);
+      lvp.w = 8.0f;
+      lvp.h = 8.0f;
+      rhi->SetViewport(lvp);
+      rhi->SetPixelTexture(0, lumA);
+      NoteFullscreen();
+      double lastMs = stats.msTotal > 0.0 ? stats.msTotal : 16.6;
+      double blend = 1.0 - exp(-lastMs / 1000.0 * 2.0);
+      float lc2[8] = { 0.0f, static_cast<float>(blend), 0.18f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+      uint32_t lc2i[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+      std::memcpy(lc2i, lc2, sizeof(lc2));
+      lc2i[0] = 2;
+      rhi->UpdateConstantBuffer(lumCB, lc2i, sizeof(lc2i));
+      RHIRenderTarget expPrev = expRead != 0 ? expRead : expA;
+      RHIRenderTarget expOut = (expRead == expA) ? expB : expA;
+      rhi->SetRenderTargets(1, &expOut, 0);
+      lvp.w = 1.0f;
+      lvp.h = 1.0f;
+      rhi->SetViewport(lvp);
+      rhi->SetPixelTexture(0, lumB);
+      rhi->SetPixelTexture(1, expPrev);
+      NoteFullscreen();
+      rhi->SetPixelTexture(0, 0);
+      rhi->SetPixelTexture(1, 0);
+      expRead = expOut;
+      expWrite = expOut;
+    }
     float gdExposure = exposure;
-    uint32_t gd[4] = { 0, 0, 0, 0 };
+    uint32_t gd[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
     std::memcpy(&gd[0], &gdExposure, sizeof(uint32_t));
     gd[1] = static_cast<uint32_t>(toneMode);
+    std::memcpy(&gd[2], &gradeContrast, sizeof(uint32_t));
+    std::memcpy(&gd[3], &gradeSaturation, sizeof(uint32_t));
+    std::memcpy(&gd[4], &gradeTemp, sizeof(uint32_t));
+    std::memcpy(&gd[5], &gradeTint, sizeof(uint32_t));
+    gd[6] = autoExpOn ? 1u : 0u;
     rhi->UpdateConstantBuffer(gradeCB, &gd, sizeof(gd));
     rhi->SetPixelConstantBuffer(0, gradeCB);
     rhi->SetPixelSampler(0, sampler);
@@ -3328,6 +3422,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetVertexShader(lightVS);
     rhi->SetPixelShader(gradePS);
     rhi->SetPixelTexture(0, gViewport);
+    rhi->SetPixelTexture(1, expRead != 0 ? expRead : expA);
     NoteFullscreen();
     rhi->SetPixelTexture(0, 0);
     filmActive = false;
@@ -3570,7 +3665,11 @@ bool DeferredRenderer::CreateTargets() {
   gradeA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   taaA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   taaB = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
-  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0;
+  lumA = rhi->CreateRenderTarget(64, 64, RHIFormat::RGBA16F);
+  lumB = rhi->CreateRenderTarget(8, 8, RHIFormat::RGBA16F);
+  expA = rhi->CreateRenderTarget(1, 1, RHIFormat::RGBA16F);
+  expB = rhi->CreateRenderTarget(1, 1, RHIFormat::RGBA16F);
+  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0 && lumA != 0 && lumB != 0 && expA != 0 && expB != 0;
 }
 void DeferredRenderer::DestroyTargets() {
   if (rhi == nullptr) {
@@ -3686,5 +3785,23 @@ void DeferredRenderer::DestroyTargets() {
   }
   taaRead = 0;
   taaWrite = 0;
+  if (lumA != 0) {
+    rhi->DestroyRenderTarget(lumA);
+    lumA = 0;
+  }
+  if (lumB != 0) {
+    rhi->DestroyRenderTarget(lumB);
+    lumB = 0;
+  }
+  if (expA != 0) {
+    rhi->DestroyRenderTarget(expA);
+    expA = 0;
+  }
+  if (expB != 0) {
+    rhi->DestroyRenderTarget(expB);
+    expB = 0;
+  }
+  expRead = 0;
+  expWrite = 0;
 }
 }

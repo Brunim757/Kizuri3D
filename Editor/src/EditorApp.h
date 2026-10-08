@@ -52,6 +52,11 @@ struct EditorApp {
   float viewExposure;
   bool viewACES;
   int viewToneMap;
+  bool viewAutoExp;
+  float viewContrast;
+  float viewSaturation;
+  float viewTemp;
+  float viewTint;
   float viewBloom;
   float viewScale;
   float viewSharp;

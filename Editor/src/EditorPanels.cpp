@@ -301,6 +301,8 @@ void EditorApp::RenderScene() {
   renderer.SetShadowDebug(debugCascades);
   renderer.SetGrade(viewExposure, viewToneMap == 0);
   renderer.SetToneMapping(viewToneMap);
+  renderer.SetAutoExposure(viewAutoExp);
+  renderer.SetGrading(viewContrast, viewSaturation, viewTemp, viewTint);
   renderer.SetBloom(viewBloom);
   renderer.SetSsao(viewSsao, viewSsaoIntensity, viewSsaoRadius);
   renderer.SetSsr(viewSsr);
@@ -1209,6 +1211,11 @@ void EditorApp::DrawSettings() {
         viewToneMap = tm;
         renderer.SetToneMapping(tm);
       }
+      ImGui::Checkbox("Auto Exposure", &viewAutoExp);
+      ImGui::SliderFloat("Contrast", &viewContrast, 0.0f, 2.0f);
+      ImGui::SliderFloat("Saturation", &viewSaturation, 0.0f, 3.0f);
+      ImGui::SliderFloat("Temperature", &viewTemp, -1.0f, 1.0f);
+      ImGui::SliderFloat("Tint", &viewTint, -1.0f, 1.0f);
       ImGui::SliderFloat("Bloom", &viewBloom, 0.0f, 2.0f);
       ImGui::Separator();
       ImGui::Checkbox("SSAO", &viewSsao);

@@ -2,9 +2,15 @@ cbuffer GradeCB : register(b0)
 {
     float Exposure;
     int ToneMode;
-    float2 GradePad;
+    float Contrast;
+    float Saturation;
+    float Temperature;
+    float Tint;
+    int AutoExp;
+    float GradePad;
 };
 Texture2D HdrTX : register(t0);
+Texture2D ExpTX : register(t1);
 SamplerState LinearSampler : register(s0);
 struct PSIn
 {
@@ -57,7 +63,11 @@ float3 AgXFull(float3 color)
 }
 float4 main(PSIn pin) : SV_Target
 {
-    float3 c = HdrTX.Sample(LinearSampler, pin.uv).rgb * Exposure;
+    float expo = Exposure;
+    if (AutoExp > 0) {
+        expo = max(ExpTX.SampleLevel(LinearSampler, float2(0.5, 0.5), 0).r, 1e-4);
+    }
+    float3 c = HdrTX.Sample(LinearSampler, pin.uv).rgb * expo;
     if (ToneMode == 0) {
         c = float3(ACESFilm(c.r), ACESFilm(c.g), ACESFilm(c.b));
     } else if (ToneMode == 1) {
@@ -68,5 +78,11 @@ float4 main(PSIn pin) : SV_Target
     } else {
         c = pow(saturate(c), 1.0 / 2.2);
     }
-    return float4(c, 1.0);
+    float3 wc = c * float3(1.0 + Temperature * 0.1, 1.0, 1.0 - Temperature * 0.12);
+    wc.gb *= 1.0 + Tint * 0.1;
+    wc.r /= 1.0 + Tint * 0.1;
+    float luma = dot(wc, float3(0.2126, 0.7152, 0.0722));
+    float3 sat = lerp(float3(luma, luma, luma), wc, Saturation);
+    float3 con = (sat - 0.5) * Contrast + 0.5;
+    return float4(saturate(con), 1.0);
 }
