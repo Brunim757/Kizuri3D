@@ -310,6 +310,7 @@ void EditorApp::RenderScene() {
   renderer.SetFilm(viewCa, viewVig, viewGrain);
   renderer.SetSsgi(viewSsgi);
   renderer.SetFxaa(viewFxaa);
+  renderer.SetTaa(viewTaa);
   renderer.SetEnvIntensity(viewEnv);
   {
     EntityId pickIds[64];
@@ -1260,6 +1261,9 @@ void EditorApp::DrawSettings() {
         viewScale = renderer.GetDynamicScale();
       }
       ImGui::Checkbox("FXAA", &viewFxaa);
+      if (ImGui::Checkbox("TAA", &viewTaa)) {
+        renderer.SetTaa(viewTaa);
+      }
       ImGui::SliderFloat("Env Intensity", &viewEnv, 0.0f, 4.0f);
       if (ImGui::Button("Bake Environment")) {
         BakeEnvironment();

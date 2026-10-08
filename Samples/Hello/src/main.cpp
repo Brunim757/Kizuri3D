@@ -1568,6 +1568,58 @@ bool TestIblBake() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
+bool TestTaaHistory() {
+  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  if (rhi == nullptr) {
+    return false;
+  }
+  Kizuri::RHIDesc desc;
+  desc.windowHandle = nullptr;
+  desc.width = 160;
+  desc.height = 100;
+  desc.vsync = false;
+  if (!rhi->Initialize(desc)) {
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  Kizuri::DeferredRenderer renderer;
+  const char* shaderDirs[3] = { "Shaders", "Samples/../Shaders", "." };
+  bool rok = false;
+  for (int i = 0; i < 3 && !rok; ++i) {
+    if (renderer.Initialize(rhi, 160, 100, shaderDirs[i])) {
+      rok = true;
+    } else {
+      renderer.Shutdown();
+    }
+  }
+  if (!rok) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float cam[3] = { 0, 0, 0 };
+  bool ok = !renderer.IsTaaValid();
+  renderer.SetTaa(true);
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && renderer.IsTaaValid();
+  ok = ok && renderer.GetStats().lightingDraws == 1;
+  renderer.Resize(80, 50);
+  ok = ok && !renderer.IsTaaValid();
+  renderer.SetTaa(false);
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && !renderer.IsTaaValid();
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
 bool TestRenderStats() {
   Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
   if (rhi == nullptr) {
@@ -6092,6 +6144,7 @@ int main() {
   failures += Check("GeoBatching", TestGeoBatching());
   failures += Check("ShadowCache", TestShadowCache());
   failures += Check("IblBake", TestIblBake());
+  failures += Check("TaaHistory", TestTaaHistory());
   failures += Check("RHI-StateCache", TestStateCache());
   failures += Check("FreeCamera", TestCamera());
   failures += Check("MeshLoader-gltf", TestMeshLoader());

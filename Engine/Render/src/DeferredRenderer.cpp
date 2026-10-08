@@ -298,6 +298,15 @@ DeferredRenderer::DeferredRenderer()
   , gradeCB(0)
   , gradeA(0)
   , toneMode(0)
+  , taaPS(0)
+  , taaCB(0)
+  , taaA(0)
+  , taaB(0)
+  , taaRead(0)
+  , taaWrite(0)
+  , taaOn(false)
+  , taaValid(false)
+  , taaFrame(0)
   , brdfPS(0)
   , irrPS(0)
   , irrCB(0)
@@ -542,6 +551,16 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   float irrInit[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
   irrCB = rhi->CreateConstantBuffer(sizeof(irrInit), &irrInit);
   if (irrCB == 0) {
+    return false;
+  }
+  std::string taaPath = dir + "/TaaPS.hlsl";
+  taaPS = rhi->CreatePixelShaderFromFile(taaPath.c_str(), "main");
+  if (taaPS == 0) {
+    return false;
+  }
+  float taaInit[28] = { 0.0f };
+  taaCB = rhi->CreateConstantBuffer(sizeof(taaInit), &taaInit);
+  if (taaCB == 0) {
     return false;
   }
   forwardPS = rhi->CreatePixelShaderFromFile(forwardPath.c_str(), "main");
@@ -860,6 +879,10 @@ void DeferredRenderer::Shutdown() {
     rhi->DestroyConstantBuffer(irrCB);
     irrCB = 0;
   }
+  if (taaCB != 0) {
+    rhi->DestroyConstantBuffer(taaCB);
+    taaCB = 0;
+  }
   rhi = nullptr;
   ready = false;
 }
@@ -1014,6 +1037,24 @@ void DeferredRenderer::SetToneMapping(int mode) {
   }
   toneMode = mode;
   acesOn = mode == 0;
+}
+void DeferredRenderer::SetTaa(bool on) {
+  taaOn = on;
+  taaValid = false;
+}
+bool DeferredRenderer::IsTaaValid() const {
+  return taaValid;
+}
+float DeferredRenderer::Halton(int index, int base) {
+  float f = 1.0f;
+  float r = 0.0f;
+  int i = index;
+  while (i > 0) {
+    f /= static_cast<float>(base);
+    r += f * static_cast<float>(i % base);
+    i /= base;
+  }
+  return r;
 }
 void DeferredRenderer::SetBloom(float strength) {
   bloomStrength = strength;
@@ -1562,6 +1603,7 @@ void DeferredRenderer::SetFsr(float scale, float sharpness) {
     w = nw;
     h = nh;
     DestroyTargets();
+    taaValid = false;
     CreateTargets();
   }
 }
@@ -1600,6 +1642,17 @@ void DeferredRenderer::BeginObjects(const float view[16], const float proj[16]) 
   std::memcpy(prevProj, lastProj, sizeof(prevProj));
   std::memcpy(lastView, view, sizeof(lastView));
   std::memcpy(lastProj, proj, sizeof(lastProj));
+  std::memcpy(prevViewU, lastViewU, sizeof(prevViewU));
+  std::memcpy(prevProjU, lastProjU, sizeof(prevProjU));
+  std::memcpy(lastViewU, view, sizeof(lastViewU));
+  std::memcpy(lastProjU, proj, sizeof(lastProjU));
+  ++taaFrame;
+  if (taaOn && w > 0 && h > 0) {
+    float jx = (Halton(static_cast<int>(taaFrame % 8) + 1, 2) - 0.5f) * 2.0f / static_cast<float>(w);
+    float jy = (Halton(static_cast<int>(taaFrame % 8) + 1, 3) - 0.5f) * 2.0f / static_cast<float>(h);
+    lastProj[8] += jx;
+    lastProj[9] += jy;
+  }
   float vp[16];
   MulViewProj(lastView, lastProj, vp);
   ExtractFrustumPlanes(vp, frustumPlanes);
@@ -3276,6 +3329,59 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     filmActive = false;
     fxaaRan = false;
     RHIRenderTarget filmSrc = gradeA;
+    if (taaOn && taaA != 0 && taaB != 0 && taaPS != 0) {
+      float taaVP[16] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+      for (int cc = 0; cc < 4; ++cc) {
+        for (int rr = 0; rr < 4; ++rr) {
+          float s = 0.0f;
+          for (int kk = 0; kk < 4; ++kk) {
+            s += prevView[cc * 4 + kk] * prevProj[kk * 4 + rr];
+          }
+          taaVP[cc * 4 + rr] = s;
+        }
+      }
+      float tc[28];
+      std::memcpy(tc, taaVP, sizeof(taaVP));
+      tc[16] = camPos[0];
+      tc[17] = camPos[1];
+      tc[18] = camPos[2];
+      tc[19] = 1.0f;
+      tc[20] = mainCam.camFwd[0];
+      tc[21] = mainCam.camFwd[1];
+      tc[22] = mainCam.camFwd[2];
+      tc[23] = 0.0f;
+      tc[24] = taaValid ? 1.0f : 0.0f;
+      tc[25] = 0.1f;
+      tc[26] = w > 0 ? 1.0f / static_cast<float>(w) : 0.0f;
+      tc[27] = h > 0 ? 1.0f / static_cast<float>(h) : 0.0f;
+      rhi->UpdateConstantBuffer(taaCB, &tc, sizeof(tc));
+      rhi->SetPixelConstantBuffer(0, taaCB);
+      rhi->SetPixelSampler(0, sampler);
+      RHIRenderTarget hist = (taaValid && taaRead != 0) ? taaRead : taaA;
+      RHIRenderTarget tout = (taaValid && taaRead == taaA) ? taaB : taaA;
+      rhi->SetRenderTargets(1, &tout, 0);
+      RHIViewport tvp;
+      tvp.x = viewX;
+      tvp.y = viewY;
+      tvp.w = static_cast<float>(w);
+      tvp.h = static_cast<float>(h);
+      tvp.minD = 0.0f;
+      tvp.maxD = 1.0f;
+      rhi->SetViewport(tvp);
+      rhi->SetVertexShader(lightVS);
+      rhi->SetPixelShader(taaPS);
+      rhi->SetPixelTexture(0, gradeA);
+      rhi->SetPixelTexture(1, hist);
+      rhi->SetPixelTexture(2, gPosition);
+      NoteFullscreen();
+      rhi->SetPixelTexture(0, 0);
+      rhi->SetPixelTexture(1, 0);
+      rhi->SetPixelTexture(2, 0);
+      taaRead = tout;
+      taaWrite = tout;
+      taaValid = true;
+      filmSrc = tout;
+    }
     if (fxaaOn && fxaaA != 0 && fxaaPS != 0) {
       float fx[4] = { 1.0f / static_cast<float>(w), 1.0f / static_cast<float>(h), static_cast<float>(w), static_cast<float>(h) };
       rhi->UpdateConstantBuffer(fxaaCB, &fx, sizeof(fx));
@@ -3304,7 +3410,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
         for (int rr = 0; rr < 4; ++rr) {
           float s = 0.0f;
           for (int kk = 0; kk < 4; ++kk) {
-            s += prevView[cc * 4 + kk] * prevProj[kk * 4 + rr];
+            s += prevViewU[cc * 4 + kk] * prevProjU[kk * 4 + rr];
           }
           pc.prevVP[cc * 4 + rr] = s;
         }
@@ -3458,7 +3564,9 @@ bool DeferredRenderer::CreateTargets() {
   ssgiB = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   fxaaA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   gradeA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
-  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0;
+  taaA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
+  taaB = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
+  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0;
 }
 void DeferredRenderer::DestroyTargets() {
   if (rhi == nullptr) {
@@ -3564,5 +3672,15 @@ void DeferredRenderer::DestroyTargets() {
     rhi->DestroyRenderTarget(gradeA);
     gradeA = 0;
   }
+  if (taaA != 0) {
+    rhi->DestroyRenderTarget(taaA);
+    taaA = 0;
+  }
+  if (taaB != 0) {
+    rhi->DestroyRenderTarget(taaB);
+    taaB = 0;
+  }
+  taaRead = 0;
+  taaWrite = 0;
 }
 }

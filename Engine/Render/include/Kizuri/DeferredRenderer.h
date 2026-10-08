@@ -188,6 +188,8 @@ public:
   void SetMainCamera(const MainCameraSetup& setup);
   void SetShadowDebug(bool debug);
   void SetGrade(float exposure, bool aces);
+  void SetTaa(bool on);
+  bool IsTaaValid() const;
   void SetToneMapping(int mode);
   void SetBloom(float strength);
   void SetFsr(float scale, float sharpness);
@@ -329,7 +331,7 @@ public:
   int occBudget;
   std::unordered_map<uint64_t, OccEntry> occMap;
   static uint64_t OccKey(RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const float* world);
-  bool OccDrawBegin(RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const float* world);
+  static float Halton(int index, int base);  bool OccDrawBegin(RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const float* world);
   void OccDrawEnd();
   void PollOcclusion();
   void SweepOcclusion();
@@ -446,6 +448,19 @@ public:
   RHIConstBuffer gradeCB;
   RHIRenderTarget gradeA;
   int toneMode;
+  RHIPixelShader taaPS;
+  RHIConstBuffer taaCB;
+  RHIRenderTarget taaA;
+  RHIRenderTarget taaB;
+  RHIRenderTarget taaRead;
+  RHIRenderTarget taaWrite;
+  bool taaOn;
+  bool taaValid;
+  uint64_t taaFrame;
+  float lastViewU[16];
+  float lastProjU[16];
+  float prevViewU[16];
+  float prevProjU[16];
   RHIPixelShader brdfPS;
   RHIPixelShader irrPS;
   RHIConstBuffer irrCB;
