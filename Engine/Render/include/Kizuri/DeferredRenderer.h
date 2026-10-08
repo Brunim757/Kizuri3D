@@ -211,6 +211,7 @@ public:
   bool BeginEnvCapture(int size);
   bool BeginProbeCapture(RHITexture cube);
   void GenerateEnvMips();
+  bool BakeIrradiance();
   void SetEnvIntensity(float intensity);
   void SetEnvProbes(int count, const RHITexture* cubes, const float (*boxMin)[4], const float (*boxMax)[4]);
   void DrawObject(const float world[16]);
@@ -450,7 +451,6 @@ public:
   RHIConstBuffer irrCB;
   RHIRenderTarget brdfLut;
   RHITexture irrCube;
-  bool BakeIrradiance();
   RHITexture envCube;
   RHIRenderTarget captureTarget;
   bool captureMode;
