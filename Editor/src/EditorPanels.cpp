@@ -10,6 +10,7 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <imgui.h>
+#include <imgui_impl_dx11.h>
 #include <ImGuizmo.h>
 #include <DirectXMath.h>
 #include <cstring>
@@ -250,7 +251,9 @@ void EditorApp::RenderScene() {
   int cw = rc.right - rc.left;
   int ch = rc.bottom - rc.top;
   if ((cw != rhi->Width() || ch != rhi->Height()) && cw > 0 && ch > 0) {
+    ImGui_ImplDX11_InvalidateDeviceObjects();
     rhi->Resize(cw, ch);
+    ImGui_ImplDX11_CreateDeviceObjects();
   }
   int rw = static_cast<int>(viewW);
   int rh = static_cast<int>(viewH);

@@ -125,6 +125,13 @@ void Window::Destroy() {
 bool Window::IsOpen() const {
   return open && created;
 }
+bool Window::IsMinimized() const {
+  HWND handle = static_cast<HWND>(hwnd);
+  if (handle == nullptr) {
+    return false;
+  }
+  return IsIconic(handle) != FALSE;
+}
 bool Window::PollEvents() {
   MSG msg;
   while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {

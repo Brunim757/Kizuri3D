@@ -449,6 +449,11 @@ void EditorApp::Shutdown() {
 int EditorApp::Run() {
   unsigned long long prev = GetTickCount64();
   while (running && window.PollEvents()) {
+    if (window.IsMinimized()) {
+      Sleep(10);
+      prev = GetTickCount64();
+      continue;
+    }
     unsigned long long now = GetTickCount64();
     float dt = static_cast<float>(now - prev) / 1000.0f;
     prev = now;

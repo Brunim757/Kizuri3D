@@ -9,6 +9,7 @@ public:
   bool Create(const wchar_t* title, int width, int height);
   void Destroy();
   bool IsOpen() const;
+  bool IsMinimized() const;
   bool PollEvents();
   void* NativeHandle() const;
   int Width() const;
