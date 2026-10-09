@@ -36,9 +36,6 @@ bool OriginRebaser::RebaseIfNeeded(double px, double py, double pz, double thres
     Rebase(px, py, pz);
     return true;
   }
-  sx = 0.0;
-  sy = 0.0;
-  sz = 0.0;
   return false;
 }
 void OriginRebaser::WorldToLocal(double wx, double wy, double wz, float& lx, float& ly, float& lz) const {

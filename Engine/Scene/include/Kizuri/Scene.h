@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include "Kizuri/Origin.h"
 namespace Kizuri {
 struct EntityId {
   uint32_t index;
@@ -164,6 +165,9 @@ public:
   bool IsDirty() const;
   void ClearDirty();
   void MarkDirty();
+  OriginRebaser& Origin();
+  const OriginRebaser& Origin() const;
+  void RebaseWorld(double dx, double dy, double dz);
 private:
   struct Slot {
     Entity entity;
@@ -171,6 +175,7 @@ private:
   };
   std::vector<Slot> slots;
   std::vector<uint32_t> freeList;
+  OriginRebaser origin;
   bool dirty;
   bool IsLive(uint32_t idx, uint32_t gen) const;
   EntityId DuplicateRecursive(EntityId id, EntityId newParent);

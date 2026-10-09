@@ -58,8 +58,8 @@ int main() {
     if (Kizuri::RawInputPoll::IsKeyDown(VK_ESCAPE)) {
       break;
     }
-    bool dodge = Kizuri::RawInputPoll::IsDodgePressed();
-    bool attack = Kizuri::RawInputPoll::IsAttackPressed();
+    bool dodge = Kizuri::RawInputPoll::IsKeyDown(VK_SPACE);
+    bool attack = Kizuri::RawInputPoll::IsKeyDown(VK_LBUTTON) || Kizuri::RawInputPoll::IsKeyDown(0x46);
     (void)dodge;
     (void)attack;
     FrameJob job(&jobsDone);

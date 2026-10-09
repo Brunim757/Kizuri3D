@@ -469,4 +469,29 @@ void Scene::ClearDirty() {
 void Scene::MarkDirty() {
   dirty = true;
 }
+OriginRebaser& Scene::Origin() {
+  return origin;
+}
+const OriginRebaser& Scene::Origin() const {
+  return origin;
+}
+void Scene::RebaseWorld(double dx, double dy, double dz) {
+  if (dx == 0.0 && dy == 0.0 && dz == 0.0) {
+    return;
+  }
+  for (size_t i = 0; i < slots.size(); ++i) {
+    if (!slots[i].alive) {
+      continue;
+    }
+    slots[i].entity.transform.position[0] = static_cast<float>(static_cast<double>(slots[i].entity.transform.position[0]) - dx);
+    slots[i].entity.transform.position[1] = static_cast<float>(static_cast<double>(slots[i].entity.transform.position[1]) - dy);
+    slots[i].entity.transform.position[2] = static_cast<float>(static_cast<double>(slots[i].entity.transform.position[2]) - dz);
+  }
+  double ox = 0.0;
+  double oy = 0.0;
+  double oz = 0.0;
+  origin.GetOrigin(ox, oy, oz);
+  origin.SetOrigin(ox + dx, oy + dy, oz + dz);
+  dirty = true;
+}
 }

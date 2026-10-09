@@ -16,7 +16,11 @@ struct FillTask : public enki::ITaskSet {
 };
 }
 const char* Core_Version() {
-  return "0.0.1-fase0";
+#ifdef KIZURI_VERSION_STR
+  return KIZURI_VERSION_STR;
+#else
+  return "0.0.0-unknown";
+#endif
 }
 bool Core_TestDirectXMath() {
   using namespace DirectX;

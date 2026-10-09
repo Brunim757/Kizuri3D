@@ -101,6 +101,13 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
     return false;
   }
   std::fprintf(fp, "KZSCENE 1\n");
+  {
+    double ox = 0.0;
+    double oy = 0.0;
+    double oz = 0.0;
+    scene.Origin().GetOrigin(ox, oy, oz);
+    std::fprintf(fp, "ORIGIN %.9g %.9g %.9g\n", ox, oy, oz);
+  }
   std::vector<EntityId> all = scene.All();
   std::unordered_map<uint32_t, long> indexOf;
   for (long i = 0; i < static_cast<long>(all.size()); ++i) {
@@ -215,8 +222,7 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
   }
   struct PendingEntity {
     std::string name;
-    long parentIdx;
-    Transform transform;
+    long parentIdx;    Transform transform;
     std::string meshGuid;
     bool hasMesh;
     LightData light;
@@ -243,6 +249,14 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       s.pop_back();
     }
     if (s.empty()) {
+      continue;
+    }
+    if (s.compare(0, 7, "ORIGIN ") == 0) {
+      size_t pos = 7;
+      float ov[3] = { 0.0f, 0.0f, 0.0f };
+      if (ParseFloats(s, pos, ov, 3)) {
+        scene.Origin().SetOrigin(ov[0], ov[1], ov[2]);
+      }
       continue;
     }
     if (s.compare(0, 7, "ENTITY ") == 0) {
