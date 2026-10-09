@@ -1921,17 +1921,6 @@ bool TestLightFeatures() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
-bool TestQualityPreset() {
-  Kizuri::QualitySettings low = Kizuri::ApplyQualityPreset(Kizuri::QualityLevel::Low);
-  Kizuri::QualitySettings ultra = Kizuri::ApplyQualityPreset(Kizuri::QualityLevel::Ultra);
-  Kizuri::QualitySettings high = Kizuri::ApplyQualityPreset(Kizuri::QualityLevel::High);
-  bool ok = !low.taa && !low.ssr && !low.godRays && low.renderScale < 1.0f;
-  ok = ok && ultra.taa && ultra.ssrTemporal && ultra.aoMode == 3 && ultra.shadowFilter == 3;
-  ok = ok && ultra.vsmQuality == 0 && ultra.godRays && ultra.renderScale == 1.0f;
-  ok = ok && ultra.bloom == 1.0f && ultra.motionBlur && ultra.dof && ultra.ssgi;
-  ok = ok && high.aoMode == 2 && high.shadowFilter == 2 && high.taa;
-  return ok;
-}
 bool TestIblBake() {
   Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
   if (rhi == nullptr) {
@@ -2644,6 +2633,15 @@ bool TestQualityPreset() {
   }
   Kizuri::QualitySettings med = Kizuri::ApplyQualityPreset(Kizuri::QualityLevel::Medium);
   if (!med.ssr || med.ssgi || med.renderScale != 0.85f) {
+    return false;
+  }
+  if (low.taa || low.ssrTemporal || low.godRays || low.aoMode != 1 || low.shadowFilter != 1) {
+    return false;
+  }
+  if (!ultra.taa || !ultra.ssrTemporal || ultra.aoMode != 3 || ultra.shadowFilter != 3 || ultra.vsmQuality != 0 || !ultra.godRays) {
+    return false;
+  }
+  if (high.aoMode != 2 || high.shadowFilter != 2 || !high.taa || med.shadowFilter != 0) {
     return false;
   }
   return true;
