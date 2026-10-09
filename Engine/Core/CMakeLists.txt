@@ -1,4 +1,4 @@
-add_library(KizuriCore STATIC src/Core.cpp src/Allocator.cpp src/JobSystem.cpp src/Origin.cpp src/Window.cpp src/Input.cpp src/Log.cpp src/Clock.cpp src/Assert.cpp src/Path.cpp src/Settings.cpp src/Profile.cpp)
+add_library(KizuriCore STATIC src/Core.cpp src/Allocator.cpp src/JobSystem.cpp src/Origin.cpp src/Window.cpp src/Input.cpp src/Logger.cpp src/Clock.cpp src/Assert.cpp src/Path.cpp src/Settings.cpp src/Profile.cpp)
 target_include_directories(KizuriCore PUBLIC include)
 target_link_libraries(KizuriCore PUBLIC DirectXMath enkiTS libzstd_static flatbuffers)
 if(WIN32)

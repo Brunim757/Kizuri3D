@@ -1,7 +1,7 @@
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include "Kizuri/Assert.h"
-#include "Kizuri/Log.h"
+#include "Kizuri/Logger.h"
 #include <windows.h>
 #include <cstdio>
 #include <cstdlib>
@@ -25,7 +25,7 @@ void AssertFailMessage(const char* expr, const char* message, const char* file, 
   } else {
     _snprintf_s(buf, sizeof(buf), _TRUNCATE, "KZ_ASSERT failed: %s\n%s(%d)", expr, file, line);
   }
-  LogWrite(LogLevel::Fatal, file, line, buf);
+  WriteLog(Severity::Fatal, file, line, buf);
   MessageBoxA(nullptr, buf, "Kizuri3D Assertion", MB_OK | MB_ICONERROR);
   __debugbreak();
   std::abort();
