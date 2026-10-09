@@ -237,6 +237,9 @@ public:
   void SetOcclusionCulling(bool on);
   void SetShadowCaching(bool on);
   void SetShadowAutoRes(bool on);
+  void SetShadowFilter(int mode);
+  void SetNormalBias(float scale);
+  void SetAutoBias(bool on);
   void SetShadowResolution(int atlasSize, int cubeSize);
   void GetShadowSizes(int& atlasSize, int& cubeSize) const;
  private:
@@ -375,8 +378,10 @@ public:
   int shadowTileSize;
   int shadowCubeSize;
   int shadowResLevel;
-  bool hasCasterHash;
-  uint64_t lastCasterHash;
+  int shadowFilter;
+  float shadowNormalBias;
+  bool shadowAutoBias;
+  bool hasCasterHash;  uint64_t lastCasterHash;
   int shadowAutoFrames;
   double shadowAutoAccum;
   uint64_t CasterHash() const;

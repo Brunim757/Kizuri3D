@@ -48,6 +48,7 @@ struct LightConstants {
   float probeBoxMin[4][4];
   float probeBoxMax[4][4];
   float iblInfo[4];
+  float shadowCtl[4];
 };
 struct MatConstants {
   float albedo[4];
@@ -396,6 +397,9 @@ DeferredRenderer::DeferredRenderer()
   , shadowTileSize(2048)
   , shadowCubeSize(512)
   , shadowResLevel(0)
+  , shadowFilter(0)
+  , shadowNormalBias(1.0f)
+  , shadowAutoBias(true)
   , hasCasterHash(false)
   , lastCasterHash(0)
   , shadowAutoFrames(0)
@@ -2090,6 +2094,15 @@ void DeferredRenderer::SetShadowCaching(bool on) {
     hasCasterHash = false;
   }
 }
+void DeferredRenderer::SetShadowFilter(int mode) {
+  shadowFilter = mode < 0 ? 0 : (mode > 1 ? 1 : mode);
+}
+void DeferredRenderer::SetNormalBias(float scale) {
+  shadowNormalBias = scale < 0.0f ? 0.0f : (scale > 4.0f ? 4.0f : scale);
+}
+void DeferredRenderer::SetAutoBias(bool on) {
+  shadowAutoBias = on;
+}
 void DeferredRenderer::SetShadowAutoRes(bool on) {
   shadowAutoRes = on;
   shadowAutoFrames = 0;
@@ -3325,6 +3338,10 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   lc.iblInfo[1] = 0.0f;
   lc.iblInfo[2] = 0.0f;
   lc.iblInfo[3] = 0.0f;
+  lc.shadowCtl[0] = static_cast<float>(shadowFilter);
+  lc.shadowCtl[1] = shadowNormalBias;
+  lc.shadowCtl[2] = shadowAutoBias ? 1.0f : 0.0f;
+  lc.shadowCtl[3] = 1.0f;
   for (int pi = 0; pi < 4; ++pi) {
     lc.probeBoxMin[pi][0] = probeBoxMin[pi][0];
     lc.probeBoxMin[pi][1] = probeBoxMin[pi][1];

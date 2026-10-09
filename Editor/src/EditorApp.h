@@ -66,6 +66,9 @@ struct EditorApp {
   float viewDynTarget;
   bool viewOcc;
   bool viewShadowAuto;
+  int viewShadowFilter;
+  float viewNormalBias;
+  bool viewAutoBias;
   bool viewSsao;
   float viewSsaoIntensity;
   float viewSsaoRadius;

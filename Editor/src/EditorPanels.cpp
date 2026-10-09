@@ -300,6 +300,9 @@ void EditorApp::RenderScene() {
   mainCam.farZ = camera.farZ;
   renderer.SetMainCamera(mainCam);
   renderer.SetShadowDebug(debugCascades);
+  renderer.SetShadowFilter(viewShadowFilter);
+  renderer.SetNormalBias(viewNormalBias);
+  renderer.SetAutoBias(viewAutoBias);
   renderer.SetGrade(viewExposure, viewToneMap == 0);
   renderer.SetToneMapping(viewToneMap);
   renderer.SetAutoExposure(viewAutoExp);
@@ -1343,6 +1346,17 @@ void EditorApp::DrawSettings() {
       }
       if (ImGui::Checkbox("Shadow Auto Res", &viewShadowAuto)) {
         renderer.SetShadowAutoRes(viewShadowAuto);
+      }
+      int sf = viewShadowFilter < 0 ? 0 : (viewShadowFilter > 1 ? 1 : viewShadowFilter);
+      if (ImGui::Combo("Shadow Filter", &sf, "PCSS\0PCF 3x3\0")) {
+        viewShadowFilter = sf;
+        renderer.SetShadowFilter(sf);
+      }
+      if (ImGui::SliderFloat("Normal Bias", &viewNormalBias, 0.0f, 4.0f)) {
+        renderer.SetNormalBias(viewNormalBias);
+      }
+      if (ImGui::Checkbox("Auto Bias", &viewAutoBias)) {
+        renderer.SetAutoBias(viewAutoBias);
       }
       const Kizuri::RenderStats& rst = renderer.GetStats();
       ImGui::Text("Draws geo %u shadow %u fwd %u decal %u", rst.geometryDraws, rst.shadowDraws, rst.forwardDraws, rst.decalDraws);

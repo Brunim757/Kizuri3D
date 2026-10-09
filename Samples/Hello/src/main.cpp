@@ -1488,6 +1488,16 @@ bool TestShadowCache() {
   renderer.SetShadowResolution(100, 100);
   renderer.GetShadowSizes(atlas, cube);
   ok = ok && atlas == 512 && cube == 128;
+  renderer.SetShadowFilter(1);
+  renderer.SetNormalBias(2.0f);
+  renderer.SetAutoBias(false);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && renderer.GetStats().lightingDraws == 1;
+  renderer.SetShadowFilter(0);
+  renderer.SetNormalBias(1.0f);
+  renderer.SetAutoBias(true);
   Kizuri::RenderDirectionalLight dl;
   dl.dir[0] = 0.0f;
   dl.dir[1] = -1.0f;
