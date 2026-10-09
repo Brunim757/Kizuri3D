@@ -2809,7 +2809,7 @@ void EditorApp::DrawAssetBrowser() {
       log.Add(LogLevel::Success, std::string("LUT loaded: ") + fn);
     }
   };
-  float previewH = 210.0f;
+  float previewH = 150.0f;
   ImGui::BeginChild("BrTree", ImVec2(205.0f, -previewH), true);
   std::function<void(const std::string&, int)> drawTreeDir = [&](const std::string& dir, int depth) {
     if (depth > 8) {
@@ -3485,9 +3485,10 @@ void EditorApp::DrawAssetBrowser() {
         void* psrv = rhi->GetTextureSRV(pt->gpu);
         if (psrv != nullptr) {
           float avail = ImGui::GetContentRegionAvail().x;
-          float side = avail > 180.0f ? 180.0f : avail;
+          float side = avail > 110.0f ? 110.0f : avail;
           if (side > 32.0f) {
             ImGui::Image(reinterpret_cast<ImTextureID>(psrv), ImVec2(side, side));
+            ImGui::SameLine();
           }
         }
       }
