@@ -1,6 +1,7 @@
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include "EditorApp.h"
+#include "Kizuri/Assets/EmbeddedSkies.h"
 #include "Kizuri/Assets/LightmapBaker.h"
 #include "Kizuri/Assets/TexCodec.h"
 #include "Kizuri/QualityPreset.h"
@@ -1338,37 +1339,49 @@ void EditorApp::DrawSettings() {
           }
         }
         std::sort(skyFiles.begin(), skyFiles.end());
+        size_t embCount = Kizuri::EmbeddedSkyCount();
         std::string comboItems = "Scene Capture";
+        for (size_t i = 0; i < embCount; ++i) {
+          comboItems += std::string("\0") + Kizuri::EmbeddedSkyAt(i).name;
+        }
         for (size_t i = 0; i < skyFiles.size(); ++i) {
           comboItems += std::string("\0") + std::filesystem::path(skyFiles[i]).filename().string();
         }
         comboItems += std::string("\0Custom .hdr...\0", 16);
-        int smax = static_cast<int>(skyFiles.size()) + 1;
+        int smax = static_cast<int>(embCount + skyFiles.size()) + 1;
         int sm = viewSkyPreset < 0 ? 0 : (viewSkyPreset > smax ? smax : viewSkyPreset);
         if (ImGui::Combo("Sky", &sm, comboItems.c_str())) {
           viewSkyPreset = sm;
-          if (sm >= 1 && sm <= static_cast<int>(skyFiles.size())) {
-            Kizuri::RHITexture sky = assets.ImportHdrSky(skyFiles[static_cast<size_t>(sm - 1)]);
+          Kizuri::RHITexture sky = 0;
+          std::string skyLabel;
+          bool doLoad = true;
+          if (sm >= 1 && static_cast<size_t>(sm) <= embCount) {
+            const Kizuri::EmbeddedSkyEntry& se = Kizuri::EmbeddedSkyAt(static_cast<size_t>(sm - 1));
+            sky = assets.ImportHdrSkyFromMemory(se.data, se.size);
+            skyLabel = se.name;
+          } else if (sm > static_cast<int>(embCount) && sm <= static_cast<int>(embCount + skyFiles.size())) {
+            std::string fp = skyFiles[static_cast<size_t>(sm - 1) - embCount];
+            sky = assets.ImportHdrSky(fp);
+            skyLabel = std::filesystem::path(fp).filename().string();
+          } else if (sm == smax) {
+            std::string picked;
+            if (ShowOpenHdrDialog(window.NativeHandle(), picked)) {
+              sky = assets.ImportHdrSky(picked);
+              skyLabel = std::filesystem::path(picked).filename().string();
+            } else {
+              doLoad = false;
+            }
+          } else {
+            doLoad = false;
+          }
+          if (doLoad) {
             if (sky == 0) {
-              Announce(LogLevel::Error, "HDR sky failed");
+              Announce(LogLevel::Error, std::string("HDR sky failed: ") + skyLabel);
             } else if (!renderer.UseHdrSky(sky)) {
               Announce(LogLevel::Error, "HDR sky adopt failed");
             } else {
               renderer.BakeIrradiance();
-              log.Add(LogLevel::Success, "HDR sky loaded");
-            }
-          } else if (sm == smax) {
-            std::string picked;
-            if (ShowOpenHdrDialog(window.NativeHandle(), picked)) {
-              Kizuri::RHITexture sky = assets.ImportHdrSky(picked);
-              if (sky == 0) {
-                Announce(LogLevel::Error, std::string("HDR sky failed: ") + picked);
-              } else if (!renderer.UseHdrSky(sky)) {
-                Announce(LogLevel::Error, "HDR sky adopt failed");
-              } else {
-                renderer.BakeIrradiance();
-                log.Add(LogLevel::Success, std::string("HDR sky loaded: ") + picked);
-              }
+              log.Add(LogLevel::Success, std::string("HDR sky loaded: ") + skyLabel);
             }
           }
         }
@@ -2597,6 +2610,16 @@ void EditorApp::DrawAssetBrowser() {
   ImGui::SameLine();
   if (ImGui::Button("Create +")) {
     ImGui::OpenPopup("BrowserCreate");
+  }
+  {
+    size_t pend = assets.PendingImports();
+    if (pend > 0) {
+      ImGui::SameLine();
+      ImGui::TextDisabled("Indexando %u...", static_cast<unsigned>(pend));
+    } else {
+      ImGui::SameLine();
+      ImGui::TextDisabled("%u meshes, %u tex", static_cast<unsigned>(assets.AllGuids().size()), static_cast<unsigned>(assets.AllTexGuids().size()));
+    }
   }
   if (ImGui::BeginPopup("BrowserCreate")) {
     if (ImGui::MenuItem("New Folder")) {

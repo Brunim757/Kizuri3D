@@ -1391,6 +1391,24 @@ RHITexture AssetDatabase::ImportHdrSky(const std::string& path) {
   stbi_image_free(hdr);
   return cube;
 }
+RHITexture AssetDatabase::ImportHdrSkyFromMemory(const unsigned char* data, size_t size) {
+  if (gpuRhi == nullptr || data == nullptr || size == 0) {
+    return 0;
+  }
+  int w = 0;
+  int h = 0;
+  int comp = 0;
+  float* hdr = stbi_loadf_from_memory(data, static_cast<int>(size), &w, &h, &comp, 3);
+  if (hdr == nullptr || w <= 0 || h <= 0) {
+    if (hdr != nullptr) {
+      stbi_image_free(hdr);
+    }
+    return 0;
+  }
+  RHITexture cube = EquirectToCube(hdr, w, h);
+  stbi_image_free(hdr);
+  return cube;
+}
 RHITexture AssetDatabase::EquirectToCube(const float* hdr, int w, int h) {
   if (gpuRhi == nullptr || hdr == nullptr || w <= 0 || h <= 0) {
     return 0;
