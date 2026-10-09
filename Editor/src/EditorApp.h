@@ -72,6 +72,11 @@ struct EditorApp {
   float viewVsmBleed;
   float viewEvsmExp;
   float viewShadowRange;
+  int viewAttenMode;
+  float viewPhysScale;
+  int viewLightLayers;
+  bool viewSpotCookie;
+  std::string viewCookieGuid;
   float viewNormalBias;
   bool viewAutoBias;
   bool viewSsao;

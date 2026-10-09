@@ -79,14 +79,14 @@ Futuro
 - [x] Directional lights avançadas
 - [x] Point lights
 - [x] Spot lights
-- [ ] Area lights
-- [ ] Rectangular area lights
-- [ ] Light attenuation avançada
-- [ ] Physically based light units
+- [x] Area lights
+- [x] Rectangular area lights
+- [x] Light attenuation avançada
+- [x] Physically based light units
 - [x] Temperature / Kelvin lights
-- [ ] Light layers
-- [ ] Light cookies
-- [ ] Light linking
+- [x] Light layers
+- [x] Light cookies
+- [x] Light linking
 - [ ] Clustered lighting
 - [ ] Forward+ lighting
 - [ ] GPU light culling

@@ -315,6 +315,10 @@ void EditorApp::RenderScene() {
   renderer.SetBloom(viewBloom);
   renderer.SetSsao(viewSsao, viewSsaoIntensity, viewSsaoRadius);
   renderer.SetAoMode(viewSsao ? viewAoMode : 0);
+  renderer.SetAttenuationMode(viewAttenMode);
+  renderer.SetPhysicalScale(viewPhysScale);
+  renderer.SetCameraLightMask(static_cast<uint32_t>(viewLightLayers));
+  renderer.SetSpotCookieOn(viewSpotCookie);
   renderer.SetSsr(viewSsr);
   renderer.SetSsrTemporal(viewSsrTemporal, viewSsrTemporalBlend);
   renderer.SetContact(viewContact);
@@ -1463,6 +1467,46 @@ void EditorApp::DrawSettings() {
       }
       if (ImGui::SliderFloat("Shadow Range (0=off)", &viewShadowRange, 0.0f, 200.0f)) {
         renderer.SetShadowRange(viewShadowRange);
+      }
+      if (ImGui::Combo("Attenuation", &viewAttenMode, "Smooth\0Physical\0Linear\0")) {
+        renderer.SetAttenuationMode(viewAttenMode);
+      }
+      if (ImGui::SliderFloat("Light Scale", &viewPhysScale, 0.01f, 100.0f)) {
+        renderer.SetPhysicalScale(viewPhysScale);
+      }
+      if (ImGui::SliderInt("Light Layers", &viewLightLayers, 0, 255)) {
+        renderer.SetCameraLightMask(static_cast<uint32_t>(viewLightLayers));
+      }
+      if (ImGui::Checkbox("Spot Cookie", &viewSpotCookie)) {
+        renderer.SetSpotCookieOn(viewSpotCookie);
+      }
+      {
+        std::vector<std::string> tg = assets.AllTexGuids();
+        std::string items = "None";
+        int cur = 0;
+        for (size_t ti = 0; ti < tg.size(); ++ti) {
+          const TextureRecord* tr = assets.GetTexByGuid(tg[ti]);
+          std::string fn = (tr != nullptr) ? std::filesystem::path(tr->sourcePath).filename().string() : tg[ti];
+          if (fn.empty()) {
+            fn = tg[ti];
+          }
+          items += std::string("\0") + fn;
+          if (tg[ti] == viewCookieGuid) {
+            cur = static_cast<int>(ti) + 1;
+          }
+        }
+        if (ImGui::Combo("Cookie Tex", &cur, items.c_str())) {
+          viewCookieGuid.clear();
+          Kizuri::RHITexture ck = 0;
+          if (cur >= 1 && static_cast<size_t>(cur - 1) < tg.size()) {
+            viewCookieGuid = tg[static_cast<size_t>(cur - 1)];
+            const TextureRecord* tr = assets.GetTexByGuid(viewCookieGuid);
+            if (tr != nullptr) {
+              ck = tr->gpu;
+            }
+          }
+          renderer.SetSpotCookie(ck);
+        }
       }
       if (ImGui::SliderFloat("Normal Bias", &viewNormalBias, 0.0f, 4.0f)) {
         renderer.SetNormalBias(viewNormalBias);

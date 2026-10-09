@@ -1783,6 +1783,144 @@ bool TestHdrBackground() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
+bool TestRectLight() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  Kizuri::RenderRectLight rl;
+  rl.pos[0] = 0.0f;
+  rl.pos[1] = 3.0f;
+  rl.pos[2] = 0.0f;
+  rl.normal[0] = 0.0f;
+  rl.normal[1] = -1.0f;
+  rl.normal[2] = 0.0f;
+  rl.color[0] = 1.0f;
+  rl.color[1] = 1.0f;
+  rl.color[2] = 1.0f;
+  rl.intensity = 5.0f;
+  rl.halfW = 2.0f;
+  rl.halfH = 1.0f;
+  rl.range = 12.0f;
+  renderer.AddRectLight(rl);
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 5 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  bool ok = renderer.GetStats().lightingDraws == 1;
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestLightFeatures() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  Kizuri::RenderPointLight pl;
+  pl.pos[0] = 0.0f;
+  pl.pos[1] = 2.0f;
+  pl.pos[2] = 3.0f;
+  pl.color[0] = 1.0f;
+  pl.color[1] = 0.5f;
+  pl.color[2] = 0.25f;
+  pl.intensity = 4.0f;
+  pl.radius = 10.0f;
+  pl.castShadow = false;
+  pl.effectiveSize = 0.3f;
+  pl.linkMask = 0xFFu;
+  pl.layer = 2u;
+  renderer.AddPointLight(pl);
+  Kizuri::RenderSpotLight sl;
+  sl.pos[0] = 0.0f;
+  sl.pos[1] = 4.0f;
+  sl.pos[2] = 0.0f;
+  sl.dir[0] = 0.0f;
+  sl.dir[1] = -1.0f;
+  sl.dir[2] = 0.0f;
+  sl.color[0] = 1.0f;
+  sl.color[1] = 1.0f;
+  sl.color[2] = 1.0f;
+  sl.intensity = 3.0f;
+  sl.radius = 12.0f;
+  sl.angle = 45.0f;
+  sl.falloff = 0.1f;
+  sl.castShadow = false;
+  sl.effectiveSize = 0.3f;
+  sl.shadowSize = 1024;
+  sl.linkMask = 0x0Fu;
+  sl.layer = 1u;
+  renderer.AddSpotLight(sl);
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 5 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  renderer.SetAttenuationMode(1);
+  renderer.SetPhysicalScale(2.0f);
+  renderer.SetCameraLightMask(0xFFu);
+  renderer.SetMaterialLinkGroup(0, 0xFFu);
+  renderer.SetMaterialLinkGroup(999, 1u);
+  Kizuri::RHITexture cookie = rhi->CreateTexture2D(4, 4, 1, Kizuri::RHITextureFormat::RGBA8_UNORM);
+  renderer.SetSpotCookie(cookie);
+  renderer.SetSpotCookieOn(true);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  bool ok = renderer.GetStats().lightingDraws == 1;
+  renderer.SetCameraLightMask(0x1u);
+  renderer.SetAttenuationMode(2);
+  renderer.SetSpotCookieOn(false);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && renderer.GetStats().lightingDraws == 1;
+  renderer.SetAttenuationMode(0);
+  renderer.SetPhysicalScale(1.0f);
+  renderer.SetCameraLightMask(0xFFFFFFFFu);
+  if (cookie != 0) {
+    rhi->DestroyTexture(cookie);
+  }
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
 bool TestIblBake() {
   Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
   if (rhi == nullptr) {
@@ -6754,6 +6892,8 @@ int main() {
   failures += Check("GTAO", TestGTAO());
   failures += Check("SsrTemporal", TestSsrTemporal());
   failures += Check("HdrBackground", TestHdrBackground());
+  failures += Check("RectLight", TestRectLight());
+  failures += Check("LightFeatures", TestLightFeatures());
   failures += Check("IblBake", TestIblBake());
   failures += Check("TaaHistory", TestTaaHistory());
   failures += Check("AutoExposure", TestAutoExposure());

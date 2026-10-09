@@ -299,6 +299,7 @@ public:
   RHIConstBuffer lightCB;
   RHIConstBuffer matCB;
   RHIConstBuffer matExtCB;
+  RHIConstBuffer spotCookieCB;
   RHITexture matTable;
   unsigned char matTablePx[256 * 4];
   uint32_t matTableRows;

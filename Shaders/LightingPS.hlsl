@@ -42,6 +42,10 @@ cbuffer LightCB : register(b0)
     float4 ShadowCtl;
     float4 VsmInfo;
 };
+cbuffer SpotCookieCB : register(b4)
+{
+    row_major float4x4 SpotCookieVP[16];
+};
 Texture2D SSAOTX : register(t6);
 Texture2D SsrTX : register(t7);
 Texture2D ContactTX : register(t8);
@@ -61,6 +65,8 @@ Texture2D ShadowAtlas : register(t4);
 TextureCube PointCube : register(t5);
 Texture2D MomentsTX : register(t21);
 Texture2D BentTX : register(t22);
+Texture2D CookieTX : register(t23);
+Texture2D LinkTX : register(t24);
 SamplerState ShadowSampler : register(s1);
 static const float2 Poisson16[16] = {
     float2(-0.9428, -0.3997),
@@ -235,6 +241,17 @@ float BlockerSearch2D(float2 uv, float recvDist, float nearZ, float farZ, float 
         return -1.0;
     }
     return sum / (float)n;
+}
+float ApplyAttenuation(float dist, float range)
+{
+    if (Counts.y < 0.5) {
+        return pow(saturate(1.0 - (dist * dist) / max(range * range, 1e-6)), 2.0);
+    } else if (Counts.y < 1.5) {
+        float phys = 1.0 / (dist * dist + 1.0);
+        float win = saturate(1.0 - (dist * dist) / max(range * range, 1e-6));
+        return phys * win;
+    }
+    return saturate(1.0 - dist / max(range, 1e-4));
 }
 float PCSSFilter2D(float2 uv, float recvZ, float filterUV, float bias)
 {
@@ -653,7 +670,27 @@ float4 main(PSIn pin) : SV_Target
     }
     for (int i = 0; i < count; ++i) {
         float kind = LightA[i].w;
-        if (kind > 1.5) {
+        uint linkM = (uint)(LinkTX.Load(int3((int)matID, 0, 0)).r * 255.0 + 0.5);
+        if ((linkM & (uint)LightD[i].z) == 0u) {
+            continue;
+        }
+        if (kind > 2.5) {
+            float3 Rn = normalize(LightB[i].xyz);
+            float3 rref = abs(Rn.y) > 0.99 ? float3(1.0, 0.0, 0.0) : float3(0.0, 1.0, 0.0);
+            float3 rright = normalize(cross(Rn, rref));
+            float3 rup = cross(Rn, rright);
+            float3 toC = wpos - LightA[i].xyz;
+            float2 ph = float2(dot(toC, rright), dot(toC, rup));
+            float2 hh = float2(max(LightC[i].a, 0.01), max(LightD[i].x, 0.01));
+            float2 cp = clamp(ph, -hh, hh);
+            float3 closest = LightA[i].xyz + rright * cp.x + rup * cp.y;
+            float3 toL = closest - wpos;
+            float rdist = length(toL);
+            float3 Lr = toL / max(rdist, 1e-4);
+            float rrange = max(LightB[i].w, 1e-3);
+            float ratt = ApplyAttenuation(rdist, rrange) * saturate(dot(-Lr, Rn) * 0.5 + 0.5);
+            col += ShadeOne(N, V, Lr, LightC[i].rgb, albedo, roughness, metallic, specF0, lb) * ratt;
+        } else if (kind > 1.5) {
             float3 Ld = normalize(-LightA[i].xyz);
             float dirShadow = 1.0;
             if (ShadowInfo.y > 0.5) {
@@ -671,9 +708,10 @@ float4 main(PSIn pin) : SV_Target
             float dist = length(toLight);
             float3 L = toLight / max(dist, 1e-4);
             float range = max(LightB[i].w, 1e-3);
-            float att = pow(saturate(1.0 - (dist * dist) / (range * range)), 2.0);
+            float att = ApplyAttenuation(dist, range);
             float spot = 1.0;
             float lightShadow = 1.0;
+            float3 cookie = float3(1.0, 1.0, 1.0);
             if (kind > 0.5) {
                 float cosT = dot(L, -LightB[i].xyz);
                 spot = smoothstep(LightC[i].a, LightC[i].a + LightD[i].x, cosT);
@@ -687,12 +725,21 @@ float4 main(PSIn pin) : SV_Target
                         }
                     }
                 }
+                if (Counts.w > 0.5) {
+                    float4 scc = mul(float4(wposB, 1.0), SpotCookieVP[i]);
+                    if (scc.w > 1e-5) {
+                        float2 cuv = scc.xy / scc.w * float2(0.5, -0.5) + 0.5;
+                        if (cuv.x >= 0.0 && cuv.x <= 1.0 && cuv.y >= 0.0 && cuv.y <= 1.0) {
+                            cookie = CookieTX.SampleLevel(LinearSampler, cuv, 0).rgb;
+                        }
+                    }
+                }
             } else {
                 if (ShadowInfo.y > 0.5 && PointMeta.y > 0.5 && (int)(PointMeta.x + 0.5) == i) {
                     lightShadow = SamplePointPCSS(wposB, N, PointMeta.w);
                 }
             }
-            col += ShadeOne(N, V, L, LightC[i].rgb, albedo, roughness, metallic, specF0, lb) * att * spot * lightShadow;
+            col += ShadeOne(N, V, L, LightC[i].rgb, albedo, roughness, metallic, specF0, lb) * att * spot * lightShadow * cookie;
         }
     }
     float ao = 1.0;

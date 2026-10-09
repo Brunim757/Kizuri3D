@@ -213,6 +213,7 @@ DeferredRenderer::DeferredRenderer()
   , lightCB(0)
   , matCB(0)
   , matExtCB(0)
+  , spotCookieCB(0)
   , matTable(0)
   , matTableRows(0)
   , attenMode(0)
@@ -742,6 +743,16 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   lightCB = rhi->CreateConstantBuffer(sizeof(LightConstants), &lc);
   matCB = rhi->CreateConstantBuffer(sizeof(MatConstants), &mc);
   matExtCB = rhi->CreateConstantBuffer(sizeof(MatExtConstants), &mec);
+  float spotCookieInit[16][16];
+  for (int qi = 0; qi < 16; ++qi) {
+    for (int qj = 0; qj < 16; ++qj) {
+      spotCookieInit[qi][qj] = (qi == qj) ? 1.0f : 0.0f;
+    }
+  }
+  spotCookieCB = rhi->CreateConstantBuffer(sizeof(spotCookieInit), &spotCookieInit);
+  if (spotCookieCB == 0) {
+    return false;
+  }
   ssrCB = rhi->CreateConstantBuffer(sizeof(SsrConstants), &sc);
   if (ssrCB == 0) {
     return false;
@@ -1016,6 +1027,10 @@ void DeferredRenderer::Shutdown() {
   if (matExtCB != 0) {
     rhi->DestroyConstantBuffer(matExtCB);
     matExtCB = 0;
+  }
+  if (spotCookieCB != 0) {
+    rhi->DestroyConstantBuffer(spotCookieCB);
+    spotCookieCB = 0;
   }
   if (forwardCB != 0) {
     rhi->DestroyConstantBuffer(forwardCB);
@@ -3493,6 +3508,12 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   lc.camFwd[2] = mainCam.camFwd[2];
   lc.camFwd[3] = 0.0f;
   size_t li = 0;
+  float spotCookieVP[16][16];
+  for (int qi = 0; qi < 16; ++qi) {
+    for (int qj = 0; qj < 16; ++qj) {
+      spotCookieVP[qi][qj] = (qi == qj) ? 1.0f : 0.0f;
+    }
+  }
   for (size_t i = 0; i < pointLights.size() && li < 16; ++i) {
     const RenderPointLight& pl = pointLights[i];
     bool layerLit = (pl.layer & camLightMask) != 0;
@@ -3517,6 +3538,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   for (size_t i = 0; i < spotLights.size() && li < 16; ++i) {
     const RenderSpotLight& sl = spotLights[i];
     bool layerLit = (sl.layer & camLightMask) != 0;
+    ShadowSpotMatrix(sl.pos, sl.dir, sl.angle, sl.radius, spotCookieVP[li]);
     float angle = sl.angle;
     if (angle < 1.0f) {
       angle = 1.0f;
@@ -3715,6 +3737,17 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   BeginLightSection();
   rhi->UpdateConstantBuffer(lightCB, &lc, sizeof(lc));
   rhi->SetPixelConstantBuffer(0, lightCB);
+  if (spotCookieCB != 0) {
+    rhi->UpdateConstantBuffer(spotCookieCB, &spotCookieVP, sizeof(spotCookieVP));
+    rhi->SetPixelConstantBuffer(4, spotCookieCB);
+  }
+  if (linkTable != 0) {
+    rhi->UpdateTextureMip(linkTable, 0, 256, 1, 256 * 4, linkPx, sizeof(linkPx));
+    rhi->SetPixelTexture2D(24, linkTable);
+  }
+  if (spotCookieOn && spotCookie != 0) {
+    rhi->SetPixelTexture2D(23, spotCookie);
+  }
   if (shadowMapsValid) {
     rhi->SetPixelTexture(4, shadowAtlas);
     rhi->SetPixelTexture(5, shadowCube);
@@ -3765,6 +3798,8 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture(17, 0);
   rhi->SetPixelTexture(21, 0);
   rhi->SetPixelTexture(22, 0);
+  rhi->SetPixelTexture2D(23, 0);
+  rhi->SetPixelTexture2D(24, 0);
   rhi->SetPixelTexture2D(18, 0);
   rhi->SetPixelTexture2D(19, 0);
   rhi->SetPixelTexture(20, 0);
