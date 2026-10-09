@@ -429,6 +429,111 @@ bool TestGamepad() {
   }
   return st.leftX >= -1.0f && st.leftX <= 1.0f && st.leftTrigger >= 0.0f && st.leftTrigger <= 1.0f;
 }
+bool TestDebugViews() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  Kizuri::RenderDirectionalLight dl;
+  dl.dir[0] = 0.0f;
+  dl.dir[1] = -1.0f;
+  dl.dir[2] = 0.0f;
+  dl.color[0] = 1.0f;
+  dl.color[1] = 1.0f;
+  dl.color[2] = 1.0f;
+  dl.intensity = 2.0f;
+  dl.castShadow = true;
+  dl.effectiveSize = 0.5f;
+  dl.shadowSize = 1024;
+  dl.cascades = 2;
+  dl.lambda = 0.5f;
+  renderer.AddDirectionalLight(dl);
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 5 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  bool ok = true;
+  renderer.SetDebugView(-5);
+  ok = ok && renderer.GetDebugView() == 0;
+  renderer.SetDebugView(99);
+  ok = ok && renderer.GetDebugView() == 17;
+  std::vector<std::string> shaderErrors;
+  renderer.TakeShaderErrors(shaderErrors);
+  ok = ok && shaderErrors.empty();
+  for (int m = 0; m <= 17 && ok; ++m) {
+    renderer.SetDebugView(m);
+    renderer.BeginObjects(view, proj);
+    renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+    renderer.EndObjectsToTexture(cam);
+    ok = ok && renderer.GetStats().lightingDraws == 1;
+  }
+  renderer.SetDebugView(0);
+  renderer.SetFallbackLight(false);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && renderer.GetStats().lightingDraws == 1;
+  renderer.SetFallbackLight(true);
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestPostVolume() {
+  Kizuri::Scene scene;
+  Kizuri::UndoStack undo;
+  Kizuri::Transform t;
+  Kizuri::MakeIdentityTransform(t);
+  Kizuri::EntityId eid = scene.CreateEntity("PostBox");
+  if (!eid.IsValid()) {
+    return false;
+  }
+  {
+    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::AddPostCmd(eid));
+    if (!undo.Execute(std::move(cmd), scene)) {
+      return false;
+    }
+  }
+  const Kizuri::Entity* e = scene.Get(eid);
+  if (e == nullptr || !e->hasPost) {
+    return false;
+  }
+  bool ok = e->post.exposure == 1.0f && e->post.size[0] == 10.0f;
+  Kizuri::EditQueue edits;
+  Kizuri::PostData pv = e->post;
+  pv.exposure = 2.0f;
+  pv.toneMap = 2;
+  edits.PushPost(eid, pv);
+  ok = ok && edits.Pending() == 1;
+  ok = ok && edits.ApplyAll(scene, undo) == 1;
+  const Kizuri::Entity* e2 = scene.Get(eid);
+  ok = ok && e2 != nullptr && e2->post.exposure == 2.0f && e2->post.toneMap == 2;
+  {
+    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::RemovePostCmd(eid));
+    if (!undo.Execute(std::move(cmd), scene)) {
+      return false;
+    }
+  }
+  const Kizuri::Entity* e3 = scene.Get(eid);
+  ok = ok && e3 != nullptr && !e3->hasPost;
+  return ok;
+}
 bool TestRHINull() {  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
   if (rhi == nullptr) {
     return false;
@@ -7172,6 +7277,8 @@ int main() {
   failures += Check("Settings", TestSettings());
   failures += Check("Profiler", TestProfile());
   failures += Check("Gamepad", TestGamepad());
+  failures += Check("DebugViews", TestDebugViews());
+  failures += Check("PostVolume", TestPostVolume());
   failures += Check("RHI-Null", TestRHINull());
   failures += Check("FrustumCull", TestFrustumCull());
   failures += Check("FrustumCullNull", TestFrustumCullNull());

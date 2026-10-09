@@ -193,6 +193,13 @@ struct PostConstants {
   float toggles[4];
   float curVP[16];
 };
+struct DebugConstants {
+  float mode[4];
+  float prevVP[16];
+  float camPos[4];
+  float probeMin[4][4];
+  float probeMax[4][4];
+};
 }
 DeferredRenderer::DeferredRenderer()
   : rhi(nullptr)
@@ -358,6 +365,16 @@ DeferredRenderer::DeferredRenderer()
   , godDensity(1.0f)
   , godDecay(0.95f)
   , godIntensity(0.5f)
+  , debugView(0)
+  , debugPS(0)
+  , debugCB(0)
+  , debugA(0)
+  , overdrawPS(0)
+  , overdrawA(0)
+  , uvVS(0)
+  , uvPS(0)
+  , uvA(0)
+  , fallbackOn(true)
   , godRan(false)
   , taaA(0)
   , taaB(0)
@@ -555,16 +572,16 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   std::string fxaaPath = dir + "/FxaaPS.hlsl";
   std::string forwardPath = dir + "/ForwardPS.hlsl";
   std::string copyPath = dir + "/CopyPS.hlsl";
-  geoVS = rhi->CreateVertexShaderFromFile(geoVSPath.c_str(), "main");
-  geoPS = rhi->CreatePixelShaderFromFile(geoPSPath.c_str(), "main");
-  lightVS = rhi->CreateVertexShaderFromFile(lightVSPath.c_str(), "main");
-  lightPS = rhi->CreatePixelShaderFromFile(lightPSPath.c_str(), "main");
-  depthVS = rhi->CreateVertexShaderFromFile(depthVSPath.c_str(), "main");
-  decalVS = rhi->CreateVertexShaderFromFile(decalVSPath.c_str(), "main");
-  decalPS = rhi->CreatePixelShaderFromFile(decalPSPath.c_str(), "main");
-  bloomBrightPS = rhi->CreatePixelShaderFromFile(bloomBrightPath.c_str(), "main");
-  bloomBlurPS = rhi->CreatePixelShaderFromFile(bloomBlurPath.c_str(), "main");
-  bloomAddPS = rhi->CreatePixelShaderFromFile(bloomAddPath.c_str(), "main");
+  geoVS = LoadVertexShader(geoVSPath.c_str());
+  geoPS = LoadPixelShader(geoPSPath.c_str());
+  lightVS = LoadVertexShader(lightVSPath.c_str());
+  lightPS = LoadPixelShader(lightPSPath.c_str());
+  depthVS = LoadVertexShader(depthVSPath.c_str());
+  decalVS = LoadVertexShader(decalVSPath.c_str());
+  decalPS = LoadPixelShader(decalPSPath.c_str());
+  bloomBrightPS = LoadPixelShader(bloomBrightPath.c_str());
+  bloomBlurPS = LoadPixelShader(bloomBlurPath.c_str());
+  bloomAddPS = LoadPixelShader(bloomAddPath.c_str());
   if (geoVS == 0 || geoPS == 0 || lightVS == 0 || lightPS == 0 || depthVS == 0) {
     return false;
   }
@@ -574,50 +591,50 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (bloomBrightPS == 0 || bloomBlurPS == 0 || bloomAddPS == 0) {
     return false;
   }
-  fsrEasuPS = rhi->CreatePixelShaderFromFile(fsrEasuPath.c_str(), "main");
-  fsrRcasPS = rhi->CreatePixelShaderFromFile(fsrRcasPath.c_str(), "main");
+  fsrEasuPS = LoadPixelShader(fsrEasuPath.c_str());
+  fsrRcasPS = LoadPixelShader(fsrRcasPath.c_str());
   if (fsrEasuPS == 0 || fsrRcasPS == 0) {
     return false;
   }
-  ssaoPS = rhi->CreatePixelShaderFromFile(ssaoPath.c_str(), "main");
-  ssaoBlurPS = rhi->CreatePixelShaderFromFile(ssaoBlurPath.c_str(), "main");
+  ssaoPS = LoadPixelShader(ssaoPath.c_str());
+  ssaoBlurPS = LoadPixelShader(ssaoBlurPath.c_str());
   if (ssaoPS == 0 || ssaoBlurPS == 0) {
     return false;
   }
-  gtaoPS = rhi->CreatePixelShaderFromFile(gtaoPath.c_str(), "main");
+  gtaoPS = LoadPixelShader(gtaoPath.c_str());
   if (gtaoPS == 0) {
     return false;
   }
-  ssrPS = rhi->CreatePixelShaderFromFile(ssrPath.c_str(), "main");
+  ssrPS = LoadPixelShader(ssrPath.c_str());
   if (ssrPS == 0) {
     return false;
   }
-  ssrTemporalPS = rhi->CreatePixelShaderFromFile(ssrTemporalPath.c_str(), "main");
+  ssrTemporalPS = LoadPixelShader(ssrTemporalPath.c_str());
   if (ssrTemporalPS == 0) {
     return false;
   }
-  contactPS = rhi->CreatePixelShaderFromFile(contactPath.c_str(), "main");
+  contactPS = LoadPixelShader(contactPath.c_str());
   if (contactPS == 0) {
     return false;
   }
-  filmPS = rhi->CreatePixelShaderFromFile(filmPath.c_str(), "main");
+  filmPS = LoadPixelShader(filmPath.c_str());
   if (filmPS == 0) {
     return false;
   }
-  ssgiPS = rhi->CreatePixelShaderFromFile(ssgiPath.c_str(), "main");
+  ssgiPS = LoadPixelShader(ssgiPath.c_str());
   if (ssgiPS == 0) {
     return false;
   }
-  ssgiBlurPS = rhi->CreatePixelShaderFromFile(ssgiBlurPath.c_str(), "main");
+  ssgiBlurPS = LoadPixelShader(ssgiBlurPath.c_str());
   if (ssgiBlurPS == 0) {
     return false;
   }
-  fxaaPS = rhi->CreatePixelShaderFromFile(fxaaPath.c_str(), "main");
+  fxaaPS = LoadPixelShader(fxaaPath.c_str());
   if (fxaaPS == 0) {
     return false;
   }
   std::string gradePath = dir + "/GradePS.hlsl";
-  gradePS = rhi->CreatePixelShaderFromFile(gradePath.c_str(), "main");
+  gradePS = LoadPixelShader(gradePath.c_str());
   if (gradePS == 0) {
     return false;
   }
@@ -650,12 +667,12 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
     return false;
   }
   std::string brdfPath = dir + "/BrdfLutPS.hlsl";
-  brdfPS = rhi->CreatePixelShaderFromFile(brdfPath.c_str(), "main");
+  brdfPS = LoadPixelShader(brdfPath.c_str());
   if (brdfPS == 0) {
     return false;
   }
   std::string irrPath = dir + "/IrradiancePS.hlsl";
-  irrPS = rhi->CreatePixelShaderFromFile(irrPath.c_str(), "main");
+  irrPS = LoadPixelShader(irrPath.c_str());
   if (irrPS == 0) {
     return false;
   }
@@ -665,12 +682,12 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
     return false;
   }
   std::string taaPath = dir + "/TaaPS.hlsl";
-  taaPS = rhi->CreatePixelShaderFromFile(taaPath.c_str(), "main");
+  taaPS = LoadPixelShader(taaPath.c_str());
   if (taaPS == 0) {
     return false;
   }
   std::string taaSharpenPath = dir + "/TaaSharpenPS.hlsl";
-  taaSharpenPS = rhi->CreatePixelShaderFromFile(taaSharpenPath.c_str(), "main");
+  taaSharpenPS = LoadPixelShader(taaSharpenPath.c_str());
   if (taaSharpenPS == 0) {
     return false;
   }
@@ -680,12 +697,12 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
     return false;
   }
   std::string momentsPath = dir + "/MomentsPS.hlsl";
-  momentsPS = rhi->CreatePixelShaderFromFile(momentsPath.c_str(), "main");
+  momentsPS = LoadPixelShader(momentsPath.c_str());
   if (momentsPS == 0) {
     return false;
   }
   std::string momentsBlurPath = dir + "/MomentsBlurPS.hlsl";
-  momentsBlurPS = rhi->CreatePixelShaderFromFile(momentsBlurPath.c_str(), "main");
+  momentsBlurPS = LoadPixelShader(momentsBlurPath.c_str());
   if (momentsBlurPS == 0) {
     return false;
   }
@@ -705,7 +722,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
     return false;
   }
   std::string lumPath = dir + "/LumPS.hlsl";
-  lumPS = rhi->CreatePixelShaderFromFile(lumPath.c_str(), "main");
+  lumPS = LoadPixelShader(lumPath.c_str());
   if (lumPS == 0) {
     return false;
   }
@@ -715,7 +732,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
     return false;
   }
   std::string godPath = dir + "/GodRaysPS.hlsl";
-  godPS = rhi->CreatePixelShaderFromFile(godPath.c_str(), "main");
+  godPS = LoadPixelShader(godPath.c_str());
   if (godPS == 0) {
     return false;
   }
@@ -724,11 +741,36 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (godCB == 0) {
     return false;
   }
-  forwardPS = rhi->CreatePixelShaderFromFile(forwardPath.c_str(), "main");
+  std::string debugPath = dir + "/DebugPS.hlsl";
+  debugPS = LoadPixelShader(debugPath.c_str());
+  if (debugPS == 0) {
+    return false;
+  }
+  std::string overdrawPath = dir + "/OverdrawPS.hlsl";
+  overdrawPS = LoadPixelShader(overdrawPath.c_str());
+  if (overdrawPS == 0) {
+    return false;
+  }
+  std::string uvVSPath = dir + "/UvVS.hlsl";
+  uvVS = LoadVertexShader(uvVSPath.c_str());
+  if (uvVS == 0) {
+    return false;
+  }
+  std::string uvPSPath = dir + "/UvPS.hlsl";
+  uvPS = LoadPixelShader(uvPSPath.c_str());
+  if (uvPS == 0) {
+    return false;
+  }
+  float debugInit[56] = { 0.0f };
+  debugCB = rhi->CreateConstantBuffer(sizeof(debugInit), &debugInit);
+  if (debugCB == 0) {
+    return false;
+  }
+  forwardPS = LoadPixelShader(forwardPath.c_str());
   if (forwardPS == 0) {
     return false;
   }
-  copyPS = rhi->CreatePixelShaderFromFile(copyPath.c_str(), "main");
+  copyPS = LoadPixelShader(copyPath.c_str());
   if (copyPS == 0) {
     return false;
   }
@@ -736,7 +778,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (layout == 0) {
     return false;
   }
-  geoVSInstanced = rhi->CreateVertexShaderFromFile(geoVSPath.c_str(), "mainInst");
+  geoVSInstanced = LoadVertexShader(geoVSPath.c_str(), "mainInst");
   if (geoVSInstanced != 0) {
     instLayout = rhi->CreateInputLayoutPNUTInstanced(geoVSInstanced);
   }
@@ -1105,6 +1147,10 @@ void DeferredRenderer::Shutdown() {
     rhi->DestroyConstantBuffer(godCB);
     godCB = 0;
   }
+  if (debugCB != 0) {
+    rhi->DestroyConstantBuffer(debugCB);
+    debugCB = 0;
+  }
   if (lutTex != 0) {
     rhi->DestroyTexture3D(lutTex);
     lutTex = 0;
@@ -1278,6 +1324,51 @@ void DeferredRenderer::SetMainCamera(const MainCameraSetup& setup) {
 }
 void DeferredRenderer::SetShadowDebug(bool debug) {
   shadowDebug = debug;
+}
+RHIPixelShader DeferredRenderer::LoadPixelShader(const char* path, const char* entry) {
+  if (rhi == nullptr || path == nullptr) {
+    return 0;
+  }
+  if (entry == nullptr || entry[0] == '\0') {
+    entry = "main";
+  }
+  RHIPixelShader ps = rhi->CreatePixelShaderFromFile(path, entry);
+  if (ps == 0) {
+    shaderErrors.push_back(std::string("Pixel shader failed: ") + path);
+  }
+  return ps;
+}
+RHIVertexShader DeferredRenderer::LoadVertexShader(const char* path, const char* entry) {
+  if (rhi == nullptr || path == nullptr) {
+    return 0;
+  }
+  if (entry == nullptr || entry[0] == '\0') {
+    entry = "main";
+  }
+  RHIVertexShader vs = rhi->CreateVertexShaderFromFile(path, entry);
+  if (vs == 0) {
+    shaderErrors.push_back(std::string("Vertex shader failed: ") + path);
+  }
+  return vs;
+}
+void DeferredRenderer::TakeShaderErrors(std::vector<std::string>& out) {
+  out.insert(out.end(), shaderErrors.begin(), shaderErrors.end());
+  shaderErrors.clear();
+}
+void DeferredRenderer::SetDebugView(int mode) {
+  if (mode < 0) {
+    mode = 0;
+  }
+  if (mode > 17) {
+    mode = 17;
+  }
+  debugView = mode;
+}
+int DeferredRenderer::GetDebugView() const {
+  return debugView;
+}
+void DeferredRenderer::SetFallbackLight(bool on) {
+  fallbackOn = on;
 }
 void DeferredRenderer::SetGrade(float e, bool aces) {
   exposure = e;
@@ -2037,6 +2128,9 @@ void* DeferredRenderer::GetViewportTexture() {
   if (rhi == nullptr) {
     return nullptr;
   }
+  if (debugView != 0 && debugA != 0) {
+    return rhi->GetRenderTargetSRV(debugA);
+  }
   bool fsrActive = renderScale < 0.999f && fsrOut != 0;
   RHIRenderTarget rt = fsrActive ? fsrOut : gradeA;
   if (filmActive && filmA != 0 && !fsrActive) {
@@ -2185,6 +2279,7 @@ void DeferredRenderer::NoteLighting() {
 }
 void DeferredRenderer::BeginShadowSection() {
   sectionStart = std::chrono::steady_clock::now();
+  rhi->BeginEvent("Shadows");
   if (gpuShadowTs != 0) {
     rhi->BeginTimestamp(gpuShadowTs);
   }
@@ -2194,9 +2289,11 @@ void DeferredRenderer::EndShadowSection() {
   if (gpuShadowTs != 0) {
     rhi->EndTimestamp(gpuShadowTs);
   }
+  rhi->EndEvent();
 }
 void DeferredRenderer::BeginLightSection() {
   sectionStart = std::chrono::steady_clock::now();
+  rhi->BeginEvent("Lighting");
   if (gpuLightTs != 0) {
     rhi->BeginTimestamp(gpuLightTs);
   }
@@ -2206,9 +2303,11 @@ void DeferredRenderer::EndLightSection() {
   if (gpuLightTs != 0) {
     rhi->EndTimestamp(gpuLightTs);
   }
+  rhi->EndEvent();
 }
 void DeferredRenderer::BeginPostSection() {
   sectionStart = std::chrono::steady_clock::now();
+  rhi->BeginEvent("Post");
   if (gpuPostTs != 0) {
     rhi->BeginTimestamp(gpuPostTs);
   }
@@ -2217,6 +2316,7 @@ void DeferredRenderer::EndPostSection() {
   if (gpuPostTs != 0) {
     rhi->EndTimestamp(gpuPostTs);
   }
+  rhi->EndEvent();
 }
 void DeferredRenderer::PollGpuTimers() {
   if (rhi == nullptr) {
@@ -2883,12 +2983,12 @@ void DeferredRenderer::SetGeoMaterial(const DeferredMaterial& use, float lodFade
     rs.slopeBias = 0.0f;
     rhi->SetRasterizerState(rs);
   } else {
-    RHIRasterizer rs;
-    rs.cull = RHICull::Back;
-    rs.fill = RHIFill::Solid;
-    rs.frontCCW = false;
-    rs.slopeBias = 0.0f;
-    rhi->SetRasterizerState(rs);
+  RHIRasterizer rs;
+  rs.cull = RHICull::Back;
+  rs.fill = debugView == 1 ? RHIFill::Wireframe : RHIFill::Solid;
+  rs.frontCCW = false;
+  rs.slopeBias = 0.0f;
+  rhi->SetRasterizerState(rs);
   }
 }
 void DeferredRenderer::DrawGeoSingle(const GeoBatchItem& item) {
@@ -3142,6 +3242,182 @@ void DeferredRenderer::RenderDecals() {
   ds.depthWrite = true;
   rhi->SetDepthStencilState(ds);
   decalDraws.clear();
+}
+void DeferredRenderer::RunOverdrawPass() {
+  if (overdrawA == 0 || overdrawPS == 0 || depthVS == 0) {
+    return;
+  }
+  if (shadowDraws.empty()) {
+    rhi->ClearRenderTarget(overdrawA, 0.0f, 0.0f, 0.0f, 1.0f);
+    return;
+  }
+  rhi->BeginEvent("Overdraw");
+  rhi->SetRenderTargets(1, &overdrawA, gDepth);
+  RHIViewport vp;
+  vp.x = viewX;
+  vp.y = viewY;
+  vp.w = static_cast<float>(w);
+  vp.h = static_cast<float>(h);
+  vp.minD = 0.0f;
+  vp.maxD = 1.0f;
+  rhi->SetViewport(vp);
+  rhi->SetTopology(RHITopology::TriangleList);
+  RHIRasterizer rs;
+  rs.cull = RHICull::Back;
+  rs.fill = RHIFill::Solid;
+  rs.frontCCW = false;
+  rs.slopeBias = 0.0f;
+  rhi->SetRasterizerState(rs);
+  RHIDepthStencil ds;
+  ds.depthEnable = true;
+  ds.depthWrite = false;
+  rhi->SetDepthStencilState(ds);
+  RHIBlend blend;
+  blend.enable = true;
+  rhi->SetBlendState(blend);
+  rhi->SetInputLayout(layout);
+  rhi->SetVertexShader(depthVS);
+  rhi->SetPixelShader(overdrawPS);
+  rhi->SetVertexConstantBuffer(0, geoCB);
+  rhi->ClearRenderTarget(overdrawA, 0.0f, 0.0f, 0.0f, 1.0f);
+  float identity[16] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+  for (size_t di = 0; di < shadowDraws.size(); ++di) {
+    GeoConstants gc;
+    std::memcpy(gc.world, shadowDraws[di].world, sizeof(gc.world));
+    std::memcpy(gc.view, lastView, sizeof(gc.view));
+    std::memcpy(gc.proj, lastProj, sizeof(gc.proj));
+    rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
+    rhi->SetVertexBuffer(shadowDraws[di].vb, 0);
+    rhi->SetIndexBuffer(shadowDraws[di].ib);
+    rhi->DrawIndexed(shadowDraws[di].count, shadowDraws[di].start, 0);
+  }
+  blend.enable = false;
+  rhi->SetBlendState(blend);
+  ds.depthWrite = true;
+  rhi->SetDepthStencilState(ds);
+  NoteFullscreen();
+  rhi->EndEvent();
+}
+void DeferredRenderer::RunUvPass() {
+  if (uvA == 0 || uvVS == 0 || uvPS == 0) {
+    return;
+  }
+  if (shadowDraws.empty()) {
+    rhi->ClearRenderTarget(uvA, 0.0f, 0.0f, 0.0f, 1.0f);
+    return;
+  }
+  rhi->BeginEvent("UVDebug");
+  rhi->SetRenderTargets(1, &uvA, gDepth);
+  RHIViewport vp;
+  vp.x = viewX;
+  vp.y = viewY;
+  vp.w = static_cast<float>(w);
+  vp.h = static_cast<float>(h);
+  vp.minD = 0.0f;
+  vp.maxD = 1.0f;
+  rhi->SetViewport(vp);
+  rhi->SetTopology(RHITopology::TriangleList);
+  RHIRasterizer rs;
+  rs.cull = RHICull::Back;
+  rs.fill = RHIFill::Solid;
+  rs.frontCCW = false;
+  rs.slopeBias = 0.0f;
+  rhi->SetRasterizerState(rs);
+  RHIDepthStencil ds;
+  ds.depthEnable = true;
+  ds.depthWrite = false;
+  rhi->SetDepthStencilState(ds);
+  RHIBlend blend;
+  blend.enable = false;
+  rhi->SetBlendState(blend);
+  rhi->SetInputLayout(layout);
+  rhi->SetVertexShader(uvVS);
+  rhi->SetPixelShader(uvPS);
+  rhi->SetVertexConstantBuffer(0, geoCB);
+  rhi->ClearRenderTarget(uvA, 0.0f, 0.0f, 0.0f, 1.0f);
+  for (size_t di = 0; di < shadowDraws.size(); ++di) {
+    GeoConstants gc;
+    std::memcpy(gc.world, shadowDraws[di].world, sizeof(gc.world));
+    std::memcpy(gc.view, lastView, sizeof(gc.view));
+    std::memcpy(gc.proj, lastProj, sizeof(gc.proj));
+    rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
+    rhi->SetVertexBuffer(shadowDraws[di].vb, 0);
+    rhi->SetIndexBuffer(shadowDraws[di].ib);
+    rhi->DrawIndexed(shadowDraws[di].count, shadowDraws[di].start, 0);
+  }
+  ds.depthWrite = true;
+  rhi->SetDepthStencilState(ds);
+  NoteFullscreen();
+  rhi->EndEvent();
+}
+void DeferredRenderer::RunDebugPass(const float camPos[3]) {
+  if (debugA == 0 || debugPS == 0 || debugCB == 0) {
+    return;
+  }
+  if (debugView == 15) {
+    RunOverdrawPass();
+  } else if (debugView == 16) {
+    RunUvPass();
+  }
+  rhi->BeginEvent("DebugView");
+  DebugConstants dc;
+  dc.mode[0] = static_cast<float>(debugView);
+  dc.mode[1] = mainCam.nearZ > 0.01f ? mainCam.nearZ : 0.1f;
+  dc.mode[2] = mainCam.farZ > dc.mode[1] ? mainCam.farZ : 500.0f;
+  dc.mode[3] = 0.0f;
+  for (int cc = 0; cc < 4; ++cc) {
+    for (int rr = 0; rr < 4; ++rr) {
+      float s = 0.0f;
+      for (int kk = 0; kk < 4; ++kk) {
+        s += lastView[cc * 4 + kk] * lastProj[kk * 4 + rr];
+      }
+      dc.prevVP[cc * 4 + rr] = s;
+    }
+  }
+  dc.camPos[0] = camPos != nullptr ? camPos[0] : 0.0f;
+  dc.camPos[1] = camPos != nullptr ? camPos[1] : 0.0f;
+  dc.camPos[2] = camPos != nullptr ? camPos[2] : 0.0f;
+  dc.camPos[3] = 1.0f;
+  for (int pi = 0; pi < 4; ++pi) {
+    dc.probeMin[pi][0] = probeBoxMin[pi][0];
+    dc.probeMin[pi][1] = probeBoxMin[pi][1];
+    dc.probeMin[pi][2] = probeBoxMin[pi][2];
+    dc.probeMin[pi][3] = probeBoxMin[pi][3];
+    dc.probeMax[pi][0] = probeBoxMax[pi][0];
+    dc.probeMax[pi][1] = probeBoxMax[pi][1];
+    dc.probeMax[pi][2] = probeBoxMax[pi][2];
+    dc.probeMax[pi][3] = probeBoxMax[pi][3];
+  }
+  rhi->UpdateConstantBuffer(debugCB, &dc, sizeof(dc));
+  rhi->SetPixelConstantBuffer(0, debugCB);
+  rhi->SetPixelSampler(0, sampler);
+  rhi->SetRenderTargets(1, &debugA, 0);
+  RHIViewport vp;
+  vp.x = viewX;
+  vp.y = viewY;
+  vp.w = static_cast<float>(w);
+  vp.h = static_cast<float>(h);
+  vp.minD = 0.0f;
+  vp.maxD = 1.0f;
+  rhi->SetViewport(vp);
+  rhi->SetVertexShader(lightVS);
+  rhi->SetPixelShader(debugPS);
+  rhi->SetPixelTexture(0, gAlbedo);
+  rhi->SetPixelTexture(1, gNormalRough);
+  rhi->SetPixelTexture(2, gMetallic);
+  rhi->SetPixelTexture(3, gPosition);
+  rhi->SetPixelTexture(4, ssaoA);
+  rhi->SetPixelTexture(5, gEmissive);
+  rhi->SetPixelTexture(6, gLightmap);
+  rhi->SetPixelTexture(7, shadowAtlas);
+  rhi->SetPixelTexture(8, overdrawA);
+  rhi->SetPixelTexture(9, uvA);
+  rhi->SetPixelTexture(10, gLight);
+  NoteFullscreen();
+  for (uint32_t s = 0; s <= 10; ++s) {
+    rhi->SetPixelTexture(s, 0);
+  }
+  rhi->EndEvent();
 }
 void DeferredRenderer::RenderForwardPass(const float camPos[3]) {
   if (forwardDraws.empty() || forwardPS == 0 || copyPS == 0) {
@@ -3528,7 +3804,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   lc.camPos[1] = camPos[1];
   lc.camPos[2] = camPos[2];
   lc.camPos[3] = 1.0f;
-  bool useFallback = dirLights.empty();
+  bool useFallback = dirLights.empty() && fallbackOn;
   lc.lightDir[0] = useFallback ? light.direction[0] : 0.0f;
   lc.lightDir[1] = useFallback ? light.direction[1] : 0.0f;
   lc.lightDir[2] = useFallback ? light.direction[2] : 0.0f;
@@ -3851,6 +4127,9 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     stats.msForward = ElapsedMs(fwdStart, std::chrono::steady_clock::now());
   } else {
     forwardDraws.clear();
+  }
+  if (!captureMode && toTexture && debugView != 0 && debugA != 0) {
+    RunDebugPass(camPos);
   }
   if (captureMode) {
     captureMode = false;
@@ -4390,7 +4669,10 @@ bool DeferredRenderer::CreateTargets() {
   expA = rhi->CreateRenderTarget(1, 1, RHIFormat::RGBA16F);
   expB = rhi->CreateRenderTarget(1, 1, RHIFormat::RGBA16F);
   godA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
-  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 &&   fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && bentA != 0 && ssrA != 0 && ssrTmp != 0 && ssrHist != 0 && ssrHistB != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0 && taaSharpA != 0 && lumA != 0 && lumB != 0 && expA != 0 && expB != 0 && godA != 0;
+  debugA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
+  overdrawA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
+  uvA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
+  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 &&   fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && bentA != 0 && ssrA != 0 && ssrTmp != 0 && ssrHist != 0 && ssrHistB != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0 && taaSharpA != 0 && lumA != 0 && lumB != 0 && expA != 0 && expB != 0 && godA != 0 && debugA != 0 && overdrawA != 0 && uvA != 0;
 }
 void DeferredRenderer::DestroyTargets() {
   if (rhi == nullptr) {
@@ -4549,6 +4831,18 @@ void DeferredRenderer::DestroyTargets() {
   if (godA != 0) {
     rhi->DestroyRenderTarget(godA);
     godA = 0;
+  }
+  if (debugA != 0) {
+    rhi->DestroyRenderTarget(debugA);
+    debugA = 0;
+  }
+  if (overdrawA != 0) {
+    rhi->DestroyRenderTarget(overdrawA);
+    overdrawA = 0;
+  }
+  if (uvA != 0) {
+    rhi->DestroyRenderTarget(uvA);
+    uvA = 0;
   }
 }
 }

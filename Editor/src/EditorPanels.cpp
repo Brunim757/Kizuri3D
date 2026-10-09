@@ -424,10 +424,37 @@ void EditorApp::RenderScene() {
 }
 void EditorApp::SubmitSceneDraws(const float cpos[3]) {
   renderer.ClearLights();
+  renderer.SetFallbackLight(!soloLightId.IsValid());
+  {
+    const PostData* active = nullptr;
+    std::vector<EntityId> postIds = scene.All();
+    for (size_t i = 0; i < postIds.size(); ++i) {
+      const Entity* pe = scene.Get(postIds[i]);
+      if (pe == nullptr || !pe->hasPost) {
+        continue;
+      }
+      float hx = pe->post.size[0] * 0.5f;
+      float hy = pe->post.size[1] * 0.5f;
+      float hz = pe->post.size[2] * 0.5f;
+      if (std::fabs(cpos[0] - pe->transform.position[0]) <= hx && std::fabs(cpos[1] - pe->transform.position[1]) <= hy && std::fabs(cpos[2] - pe->transform.position[2]) <= hz) {
+        active = &pe->post;
+        break;
+      }
+    }
+    if (active != nullptr) {
+      renderer.SetGrade(active->exposure, active->toneMap == 0);
+      renderer.SetToneMapping(active->toneMap);
+      renderer.SetGrading(active->contrast, active->saturation, viewTemp, viewTint);
+      renderer.SetBloom(active->bloom);
+    }
+  }
   std::vector<EntityId> lightIds = scene.All();
   for (size_t i = 0; i < lightIds.size(); ++i) {
     const Entity* e = scene.Get(lightIds[i]);
     if (e == nullptr || !e->hasLight) {
+      continue;
+    }
+    if (soloLightId.IsValid() && !(e->id == soloLightId)) {
       continue;
     }
     if (e->light.type == static_cast<int>(LightType::Point)) {
@@ -1205,11 +1232,96 @@ void EditorApp::DrawViewport() {
     ImGui::EndPopup();
   }
   DrawLightGizmo();
+  DrawDebugOverlays();
   vdl->ChannelsMerge();
   ImGui::End();
 }
-void EditorApp::DrawLightGizmo() {
-  if (!selection.HasSelection()) {
+static void DrawBoxEdges(ImDrawList* dl, const float m[16], const float* bmin, const float* bmax, const float vf[16], const float pf[16], float viewX, float viewY, float viewW, float viewH, ImU32 col) {
+  float c[8][3];
+  for (int k = 0; k < 8; ++k) {
+    float x = (k & 1) ? bmax[0] : bmin[0];
+    float y = (k & 2) ? bmax[1] : bmin[1];
+    float z = (k & 4) ? bmax[2] : bmin[2];
+    c[k][0] = x * m[0] + y * m[4] + z * m[8] + m[12];
+    c[k][1] = x * m[1] + y * m[5] + z * m[9] + m[13];
+    c[k][2] = x * m[2] + y * m[6] + z * m[10] + m[14];
+  }
+  static const int edges[12][2] = { { 0, 1 }, { 2, 3 }, { 4, 5 }, { 6, 7 }, { 0, 2 }, { 1, 3 }, { 4, 6 }, { 5, 7 }, { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
+  for (int k = 0; k < 12; ++k) {
+    float ax = 0.0f;
+    float ay = 0.0f;
+    float bx = 0.0f;
+    float by = 0.0f;
+    if (ProjectWorldToScreen(vf, pf, c[edges[k][0]], viewX, viewY, viewW, viewH, ax, ay) &&
+        ProjectWorldToScreen(vf, pf, c[edges[k][1]], viewX, viewY, viewW, viewH, bx, by)) {
+      dl->AddLine(ImVec2(ax, ay), ImVec2(bx, by), col, 1.0f);
+    }
+  }
+}
+void EditorApp::DrawDebugOverlays() {
+  if (!viewShowBounds && !viewShowLod && !viewShowProbes) {
+    return;
+  }
+  DirectX::XMMATRIX view = camera.View();
+  float aspect = viewW / viewH;
+  DirectX::XMMATRIX proj = camera.Projection(aspect);
+  DirectX::XMFLOAT4X4 vf;
+  DirectX::XMFLOAT4X4 pf;
+  DirectX::XMStoreFloat4x4(&vf, view);
+  DirectX::XMStoreFloat4x4(&pf, proj);
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  dl->ChannelsSetCurrent(1);
+  float cpx = 0.0f;
+  float cpy = 0.0f;
+  float cpz = 0.0f;
+  camera.GetPosition(cpx, cpy, cpz);
+  std::vector<EntityId> all = scene.All();
+  size_t drawn = 0;
+  for (size_t i = 0; i < all.size() && drawn < 2048; ++i) {
+    const Entity* e = scene.Get(all[i]);
+    if (e == nullptr) {
+      continue;
+    }
+    float world[16];
+    ComposeMatrix(e->transform, world);
+    if (viewShowBounds && e->hasMesh && !e->meshGuid.empty()) {
+      const MeshRecord* rec = assets.GetByGuid(e->meshGuid);
+      if (rec != nullptr) {
+        DrawBoxEdges(dl, world, rec->data.aabbMin, rec->data.aabbMax, &vf.m[0][0], &pf.m[0][0], viewX, viewY, viewW, viewH, IM_COL32(200, 200, 200, 160));
+        ++drawn;
+      }
+    }
+    if (viewShowLod && e->hasLod) {
+      float dx = e->transform.position[0] - cpx;
+      float dy = e->transform.position[1] - cpy;
+      float dz = e->transform.position[2] - cpz;
+      float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+      ImU32 col = IM_COL32(80, 220, 80, 200);
+      if (dist > e->lod.farDist) {
+        col = IM_COL32(230, 60, 60, 200);
+      } else if (dist > e->lod.nearDist) {
+        col = IM_COL32(230, 200, 60, 200);
+      }
+      float unitMin[3] = { -0.5f, -0.5f, -0.5f };
+      float unitMax[3] = { 0.5f, 0.5f, 0.5f };
+      DrawBoxEdges(dl, world, unitMin, unitMax, &vf.m[0][0], &pf.m[0][0], viewX, viewY, viewW, viewH, col);
+      ++drawn;
+    }
+    if (viewShowProbes && e->hasProbe) {
+      float hsize[3] = { e->probe.size[0] * 0.5f, e->probe.size[1] * 0.5f, e->probe.size[2] * 0.5f };
+      float nsize[3] = { -hsize[0], -hsize[1], -hsize[2] };
+      DrawBoxEdges(dl, world, nsize, hsize, &vf.m[0][0], &pf.m[0][0], viewX, viewY, viewW, viewH, IM_COL32(90, 160, 255, 200));
+      ++drawn;
+    }
+    if (e->hasPost) {
+      float hsize[3] = { e->post.size[0] * 0.5f, e->post.size[1] * 0.5f, e->post.size[2] * 0.5f };
+      float nsize[3] = { -hsize[0], -hsize[1], -hsize[2] };
+      DrawBoxEdges(dl, world, nsize, hsize, &vf.m[0][0], &pf.m[0][0], viewX, viewY, viewW, viewH, IM_COL32(200, 120, 255, 200));
+      ++drawn;
+    }
+  }
+}
+void EditorApp::DrawLightGizmo() {  if (!selection.HasSelection()) {
     return;
   }
   DirectX::XMMATRIX view = camera.View();
@@ -1451,6 +1563,14 @@ void EditorApp::DrawSettings() {
       if (ImGui::Checkbox("Spot Cookie", &viewSpotCookie)) {
         renderer.SetSpotCookieOn(viewSpotCookie);
       }
+      int dv = viewDebug < 0 ? 0 : (viewDebug > 17 ? 17 : viewDebug);
+      if (ImGui::Combo("View", &dv, "Final\0Wireframe\0Unlit\0Albedo+AO\0Normal\0Roughness\0Metallic\0AO\0Emissive\0Depth\0Motion\0ShadowMap\0Probe\0Lightmap\0MatID\0Overdraw\0UV\0Custom\0")) {
+        viewDebug = dv;
+        renderer.SetDebugView(dv);
+      }
+      ImGui::Checkbox("Show Bounds", &viewShowBounds);
+      ImGui::Checkbox("Show LOD Tiers", &viewShowLod);
+      ImGui::Checkbox("Show Probes", &viewShowProbes);
       {
         std::vector<std::string> tg = assets.AllTexGuids();
         std::string items = "None";
@@ -1662,6 +1782,15 @@ void EditorApp::DrawInspector() {
     if (ImGui::SmallButton("Remove##light")) {
       std::unique_ptr<Command> cmd(new RemoveLightCmd(e->id));
       undo.Execute(std::move(cmd), scene);
+    }
+    ImGui::SameLine();
+    bool soloed = soloLightId.IsValid() && soloLightId == e->id;
+    if (ImGui::SmallButton(soloed ? "Unsolo##light" : "Solo##light")) {
+      if (soloed) {
+        soloLightId = EntityId::Invalid();
+      } else {
+        soloLightId = e->id;
+      }
     }
     LightData light = e->light;
     int lightMode = light.type;
@@ -1962,7 +2091,41 @@ void EditorApp::DrawInspector() {
       BakeProbeEntity(e->id);
     }
   }
-  if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal || !e->hasLod || !e->hasLightmap || !e->hasProbe) {
+  if (e->hasPost) {
+    ImGui::Separator();
+    ImGui::Text("Post Volume");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Remove##post")) {
+      std::unique_ptr<Command> cmd(new RemovePostCmd(e->id));
+      undo.Execute(std::move(cmd), scene);
+    }
+    PostData pv = e->post;
+    bool pvChanged = false;
+    if (ImGui::DragFloat3("Volume Size", pv.size, 0.1f, 0.5f, 200.0f)) {
+      pvChanged = true;
+    }
+    if (ImGui::DragFloat("Exposure", &pv.exposure, 0.01f, 0.05f, 8.0f)) {
+      pvChanged = true;
+    }
+    int ptm = pv.toneMap < 0 ? 0 : (pv.toneMap > 3 ? 3 : pv.toneMap);
+    if (ImGui::Combo("Tone Mapper", &ptm, "ACES\0Reinhard\0AgX\0None\0")) {
+      pv.toneMap = ptm;
+      pvChanged = true;
+    }
+    if (ImGui::DragFloat("Contrast", &pv.contrast, 0.01f, 0.2f, 2.0f)) {
+      pvChanged = true;
+    }
+    if (ImGui::DragFloat("Saturation", &pv.saturation, 0.01f, 0.0f, 3.0f)) {
+      pvChanged = true;
+    }
+    if (ImGui::DragFloat("Bloom", &pv.bloom, 0.01f, 0.0f, 2.0f)) {
+      pvChanged = true;
+    }
+    if (pvChanged) {
+      edits.PushPost(e->id, pv);
+    }
+  }
+  if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal || !e->hasLod || !e->hasLightmap || !e->hasProbe || !e->hasPost) {
     ImGui::Separator();
     if (ImGui::Button("Add Component")) {
       ImGui::OpenPopup("AddComponent");
@@ -2010,6 +2173,10 @@ void EditorApp::DrawInspector() {
       }
       if (!e->hasProbe && ImGui::MenuItem("Probe")) {
         std::unique_ptr<Command> cmd(new AddProbeCmd(e->id));
+        undo.Execute(std::move(cmd), scene);
+      }
+      if (!e->hasPost && ImGui::MenuItem("Post Volume")) {
+        std::unique_ptr<Command> cmd(new AddPostCmd(e->id));
         undo.Execute(std::move(cmd), scene);
       }
       ImGui::EndPopup();
@@ -2381,6 +2548,36 @@ bool EditorApp::DrawMaterialScalars(MaterialData& mat) {
 void EditorApp::DrawMaterialSection(Entity* e) {
   if (e == nullptr || !e->hasMaterial) {
     return;
+  }
+  {
+    float sw[3] = { e->material.albedo[0], e->material.albedo[1], e->material.albedo[2] };
+    ImGui::ColorButton("##matswatch", ImVec4(sw[0], sw[1], sw[2], 1.0f), ImGuiColorEditFlags_NoTooltip, ImVec2(96, 48));
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+    ImGui::TextDisabled("M %.2f  R %.2f", e->material.metallic, e->material.roughness);
+    ImGui::TextDisabled("E %.2f  Link %d", e->material.emissiveStrength, e->material.linkMask);
+    ImGui::EndGroup();
+    const char* slotNames[5] = { "Albedo", "Normal", "ORM", "Height", "Emissive" };
+    const std::string* slotGuids[5] = { &e->material.albedoTex, &e->material.normalTex, &e->material.ormTex, &e->material.heightTex, &e->material.emissiveTex };
+    for (int s = 0; s < 5; ++s) {
+      if (slotGuids[s]->empty()) {
+        continue;
+      }
+      const TextureRecord* tr = assets.GetTexByGuid(*slotGuids[s]);
+      if (tr == nullptr || tr->gpu == 0 || rhi == nullptr) {
+        continue;
+      }
+      void* srv = rhi->GetTextureSRV(tr->gpu);
+      if (srv == nullptr) {
+        continue;
+      }
+      ImGui::Image(reinterpret_cast<ImTextureID>(srv), ImVec2(48, 48));
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", slotNames[s]);
+      }
+      ImGui::SameLine();
+    }
+    ImGui::NewLine();
   }
   DrawMaterialSlot(e, "Albedo", 0);
   DrawMaterialSlot(e, "Normal", 1);

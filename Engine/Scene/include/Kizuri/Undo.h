@@ -274,6 +274,39 @@ private:
   DecalData prevDecal;
   bool prevHas;
 };
+class SetPostCmd : public Command {
+public:
+  SetPostCmd(EntityId target, const PostData& before, const PostData& after);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  PostData before;
+  PostData after;
+};
+class AddPostCmd : public Command {
+public:
+  explicit AddPostCmd(EntityId target);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  PostData prevPost;
+  bool prevHas;
+};
+class RemovePostCmd : public Command {
+public:
+  explicit RemovePostCmd(EntityId target);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  PostData prevPost;
+  bool prevHas;
+};
 class SetLodCmd : public Command {
 public:
   SetLodCmd(EntityId target, const LodData& before, const LodData& after);

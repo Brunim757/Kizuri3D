@@ -191,6 +191,10 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
       const ProbeData& p = e->probe;
       std::fprintf(fp, "PROBE %.9g %.9g %.9g %.9g\n", p.size[0], p.size[1], p.size[2], p.intensity);
     }
+    if (e->hasPost) {
+      const PostData& p = e->post;
+      std::fprintf(fp, "POSTVOL %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g\n", p.size[0], p.size[1], p.size[2], p.exposure, p.toneMap, p.contrast, p.saturation, p.bloom);
+    }
   }
   std::fclose(fp);
   return true;
@@ -239,6 +243,8 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
     bool hasLightmap;
     ProbeData probe;
     bool hasProbe;
+    PostData post;
+    bool hasPost;
   };
   std::vector<PendingEntity> pending;
   PendingEntity* current = nullptr;
@@ -268,6 +274,7 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       MakeDefaultLod(pe.lod);
       MakeDefaultLightmap(pe.lightmap);
       MakeDefaultProbe(pe.probe);
+      MakeDefaultPost(pe.post);
       pe.hasMesh = false;
       pe.hasLight = false;
       pe.hasMaterial = false;
@@ -276,6 +283,7 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       pe.hasLod = false;
       pe.hasLightmap = false;
       pe.hasProbe = false;
+      pe.hasPost = false;
       pe.parentIdx = -1;
       size_t pos = 7;
       if (!ParseQuoted(s, pos, pe.name) || pe.name.empty()) {
@@ -744,6 +752,28 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
         current->hasProbe = true;
         continue;
       }
+      if (field == "POSTVOL") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        float pv[8] = { 10.0f, 5.0f, 10.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.8f };
+        if (!ParseFloats(s, pos, pv, 8)) {
+          failed = true;
+          break;
+        }
+        MakeDefaultPost(current->post);
+        current->post.size[0] = pv[0];
+        current->post.size[1] = pv[1];
+        current->post.size[2] = pv[2];
+        current->post.exposure = pv[3];
+        current->post.toneMap = static_cast<int>(pv[4]);
+        if (current->post.toneMap < 0 || current->post.toneMap > 3) {
+          current->post.toneMap = 0;
+        }
+        current->post.contrast = pv[5];
+        current->post.saturation = pv[6];
+        current->post.bloom = pv[7];
+        current->hasPost = true;
+        continue;
+      }
       const FieldDesc* fd = nullptr;
       for (size_t f = 0; f < tdesc->fields.size(); ++f) {
         if (tdesc->fields[f].name == field) {
@@ -814,6 +844,8 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       createdEntity->hasLightmap = pending[i].hasLightmap;
       createdEntity->probe = pending[i].probe;
       createdEntity->hasProbe = pending[i].hasProbe;
+      createdEntity->post = pending[i].post;
+      createdEntity->hasPost = pending[i].hasPost;
     }
     created.push_back(id);
   }

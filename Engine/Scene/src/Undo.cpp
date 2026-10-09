@@ -713,6 +713,92 @@ bool RemoveDecalCmd::Revert(Scene& scene) {
 const char* RemoveDecalCmd::Name() const {
   return "Remove Decal";
 }
+SetPostCmd::SetPostCmd(EntityId t, const PostData& b, const PostData& a)
+  : target(t)
+  , before(b)
+  , after(a) {
+}
+bool SetPostCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasPost) {
+    return false;
+  }
+  e->post = after;
+  scene.MarkDirty();
+  return true;
+}
+bool SetPostCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasPost) {
+    return false;
+  }
+  e->post = before;
+  scene.MarkDirty();
+  return true;
+}
+const char* SetPostCmd::Name() const {
+  return "Set Post Volume";
+}
+AddPostCmd::AddPostCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultPost(prevPost);
+}
+bool AddPostCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || e->hasPost) {
+    return false;
+  }
+  prevPost = e->post;
+  prevHas = e->hasPost;
+  e->hasPost = true;
+  MakeDefaultPost(e->post);
+  scene.MarkDirty();
+  return true;
+}
+bool AddPostCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->post = prevPost;
+  e->hasPost = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* AddPostCmd::Name() const {
+  return "Add Post Volume";
+}
+RemovePostCmd::RemovePostCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultPost(prevPost);
+}
+bool RemovePostCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasPost) {
+    return false;
+  }
+  prevPost = e->post;
+  prevHas = e->hasPost;
+  e->hasPost = false;
+  MakeDefaultPost(e->post);
+  scene.MarkDirty();
+  return true;
+}
+bool RemovePostCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->post = prevPost;
+  e->hasPost = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* RemovePostCmd::Name() const {
+  return "Remove Post Volume";
+}
 SetLodCmd::SetLodCmd(EntityId t, const LodData& b, const LodData& a)
   : target(t)
   , before(b)

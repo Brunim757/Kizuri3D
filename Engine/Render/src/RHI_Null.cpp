@@ -342,6 +342,11 @@ public:
     (void)rt;
     Note(false);
   }
+  void BeginEvent(const char* name) override {
+    (void)name;
+  }
+  void EndEvent() override {
+  }
   void SetPixelTexture2D(uint32_t slot, RHITexture tex) override {
     (void)slot;
     (void)tex;

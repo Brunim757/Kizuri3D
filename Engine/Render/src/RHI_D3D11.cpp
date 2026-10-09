@@ -1005,6 +1005,28 @@ public:
     vp.MaxDepth = 1.0f;
     context->RSSetViewports(1, &vp);
   }
+  void BeginEvent(const char* name) override {
+    if (!annotationTried) {
+      annotationTried = true;
+      if (context.Get() != nullptr) {
+        context->QueryInterface(__uuidof(ID3DUserDefinedAnnotation), reinterpret_cast<void**>(annotation.GetAddressOf()));
+      }
+    }
+    if (annotation.Get() != nullptr && name != nullptr) {
+      wchar_t wide[128];
+      size_t i = 0;
+      for (; name[i] != '\0' && i < 127; ++i) {
+        wide[i] = static_cast<wchar_t>(static_cast<unsigned char>(name[i]));
+      }
+      wide[i] = L'\0';
+      annotation->BeginEvent(wide);
+    }
+  }
+  void EndEvent() override {
+    if (annotation.Get() != nullptr) {
+      annotation->EndEvent();
+    }
+  }
   void SetPixelTexture(uint32_t slot, RHIRenderTarget rt) override {
     if (rt == 0) {
       ID3D11ShaderResourceView* nullSrv = nullptr;
@@ -1647,6 +1669,8 @@ private:
   uint64_t discarded;
   ComPtr<ID3D11Device> device;
   ComPtr<ID3D11DeviceContext> context;
+  ComPtr<ID3DUserDefinedAnnotation> annotation;
+  bool annotationTried = false;
   ComPtr<IDXGISwapChain> swapchain;
   ComPtr<ID3D11RenderTargetView> backRTV;
   ComPtr<ID3D11RenderTargetView> target;

@@ -36,6 +36,10 @@ struct ProbeEdit {
   EntityId target;
   ProbeData value;
 };
+struct PostEdit {
+  EntityId target;
+  PostData value;
+};
 class EditQueue {
 public:
   void PushTransform(EntityId target, const Transform& value);
@@ -46,6 +50,7 @@ public:
   void PushLod(EntityId target, const LodData& value);
   void PushLightmap(EntityId target, const LightmapData& value);
   void PushProbe(EntityId target, const ProbeData& value);
+  void PushPost(EntityId target, const PostData& value);
   size_t Pending() const;
   size_t ApplyAll(Scene& scene, UndoStack& undo);
   void Clear();
@@ -58,5 +63,6 @@ private:
   std::vector<LodEdit> lodEdits;
   std::vector<LightmapEdit> lightmapEdits;
   std::vector<ProbeEdit> probeEdits;
+  std::vector<PostEdit> postEdits;
 };
 }

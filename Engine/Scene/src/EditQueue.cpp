@@ -75,6 +75,15 @@ void EditQueue::PushProbe(EntityId target, const ProbeData& value) {
   e.value = value;
   probeEdits.push_back(e);
 }
+void EditQueue::PushPost(EntityId target, const PostData& value) {
+  if (!target.IsValid()) {
+    return;
+  }
+  PostEdit e;
+  e.target = target;
+  e.value = value;
+  postEdits.push_back(e);
+}
 bool MaterialEqual(const MaterialData& a, const MaterialData& b) {
   if (!(a.albedo[0] == b.albedo[0] && a.albedo[1] == b.albedo[1] && a.albedo[2] == b.albedo[2] && a.alpha == b.alpha && a.metallic == b.metallic && a.roughness == b.roughness && a.albedoTex == b.albedoTex && a.normalTex == b.normalTex && a.ormTex == b.ormTex && a.heightTex == b.heightTex)) {
     return false;
@@ -119,8 +128,11 @@ bool LightmapEqual(const LightmapData& a, const LightmapData& b) {
 bool ProbeEqual(const ProbeData& a, const ProbeData& b) {
   return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.intensity == b.intensity;
 }
+bool PostEqual(const PostData& a, const PostData& b) {
+  return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.exposure == b.exposure && a.toneMap == b.toneMap && a.contrast == b.contrast && a.saturation == b.saturation && a.bloom == b.bloom;
+}
 size_t EditQueue::Pending() const {
-  return edits.size() + lightEdits.size() + materialEdits.size() + partMaterialEdits.size() + decalEdits.size() + lodEdits.size() + lightmapEdits.size() + probeEdits.size();
+  return edits.size() + lightEdits.size() + materialEdits.size() + partMaterialEdits.size() + decalEdits.size() + lodEdits.size() + lightmapEdits.size() + probeEdits.size() + postEdits.size();
 }
 size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
   size_t applied = 0;
@@ -326,6 +338,30 @@ size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
     }
   }
   probeEdits.clear();
+  for (size_t i = 0; i < postEdits.size(); ++i) {
+    bool last = true;
+    for (size_t j = i + 1; j < postEdits.size(); ++j) {
+      if (postEdits[j].target == postEdits[i].target) {
+        last = false;
+        break;
+      }
+    }
+    if (!last) {
+      continue;
+    }
+    const Entity* e = scene.Get(postEdits[i].target);
+    if (e == nullptr || !e->hasPost) {
+      continue;
+    }
+    if (PostEqual(e->post, postEdits[i].value)) {
+      continue;
+    }
+    std::unique_ptr<Command> cmd(new SetPostCmd(postEdits[i].target, e->post, postEdits[i].value));
+    if (undo.Execute(std::move(cmd), scene)) {
+      ++applied;
+    }
+  }
+  postEdits.clear();
   return applied;
 }
 void EditQueue::Clear() {
@@ -337,5 +373,6 @@ void EditQueue::Clear() {
   lodEdits.clear();
   lightmapEdits.clear();
   probeEdits.clear();
+  postEdits.clear();
 }
 }

@@ -119,6 +119,8 @@ public:
   virtual void* GetTextureSRV(RHITexture tex) const = 0;
   virtual void BindBackbuffer() = 0;
   virtual void SetPixelTexture(uint32_t slot, RHIRenderTarget rt) = 0;
+  virtual void BeginEvent(const char* name) = 0;
+  virtual void EndEvent() = 0;
   virtual void SetPixelTexture2D(uint32_t slot, RHITexture tex) = 0;
   virtual void SetPixelTexture3D(uint32_t slot, RHITexture3D tex) = 0;
   virtual RHISampler CreateSamplerLinear() = 0;

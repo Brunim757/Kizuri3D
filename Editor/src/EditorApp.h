@@ -109,6 +109,11 @@ struct EditorApp {
   float viewGodDecay;
   float viewGodIntensity;
   int viewQuality;
+  int viewDebug;
+  EntityId soloLightId;
+  bool viewShowBounds;
+  bool viewShowLod;
+  bool viewShowProbes;
   float viewX;
   float viewY;
   float viewW;
@@ -190,6 +195,7 @@ struct EditorApp {
   void DrawPartMaterials(Entity* e);
   void DrawDecalSection(Entity* e);
   void DrawLightGizmo();
+  void DrawDebugOverlays();
   std::string ResolveAssetsDir();
   std::vector<RefUse> SceneMeshRefs();
   void PumpAssets();

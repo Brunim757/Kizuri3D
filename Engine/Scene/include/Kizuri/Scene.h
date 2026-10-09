@@ -107,6 +107,14 @@ struct DecalData {
   float life;
   std::string texGuid;
 };
+struct PostData {
+  float size[3];
+  float exposure;
+  int toneMap;
+  float contrast;
+  float saturation;
+  float bloom;
+};
 struct LodData {
   std::string farGuid;
   float nearDist;
@@ -144,6 +152,8 @@ struct Entity {
   bool hasLightmap;
   ProbeData probe;
   bool hasProbe;
+  PostData post;
+  bool hasPost;
   EntityId parent;
   std::vector<EntityId> children;
 };
@@ -187,6 +197,7 @@ void MakeDefaultDecal(DecalData& d);
 void MakeDefaultLod(LodData& l);
 void MakeDefaultLightmap(LightmapData& l);
 void MakeDefaultProbe(ProbeData& p);
+void MakeDefaultPost(PostData& p);
 void EntityForward(const Transform& t, float dir[3]);
 void ComposeMatrix(const Transform& t, float m[16]);
 bool InvertMatrix4(const float m[16], float invOut[16]);

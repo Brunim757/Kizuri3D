@@ -121,6 +121,16 @@ void MakeDefaultProbe(ProbeData& p) {
   p.size[2] = 5.0f;
   p.intensity = 1.0f;
 }
+void MakeDefaultPost(PostData& p) {
+  p.size[0] = 10.0f;
+  p.size[1] = 5.0f;
+  p.size[2] = 10.0f;
+  p.exposure = 1.0f;
+  p.toneMap = 0;
+  p.contrast = 1.0f;
+  p.saturation = 1.0f;
+  p.bloom = 0.8f;
+}
 void ComposeMatrix(const Transform& t, float m[16]) {  float rx = t.rotation[0] * 0.01745329252f;
   float ry = t.rotation[1] * 0.01745329252f;
   float rz = t.rotation[2] * 0.01745329252f;
