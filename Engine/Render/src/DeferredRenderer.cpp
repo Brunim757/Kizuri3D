@@ -191,6 +191,7 @@ struct PostConstants {
   float focus[4];
   float film[4];
   float toggles[4];
+  float curVP[16];
 };
 }
 DeferredRenderer::DeferredRenderer()
@@ -503,6 +504,8 @@ DeferredRenderer::DeferredRenderer()
   for (int i = 0; i < 16; ++i) {
     prevView[i] = (i % 5 == 0) ? 1.0f : 0.0f;
     prevProj[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+    prevViewU[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+    prevProjU[i] = (i % 5 == 0) ? 1.0f : 0.0f;
     savedLastView[i] = (i % 5 == 0) ? 1.0f : 0.0f;
     savedLastProj[i] = (i % 5 == 0) ? 1.0f : 0.0f;
     savedPrevView[i] = (i % 5 == 0) ? 1.0f : 0.0f;
@@ -2057,6 +2060,8 @@ void DeferredRenderer::BeginObjects(const float view[16], const float proj[16]) 
   }
   std::memcpy(prevView, lastView, sizeof(prevView));
   std::memcpy(prevProj, lastProj, sizeof(prevProj));
+  std::memcpy(prevViewU, lastViewU, sizeof(prevViewU));
+  std::memcpy(prevProjU, lastProjU, sizeof(prevProjU));
   std::memcpy(lastView, view, sizeof(lastView));
   std::memcpy(lastProj, proj, sizeof(lastProj));
   std::memcpy(lastViewU, view, sizeof(lastViewU));
@@ -4191,9 +4196,18 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
         for (int rr = 0; rr < 4; ++rr) {
           float s = 0.0f;
           for (int kk = 0; kk < 4; ++kk) {
-            s += prevView[cc * 4 + kk] * prevProj[kk * 4 + rr];
+            s += prevViewU[cc * 4 + kk] * prevProjU[kk * 4 + rr];
           }
           pc.prevVP[cc * 4 + rr] = s;
+        }
+      }
+      for (int cc = 0; cc < 4; ++cc) {
+        for (int rr = 0; rr < 4; ++rr) {
+          float s = 0.0f;
+          for (int kk = 0; kk < 4; ++kk) {
+            s += lastViewU[cc * 4 + kk] * lastProjU[kk * 4 + rr];
+          }
+          pc.curVP[cc * 4 + rr] = s;
         }
       }
       pc.camPos[0] = camPos[0];

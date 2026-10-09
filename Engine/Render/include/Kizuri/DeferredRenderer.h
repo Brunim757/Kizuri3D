@@ -588,6 +588,8 @@ public:
   float savedPrevProj[16];
   float prevView[16];
   float prevProj[16];
+  float prevViewU[16];
+  float prevProjU[16];
   bool dofOn;
   float focusDist;
   float focusRange;

@@ -5,6 +5,7 @@ cbuffer PostCB : register(b0)
     float4 Focus;
     float4 Film;
     float4 Toggles;
+    row_major float4x4 CurVP;
 };
 Texture2D FrameTX : register(t0);
 Texture2D PositionTX : register(t1);
@@ -53,13 +54,16 @@ float4 main(PSIn pin) : SV_Target
     }
     if (Toggles.y > 0.5 && hasPos > 0.5) {
         float4 pp = mul(float4(wpos, 1.0), PrevVP);
+        float4 cp = mul(float4(wpos, 1.0), CurVP);
         float2 puv = float2(-10.0, -10.0);
-        if (pp.w > 1e-5) {
+        float2 cuv = pin.uv;
+        if (pp.w > 1e-5 && cp.w > 1e-5) {
             puv = pp.xy / pp.w * float2(0.5, -0.5) + 0.5;
+            cuv = cp.xy / cp.w * float2(0.5, -0.5) + 0.5;
         }
-        float2 vel = (pin.uv - puv) * Toggles.z;
+        float2 vel = (cuv - puv) * Toggles.z;
         float vl = length(vel);
-        if (vl > 1e-5 && vl < 0.1) {
+        if (vl > 1e-5 && vl < 0.05) {
             float3 macc = col;
             for (int j = 1; j < 6; ++j) {
                 macc += FrameTX.SampleLevel(LinearSampler, pin.uv - vel * (float) j / 5.0, 0).rgb;
