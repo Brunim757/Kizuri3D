@@ -347,7 +347,7 @@ float SampleTileVSM(float3 wpos, float3 nrm, row_major float4x4 vp, float tile, 
     float k = clamp(tileK, 0.05, 1.0);
     float u = (sp.x * 0.5 + 0.5) * 0.5 * k + tx * 0.5;
     float v = (0.5 - sp.y * 0.5) * 0.5 * k + ty * 0.5;
-    float4 m = MomentsTX.Sample(LinearSampler, float2(u, v));
+    float4 m = MomentsTX.SampleLevel(LinearSampler, float2(u, v), 0);
     float bleed = clamp(VsmInfo.y, 0.0, 0.9);
     float zb = sp.z - 0.0003;
     if (!evsm) {
