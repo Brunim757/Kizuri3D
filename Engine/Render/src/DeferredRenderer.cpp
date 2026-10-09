@@ -271,6 +271,8 @@ DeferredRenderer::DeferredRenderer()
   , ssaoValid(false)
   , fogOn(true)
   , fogDensity(0.002f)
+  , fogHeightFalloff(0.0f)
+  , fogBaseHeight(0.0f)
   , ssrPS(0)
   , ssrCB(0)
   , ssrA(0)
@@ -316,12 +318,20 @@ DeferredRenderer::DeferredRenderer()
   , lutTex(0)
   , lutSize(0)
   , lutAmount(0.0f)
+  , godPS(0)
+  , godCB(0)
+  , godA(0)
+  , godOn(false)
+  , godDensity(1.0f)
+  , godDecay(0.95f)
+  , godRan(false)
   , taaA(0)
   , taaB(0)
   , taaRead(0)
   , taaWrite(0)
   , taaOn(false)
   , taaValid(false)
+  , taaRan(false)
   , taaFrame(0)
   , brdfPS(0)
   , irrPS(0)
@@ -610,6 +620,16 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   float lumInit[8] = { 0.0f };
   lumCB = rhi->CreateConstantBuffer(sizeof(lumInit), &lumInit);
   if (lumCB == 0) {
+    return false;
+  }
+  std::string godPath = dir + "/GodRaysPS.hlsl";
+  godPS = rhi->CreatePixelShaderFromFile(godPath.c_str(), "main");
+  if (godPS == 0) {
+    return false;
+  }
+  float godInit[16] = { 0.0f };
+  godCB = rhi->CreateConstantBuffer(sizeof(godInit), &godInit);
+  if (godCB == 0) {
     return false;
   }
   forwardPS = rhi->CreatePixelShaderFromFile(forwardPath.c_str(), "main");
@@ -935,6 +955,10 @@ void DeferredRenderer::Shutdown() {
   if (lumCB != 0) {
     rhi->DestroyConstantBuffer(lumCB);
     lumCB = 0;
+  }
+  if (godCB != 0) {
+    rhi->DestroyConstantBuffer(godCB);
+    godCB = 0;
   }
   if (lutTex != 0) {
     rhi->DestroyTexture3D(lutTex);
@@ -1347,6 +1371,15 @@ void DeferredRenderer::SetFog(bool on, float density, const float color[3]) {
     fogColor[2] = color[2];
   }
 }
+void DeferredRenderer::SetHeightFog(float falloff, float baseHeight) {
+  fogHeightFalloff = falloff < 0.0f ? 0.0f : (falloff > 1.0f ? 1.0f : falloff);
+  fogBaseHeight = baseHeight;
+}
+void DeferredRenderer::SetGodRays(bool on, float density, float decay) {
+  godOn = on;
+  godDensity = density < 0.1f ? 0.1f : (density > 3.0f ? 3.0f : density);
+  godDecay = decay < 0.8f ? 0.8f : (decay > 0.999f ? 0.999f : decay);
+}
 void DeferredRenderer::RenderShadowMaps() {
   uint64_t casterHash = CasterHash();
   stats.shadowCached = false;
@@ -1721,6 +1754,10 @@ void* DeferredRenderer::GetViewportTexture() {
     rt = filmA;
   } else if (!filmActive && fxaaRan && fxaaA != 0 && !fsrActive) {
     rt = fxaaA;
+  } else if (!filmActive && !fxaaRan && taaRan && taaWrite != 0 && !fsrActive) {
+    rt = taaWrite;
+  } else if (!filmActive && !fxaaRan && godRan && godA != 0 && !fsrActive) {
+    rt = godA;
   }
   if (rt == 0) {
     return nullptr;
@@ -3219,8 +3256,8 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   std::memcpy(lc.ssaoVP, ssaoVP, sizeof(lc.ssaoVP));
   lc.fogInfo[0] = fogOn ? 1.0f : 0.0f;
   lc.fogInfo[1] = fogDensity;
-  lc.fogInfo[2] = 0.0f;
-  lc.fogInfo[3] = 0.0f;
+  lc.fogInfo[2] = fogHeightFalloff;
+  lc.fogInfo[3] = fogBaseHeight;
   lc.fogColor[0] = fogColor[0];
   lc.fogColor[1] = fogColor[1];
   lc.fogColor[2] = fogColor[2];
@@ -3485,7 +3522,57 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelTexture3D(2, 0);
     filmActive = false;
     fxaaRan = false;
+    godRan = false;
+    taaRan = false;
     RHIRenderTarget filmSrc = gradeA;
+    if (godOn && godA != 0 && godPS != 0) {
+      float sdir[3] = { -light.direction[0], -light.direction[1], -light.direction[2] };
+      if (!dirLights.empty()) {
+        sdir[0] = -dirLights[0].dir[0];
+        sdir[1] = -dirLights[0].dir[1];
+        sdir[2] = -dirLights[0].dir[2];
+      }
+      float sl = sqrtf(sdir[0] * sdir[0] + sdir[1] * sdir[1] + sdir[2] * sdir[2]);
+      if (sl > 1e-6f) {
+        sdir[0] /= sl;
+        sdir[1] /= sl;
+        sdir[2] /= sl;
+      }
+      float sp[3] = { camPos[0] + sdir[0] * 1000.0f, camPos[1] + sdir[1] * 1000.0f, camPos[2] + sdir[2] * 1000.0f };
+      float gvp[16];
+      MulViewProj(lastView, lastProj, gvp);
+      float cx = sp[0] * gvp[0] + sp[1] * gvp[4] + sp[2] * gvp[8] + gvp[12];
+      float cy = sp[0] * gvp[1] + sp[1] * gvp[5] + sp[2] * gvp[9] + gvp[13];
+      float cw = sp[0] * gvp[3] + sp[1] * gvp[7] + sp[2] * gvp[11] + gvp[15];
+      float sunU = -10.0f;
+      float sunV = -10.0f;
+      if (cw > 1e-4f) {
+        sunU = cx / cw * 0.5f + 0.5f;
+        sunV = 0.5f - cy / cw * 0.5f;
+      }
+      float gc[16] = { sunU, sunV, godDensity, 1.0f, godDecay, 1.0f, 0.0f, 0.0f, camPos[0], camPos[1], camPos[2], 1.0f, mainCam.camFwd[0], mainCam.camFwd[1], mainCam.camFwd[2], 0.0f };
+      rhi->UpdateConstantBuffer(godCB, &gc, sizeof(gc));
+      rhi->SetPixelConstantBuffer(0, godCB);
+      rhi->SetPixelSampler(0, sampler);
+      rhi->SetRenderTargets(1, &godA, 0);
+      RHIViewport gvp2;
+      gvp2.x = viewX;
+      gvp2.y = viewY;
+      gvp2.w = static_cast<float>(w);
+      gvp2.h = static_cast<float>(h);
+      gvp2.minD = 0.0f;
+      gvp2.maxD = 1.0f;
+      rhi->SetViewport(gvp2);
+      rhi->SetVertexShader(lightVS);
+      rhi->SetPixelShader(godPS);
+      rhi->SetPixelTexture(0, filmSrc);
+      rhi->SetPixelTexture(1, gPosition);
+      NoteFullscreen();
+      rhi->SetPixelTexture(0, 0);
+      rhi->SetPixelTexture(1, 0);
+      godRan = true;
+      filmSrc = godA;
+    }
     if (taaOn && taaA != 0 && taaB != 0 && taaPS != 0) {
       float taaVP[16] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
       for (int cc = 0; cc < 4; ++cc) {
@@ -3527,7 +3614,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       rhi->SetViewport(tvp);
       rhi->SetVertexShader(lightVS);
       rhi->SetPixelShader(taaPS);
-      rhi->SetPixelTexture(0, gradeA);
+      rhi->SetPixelTexture(0, filmSrc);
       rhi->SetPixelTexture(1, hist);
       rhi->SetPixelTexture(2, gPosition);
       NoteFullscreen();
@@ -3537,6 +3624,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       taaRead = tout;
       taaWrite = tout;
       taaValid = true;
+      taaRan = true;
       filmSrc = tout;
     }
     if (fxaaOn && fxaaA != 0 && fxaaPS != 0) {
@@ -3554,7 +3642,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       xvp.maxD = 1.0f;
       rhi->SetViewport(xvp);
       rhi->SetPixelShader(fxaaPS);
-      rhi->SetPixelTexture(0, gradeA);
+      rhi->SetPixelTexture(0, filmSrc);
       NoteFullscreen();
       rhi->SetPixelTexture(0, 0);
       filmSrc = fxaaA;
@@ -3727,7 +3815,8 @@ bool DeferredRenderer::CreateTargets() {
   lumB = rhi->CreateRenderTarget(8, 8, RHIFormat::RGBA16F);
   expA = rhi->CreateRenderTarget(1, 1, RHIFormat::RGBA16F);
   expB = rhi->CreateRenderTarget(1, 1, RHIFormat::RGBA16F);
-  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0 && lumA != 0 && lumB != 0 && expA != 0 && expB != 0;
+  godA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
+  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0 && lumA != 0 && lumB != 0 && expA != 0 && expB != 0 && godA != 0;
 }
 void DeferredRenderer::DestroyTargets() {
   if (rhi == nullptr) {
@@ -3861,5 +3950,9 @@ void DeferredRenderer::DestroyTargets() {
   }
   expRead = 0;
   expWrite = 0;
+  if (godA != 0) {
+    rhi->DestroyRenderTarget(godA);
+    godA = 0;
+  }
 }
 }

@@ -1568,8 +1568,56 @@ bool TestIblBake() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
-bool TestCubeLut() {
-  std::error_code ec;
+bool TestAtmosphere() {
+  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  if (rhi == nullptr) {
+    return false;
+  }
+  Kizuri::RHIDesc desc;
+  desc.windowHandle = nullptr;
+  desc.width = 160;
+  desc.height = 100;
+  desc.vsync = false;
+  if (!rhi->Initialize(desc)) {
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  Kizuri::DeferredRenderer renderer;
+  const char* shaderDirs[3] = { "Shaders", "Samples/../Shaders", "." };
+  bool rok = false;
+  for (int i = 0; i < 3 && !rok; ++i) {
+    if (renderer.Initialize(rhi, 160, 100, shaderDirs[i])) {
+      rok = true;
+    } else {
+      renderer.Shutdown();
+    }
+  }
+  if (!rok) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float cam[3] = { 0, 0, 0 };
+  renderer.SetHeightFog(0.1f, 2.0f);
+  renderer.SetGodRays(true, 1.5f, 0.97f);
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  bool ok = renderer.GetStats().lightingDraws == 1;
+  ok = ok && renderer.GetStats().postPasses >= 2;
+  renderer.SetGodRays(false, 1.0f, 0.95f);
+  renderer.SetHeightFog(0.0f, 0.0f);
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && renderer.GetStats().lightingDraws == 1;
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestCubeLut() {  std::error_code ec;
   std::filesystem::path dir = std::filesystem::temp_directory_path(ec) / "kzcubelut_test";
   if (ec) {
     return false;
@@ -6369,6 +6417,7 @@ int main() {
   failures += Check("TaaHistory", TestTaaHistory());
   failures += Check("AutoExposure", TestAutoExposure());
   failures += Check("CubeLut", TestCubeLut());
+  failures += Check("Atmosphere", TestAtmosphere());
   failures += Check("TaaOff", TestTaaOff());
   failures += Check("TaaResize", TestTaaResize());
   failures += Check("TaaPassDelta", TestTaaPassDelta());

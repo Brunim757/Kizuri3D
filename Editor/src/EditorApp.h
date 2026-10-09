@@ -85,6 +85,11 @@ struct EditorApp {
   bool viewFog;
   float viewFogDensity;
   float viewFogColor[3];
+  float viewFogHeight;
+  float viewFogBase;
+  bool viewGodRays;
+  float viewGodDensity;
+  float viewGodDecay;
   int viewQuality;
   float viewX;
   float viewY;

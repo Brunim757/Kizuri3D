@@ -333,9 +333,13 @@ float3 ApplyFog(float3 col, float3 rayDir, float tMax, float2 suv)
         if (ShadowInfo.y > 0.5) {
             sh = CascadeShadowSingle(p);
         }
-        float3 S = (sunCol * ph * sh + FogColor.rgb * 0.15) * dens;
+        float densAt = dens;
+        if (FogInfo.z > 1e-6) {
+            densAt = dens * exp(-max(p.y - FogInfo.w, 0.0) * FogInfo.z);
+        }
+        float3 S = (sunCol * ph * sh + FogColor.rgb * 0.15) * densAt;
         insc += trans * S * stepLen;
-        trans *= exp(-dens * stepLen);
+        trans *= exp(-densAt * stepLen);
     }
     return col * trans + insc;
 }
@@ -423,8 +427,18 @@ float3 SkyGradient(float3 viewDir, float3 sunDirTo, float3 sunColor, float sunIn
     sky *= dim;
     float cosG = clamp(dot(d, s), 0.0, 1.0);
     float glow = pow(cosG, 900.0) * 4.0 + pow(cosG, 10.0) * 0.25;
+    float mieG = 0.76;
+    float miePh = (1.0 - mieG * mieG) / pow(max(1.0 + mieG * mieG - 2.0 * mieG * cosG, 1e-4), 1.5);
+    float rayPh = 0.5 + 0.5 * cosG * cosG;
+    float3 scatter = (float3(0.30, 0.45, 0.90) * rayPh * 0.12 + float3(1.0, 0.95, 0.85) * miePh * 0.08) * dayness;
     float sf = (0.15 + 0.85 * dayness) * sunIntensity;
-    return sky + sunColor * glow * sf;
+    float3 mdir = -s;
+    float cosM = clamp(dot(d, mdir), 0.0, 1.0);
+    float moonVis = 0.2 + 0.8 * (1.0 - dayness);
+    float moonDisc = smoothstep(0.99955, 0.99985, cosM);
+    float moonHalo = pow(cosM, 1200.0) * 0.25;
+    float3 moonCol = float3(0.85, 0.90, 1.0) * (moonDisc * 1.5 + moonHalo) * moonVis;
+    return sky + sunColor * glow * sf + scatter * sunIntensity + moonCol;
 }
 float4 main(PSIn pin) : SV_Target
 {
