@@ -1677,6 +1677,7 @@ bool TestEVSM() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
+bool TestIblBake() {
   Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
   if (rhi == nullptr) {
     return false;
