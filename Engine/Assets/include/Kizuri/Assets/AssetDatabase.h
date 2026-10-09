@@ -236,6 +236,7 @@ private:
   void EnsureJobs();
   void* AllocTaskMemory(size_t size, size_t alignment);
   void FreeTaskMemory(void* p);
+  friend struct TaskMemory;
   template<typename T>
   TaskPtr<T> MakeTask() {
     void* mem = AllocTaskMemory(sizeof(T), alignof(T));
