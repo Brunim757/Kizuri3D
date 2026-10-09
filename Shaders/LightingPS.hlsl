@@ -650,6 +650,7 @@ float4 main(PSIn pin) : SV_Target
             float3 Ld = normalize(-LightA[i].xyz);
             float dirShadow = 1.0;
             if (ShadowInfo.y > 0.5) {
+                [loop]
                 for (int c = 0; c < 4; ++c) {
                     if (CascadeLight[c] == (float)i && viewDepth <= CascadeSplit[c]) {
                         dirShadow = SampleTileShadow(wposB, N, CascadeVP[c], (float)c, CascadeK[c], CascadeNear[c], CascadeFar[c], CascadeUV[c], 0.0, CascadeSize[c]);
@@ -670,6 +671,7 @@ float4 main(PSIn pin) : SV_Target
                 float cosT = dot(L, -LightB[i].xyz);
                 spot = smoothstep(LightC[i].a, LightC[i].a + LightD[i].x, cosT);
                 if (ShadowInfo.y > 0.5) {
+                    [loop]
                     for (int s = 0; s < 4; ++s) {
                         if ((int)(SpotMeta[s].y + 0.5) == i && SpotMeta[s].x >= 0.0) {
                             float cosH = max(LightC[i].a, 0.05);
