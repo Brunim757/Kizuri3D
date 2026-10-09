@@ -152,11 +152,11 @@ Sem Ray Tracing
 7. Volumétricos
 
 - [x] Volumetric fog
-- [ ] Height fog
+- [x] Height fog
 - [x] Exponential fog
 - [x] Volumetric lighting
-- [ ] Light shafts
-- [ ] God rays
+- [x] Light shafts
+- [x] God rays
 - [ ] Volumetric shadows
 - [ ] Local volumetric fog
 - [ ] Fog volumes
@@ -170,12 +170,12 @@ Sem Ray Tracing
 - [x] HDR sky
 - [x] Procedural sky
 - [x] Sun disk
-- [ ] Moon
-- [ ] Atmospheric scattering
-- [ ] Rayleigh scattering
-- [ ] Mie scattering
-- [ ] Horizon effects
-- [ ] Sun/moon atmospheric integration
+- [x] Moon
+- [x] Atmospheric scattering
+- [x] Rayleigh scattering
+- [x] Mie scattering
+- [x] Horizon effects
+- [x] Sun/moon atmospheric integration
 - [x] Sky irradiance
 - [x] Sky reflection
 
