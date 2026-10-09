@@ -561,12 +561,8 @@ bool TestPostVolume() {
   ok = ok && e3 != nullptr && !e3->hasPost;
   return ok;
 }
-  rhi->Shutdown();
-  Kizuri::DestroyRHI(rhi);
-  rhi = nullptr;
-  return false;
-}
 bool TestRHINull() {
+  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
   if (rhi == nullptr) {
     return false;
   }
