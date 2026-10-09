@@ -1,5 +1,6 @@
 #include "Kizuri/Assets/AssetDatabase.h"
-#include "Kizuri/Assets/Guid.h"#include "Kizuri/Assets/MeshImporter.h"
+#include "Kizuri/Assets/Guid.h"
+#include "Kizuri/Assets/MeshImporter.h"
 #include "Kizuri/Assets/TexCodec.h"
 #include "Kizuri/Assets/TextureImporter.h"
 #include "Kizuri/Path.h"
