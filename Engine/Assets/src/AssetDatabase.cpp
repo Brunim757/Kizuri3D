@@ -1387,6 +1387,73 @@ RHITexture AssetDatabase::ImportHdrSky(const std::string& path) {
     }
     return 0;
   }
+  RHITexture cube = EquirectToCube(hdr, w, h);
+  stbi_image_free(hdr);
+  return cube;
+}
+RHITexture AssetDatabase::GenerateProceduralSky(int preset) {
+  if (gpuRhi == nullptr || preset < 0 || preset > 2) {
+    return 0;
+  }
+  const int w = 256;
+  const int h = 128;
+  std::vector<float> px(static_cast<size_t>(w) * h * 3);
+  float sunY = preset == 0 ? 0.6f : (preset == 1 ? 0.08f : -0.3f);
+  float sunI = preset == 0 ? 8.0f : (preset == 1 ? 6.0f : 0.4f);
+  float zenR = preset == 0 ? 0.20f : (preset == 1 ? 0.10f : 0.01f);
+  float zenG = preset == 0 ? 0.38f : (preset == 1 ? 0.12f : 0.02f);
+  float zenB = preset == 0 ? 0.70f : (preset == 1 ? 0.30f : 0.05f);
+  float horR = preset == 0 ? 0.65f : (preset == 1 ? 0.95f : 0.03f);
+  float horG = preset == 0 ? 0.55f : (preset == 1 ? 0.45f : 0.04f);
+  float horB = preset == 0 ? 0.45f : (preset == 1 ? 0.20f : 0.08f);
+  const float pi = 3.14159265359f;
+  uint32_t seed = 1234567u;
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(w);
+      float v = (static_cast<float>(y) + 0.5f) / static_cast<float>(h);
+      float phi = u * 2.0f * pi;
+      float dy = std::cos(v * pi);
+      float dx = std::sin(v * pi) * std::cos(phi);
+      float dz = std::sin(v * pi) * std::sin(phi);
+      float up = dy < 0.0f ? 0.0f : dy;
+      float pw = std::pow(up, 0.5f);
+      float r = horR + (zenR - horR) * pw;
+      float g = horG + (zenG - horG) * pw;
+      float b = horB + (zenB - horB) * pw;
+      float cosG = dx * 0.0f + dy * sunY + dz * 1.0f;
+      float sunD = 1.0f - sunY * sunY;
+      float sunX = sunD > 0.0f ? std::sqrt(sunD) : 0.0f;
+      float cosS = dx * sunX + dy * sunY + dz * 0.0f;
+      if (cosS < 0.0f) {
+        cosS = 0.0f;
+      }
+      (void)cosG;
+      float glow = std::pow(cosS, 900.0f) * 4.0f + std::pow(cosS, 10.0f) * 0.25f;
+      r += glow * sunI;
+      g += glow * sunI * 0.95f;
+      b += glow * sunI * 0.85f;
+      if (preset == 2) {
+        seed = seed * 1664525u + 1013904223u;
+        float star = ((seed >> 9) & 1023u) / 1023.0f;
+        if (star > 0.995f && dy > 0.1f) {
+          r += 1.5f;
+          g += 1.5f;
+          b += 1.5f;
+        }
+      }
+      size_t o = (static_cast<size_t>(y) * w + x) * 3;
+      px[o + 0] = r;
+      px[o + 1] = g;
+      px[o + 2] = b;
+    }
+  }
+  return EquirectToCube(px.data(), w, h);
+}
+RHITexture AssetDatabase::EquirectToCube(const float* hdr, int w, int h) {
+  if (gpuRhi == nullptr || hdr == nullptr || w <= 0 || h <= 0) {
+    return 0;
+  }
   int face = w / 4;
   if (face < 16) {
     face = 16;
@@ -1396,7 +1463,6 @@ RHITexture AssetDatabase::ImportHdrSky(const std::string& path) {
   }
   RHITexture cube = gpuRhi->CreateEnvCube(face);
   if (cube == 0) {
-    stbi_image_free(hdr);
     return 0;
   }
   std::vector<uint16_t> facePx(static_cast<size_t>(face) * face * 4);
@@ -1451,11 +1517,9 @@ RHITexture AssetDatabase::ImportHdrSky(const std::string& path) {
     }
     uint32_t row = static_cast<uint32_t>(face) * 8;
     if (!gpuRhi->UpdateCubeFace(cube, f, face, row, facePx.data(), static_cast<size_t>(row) * face)) {
-      stbi_image_free(hdr);
       return 0;
     }
   }
-  stbi_image_free(hdr);
   gpuRhi->GenerateCubeMips(cube);
   return cube;
 }

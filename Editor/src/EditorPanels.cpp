@@ -16,6 +16,8 @@
 #include <DirectXMath.h>
 #include <cstring>
 #include <cmath>
+#include <algorithm>
+#include <functional>
 #include <filesystem>
 namespace Kizuri {
 uint32_t ResolveMaterialSlot(AssetDatabase& assets, const std::string& guid, uint32_t bit, RHITexture& out) {
@@ -2542,47 +2544,338 @@ void EditorApp::DrawAssetBrowser() {
     ImGui::Text("Importing %s... %d%%", importing[i].first.c_str(), importing[i].second);
   }
   ImGui::Separator();
-  ImGui::Text("Meshes:");
-  std::vector<std::string> guids = assets.AllGuids();
-  for (size_t i = 0; i < guids.size(); ++i) {
-    const MeshRecord* rec = assets.GetByGuid(guids[i]);
+  std::string root = assets.AssetsDir();
+  if (browserPath.empty() || browserPath.size() < root.size() || browserPath.compare(0, root.size(), root) != 0) {
+    browserPath = root;
+  }
+  ImGui::InputText("Search", browserSearch, sizeof(browserSearch));
+  ImGui::SameLine();
+  int bf = browserFilter < 0 ? 0 : (browserFilter > 4 ? 4 : browserFilter);
+  if (ImGui::Combo("Type", &bf, "All\0Meshes\0Textures\0Scenes\0Sources\0")) {
+    browserFilter = bf;
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Create +")) {
+    ImGui::OpenPopup("BrowserCreate");
+  }
+  if (ImGui::BeginPopup("BrowserCreate")) {
+    if (ImGui::MenuItem("New Folder")) {
+      std::error_code cec;
+      std::string np = (std::filesystem::path(browserPath) / "New Folder").string();
+      int suffix = 1;
+      while (std::filesystem::exists(np, cec) && !cec && suffix < 100) {
+        ++suffix;
+        np = (std::filesystem::path(browserPath) / ("New Folder " + std::to_string(suffix))).string();
+      }
+      std::filesystem::create_directory(np, cec);
+      assets.Scan();
+    }
+    ImGui::EndPopup();
+  }
+  auto toLower = [](std::string v) -> std::string {
+    for (size_t i = 0; i < v.size(); ++i) {
+      if (v[i] >= 'A' && v[i] <= 'Z') {
+        v[i] = static_cast<char>(v[i] + ('a' - 'A'));
+      }
+    }
+    return v;
+  };
+  auto nameMatches = [this, &toLower](const std::string& fn) -> bool {
+    if (browserSearch[0] == '\0') {
+      return true;
+    }
+    return toLower(fn).find(toLower(browserSearch)) != std::string::npos;
+  };
+  auto lowerExt = [&toLower](const std::string& p) -> std::string {
+    return toLower(std::filesystem::path(p).extension().string());
+  };
+  auto shortName = [](const std::string& fn) -> std::string {
+    if (fn.size() > 20) {
+      return fn.substr(0, 17) + "...";
+    }
+    return fn;
+  };
+  float previewH = 122.0f;
+  ImGui::BeginChild("BrTree", ImVec2(205.0f, -previewH), true);
+  std::function<void(const std::string&, int)> drawTreeDir = [&](const std::string& dir, int depth) {
+    if (depth > 8) {
+      return;
+    }
+    std::error_code tec;
+    std::vector<std::string> subs;
+    for (std::filesystem::directory_iterator tit(dir, tec), tend; tit != tend && !tec; tit.increment(tec)) {
+      std::error_code fec;
+      if (tit->is_directory(fec) && !fec) {
+        subs.push_back(tit->path().string());
+      }
+    }
+    std::sort(subs.begin(), subs.end());
+    for (size_t i = 0; i < subs.size(); ++i) {
+      std::string fn = std::filesystem::path(subs[i]).filename().string();
+      ImGui::PushID(static_cast<int>(400000 + depth * 1000 + i));
+      bool open = browserPath == subs[i];
+      if (open) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.3f, 1.0f));
+      }
+      bool node = ImGui::TreeNodeEx(fn.c_str(), ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth | (open ? ImGuiTreeNodeFlags_Selected : 0));
+      if (open) {
+        ImGui::PopStyleColor();
+      }
+      if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+        browserPath = subs[i];
+        browserSelPath = subs[i];
+      }
+      if (node) {
+        drawTreeDir(subs[i], depth + 1);
+        ImGui::TreePop();
+      }
+      ImGui::PopID();
+    }
+  };
+  {
+    ImGui::PushID(399999);
+    bool selRoot = browserPath == root;
+    if (selRoot) {
+      ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.3f, 1.0f));
+    }
+    bool nodeRoot = ImGui::TreeNodeEx("Assets", ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen | (selRoot ? ImGuiTreeNodeFlags_Selected : 0));
+    if (selRoot) {
+      ImGui::PopStyleColor();
+    }
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+      browserPath = root;
+      browserSelPath = root;
+    }
+    if (nodeRoot) {
+      drawTreeDir(root, 1);
+      ImGui::TreePop();
+    }
+    ImGui::PopID();
+  }
+  ImGui::EndChild();
+  ImGui::SameLine();
+  ImGui::BeginChild("BrMain", ImVec2(0, -previewH), true);
+  {
+    std::string rel = browserPath.size() > root.size() ? browserPath.substr(root.size()) : "";
+    ImGui::PushID(399998);
+    if (ImGui::SmallButton("Assets")) {
+      browserPath = root;
+    }
+    std::filesystem::path accumP = std::filesystem::path(root);
+    std::string tmp = rel;
+    size_t pos = 0;
+    int crumb = 0;
+    while (pos < tmp.size() && crumb < 16) {
+      while (pos < tmp.size() && (tmp[pos] == '/' || tmp[pos] == '\\')) {
+        ++pos;
+      }
+      if (pos >= tmp.size()) {
+        break;
+      }
+      size_t end = pos;
+      while (end < tmp.size() && tmp[end] != '/' && tmp[end] != '\\') {
+        ++end;
+      }
+      std::string part = tmp.substr(pos, end - pos);
+      pos = end;
+      accumP /= part;
+      ImGui::SameLine();
+      ImGui::PushID(399900 + crumb);
+      if (ImGui::SmallButton(part.c_str())) {
+        browserPath = accumP.string();
+      }
+      ImGui::PopID();
+      ++crumb;
+    }
+    ImGui::PopID();
+  }
+  ImGui::Separator();
+  std::error_code bec;
+  std::vector<std::string> folderDirs;
+  std::vector<std::string> folderGlbs;
+  std::vector<std::string> folderImages;
+  std::vector<std::string> folderScenes;
+  std::vector<std::string> folderMisc;
+  for (std::filesystem::directory_iterator bit(browserPath, bec), bend; bit != bend && !bec; bit.increment(bec)) {
+    std::error_code fec;
+    bool isDir = bit->is_directory(fec);
+    if (fec) {
+      continue;
+    }
+    std::string fp = bit->path().string();
+    std::string fn = bit->path().filename().string();
+    if (!nameMatches(fn)) {
+      continue;
+    }
+    if (isDir) {
+      folderDirs.push_back(fp);
+      continue;
+    }
+    std::string ext = lowerExt(fp);
+    if (ext == ".glb" || ext == ".gltf") {
+      folderGlbs.push_back(fp);
+    } else if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp" || ext == ".hdr") {
+      folderImages.push_back(fp);
+    } else if (ext == ".kzscene") {
+      folderScenes.push_back(fp);
+    } else if (ext == ".cube") {
+      folderMisc.push_back(fp);
+    }
+  }
+  auto sortByName = [](std::vector<std::string>& v) {
+    std::sort(v.begin(), v.end(), [](const std::string& a, const std::string& b) {
+      return std::filesystem::path(a).filename().string() < std::filesystem::path(b).filename().string();
+    });
+  };
+  sortByName(folderDirs);
+  sortByName(folderGlbs);
+  sortByName(folderImages);
+  sortByName(folderScenes);
+  sortByName(folderMisc);
+  std::vector<const MeshRecord*> folderMeshes;
+  if (bf == 0 || bf == 1) {
+    std::vector<std::string> allGuids = assets.AllGuids();
+    for (size_t i = 0; i < allGuids.size(); ++i) {
+      const MeshRecord* rec = assets.GetByGuid(allGuids[i]);
+      if (rec == nullptr) {
+        continue;
+      }
+      if (Kizuri::IsAutoLodPath(rec->meshPath)) {
+        continue;
+      }
+      std::string parent = std::filesystem::path(rec->meshPath).parent_path().string();
+      if (parent != browserPath) {
+        continue;
+      }
+      std::string fn = std::filesystem::path(rec->meshPath).filename().string();
+      if (!nameMatches(fn)) {
+        continue;
+      }
+      folderMeshes.push_back(rec);
+    }
+    std::sort(folderMeshes.begin(), folderMeshes.end(), [](const MeshRecord* a, const MeshRecord* b) {
+      return std::filesystem::path(a->meshPath).filename().string() < std::filesystem::path(b->meshPath).filename().string();
+    });
+  }
+  std::vector<const TextureRecord*> folderTexs;
+  if (bf == 0 || bf == 2) {
+    std::vector<std::string> allTexGuids = assets.AllTexGuids();
+    for (size_t i = 0; i < allTexGuids.size(); ++i) {
+      const TextureRecord* rec = assets.GetTexByGuid(allTexGuids[i]);
+      if (rec == nullptr) {
+        continue;
+      }
+      std::string parent = std::filesystem::path(rec->sourcePath).parent_path().string();
+      if (parent != browserPath) {
+        continue;
+      }
+      std::string fn = std::filesystem::path(rec->sourcePath).filename().string();
+      if (!nameMatches(fn)) {
+        continue;
+      }
+      folderTexs.push_back(rec);
+    }
+    std::sort(folderTexs.begin(), folderTexs.end(), [](const TextureRecord* a, const TextureRecord* b) {
+      return std::filesystem::path(a->sourcePath).filename().string() < std::filesystem::path(b->sourcePath).filename().string();
+    });
+  }
+  float availX = ImGui::GetContentRegionAvail().x;
+  int cols = availX > 110.0f ? static_cast<int>(availX / 104.0f) : 1;
+  if (cols < 1) {
+    cols = 1;
+  }
+  int gridIdx = 0;
+  auto gridNext = [&gridIdx, cols]() {
+    ++gridIdx;
+    if (gridIdx % cols != 0) {
+      ImGui::SameLine();
+    }
+  };
+  auto meshTag = [](const MeshRecord* rec) -> const char* {
+    if (rec->state == MeshAssetState::Outdated) {
+      return "[OUT]";
+    } else if (rec->state == MeshAssetState::NoSource) {
+      return "[NOSRC]";
+    } else if (rec->state == MeshAssetState::SourceMissing) {
+      return "[MISS]";
+    } else if (!rec->loaded) {
+      return "[LOAD]";
+    }
+    return "";
+  };
+  for (size_t i = 0; i < folderDirs.size(); ++i) {
+    std::string fn = std::filesystem::path(folderDirs[i]).filename().string();
+    ImGui::PushID(static_cast<int>(500000 + i));
+    ImGui::BeginGroup();
+    if (ImGui::Button("D", ImVec2(76, 56))) {
+    }
+    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+      browserPath = folderDirs[i];
+      browserSelPath = folderDirs[i];
+    }
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+      browserSelPath = folderDirs[i];
+    }
+    ImGui::Text("%s", shortName(fn).c_str());
+    ImGui::EndGroup();
+    if (ImGui::BeginPopupContextItem("DirCtx")) {
+      if (ImGui::MenuItem("Open")) {
+        browserPath = folderDirs[i];
+        browserSelPath = folderDirs[i];
+      }
+      if (ImGui::MenuItem("Delete Folder")) {
+        std::error_code dec;
+        bool empty = std::filesystem::is_empty(folderDirs[i], dec);
+        if (!dec && empty) {
+          std::filesystem::remove(folderDirs[i], dec);
+          assets.Scan();
+        } else {
+          Announce(LogLevel::Warning, "Folder is not empty");
+        }
+      }
+      ImGui::EndPopup();
+    }
+    ImGui::PopID();
+    gridNext();
+  }
+  for (size_t i = 0; i < folderMeshes.size(); ++i) {
+    const MeshRecord* rec = folderMeshes[i];
     if (rec == nullptr) {
       continue;
     }
-    if (Kizuri::IsAutoLodPath(rec->meshPath)) {
-      continue;
-    }
     std::filesystem::path mp(rec->meshPath);
-    std::string label = "M " + mp.filename().string();
-    ImGui::PushID(static_cast<int>(i));
-    ImGui::Selectable(label.c_str(), selectedAssetGuid == rec->guid && !selectedAssetIsTex);
+    std::string fn = mp.filename().string();
+    ImGui::PushID(static_cast<int>(510000 + i));
+    ImGui::BeginGroup();
+    bool sel = selectedAssetGuid == rec->guid && !selectedAssetIsTex;
+    if (sel) {
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.45f, 0.65f, 1.0f));
+    }
+    ImGui::Button("M", ImVec2(76, 56));
+    if (sel) {
+      ImGui::PopStyleColor();
+    }
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
       selectedAssetGuid = rec->guid;
       selectedAssetIsTex = false;
-    }
-    if (rec->state == MeshAssetState::Outdated) {
-      ImGui::SameLine();
-      ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "[OUTDATED]");
-    } else if (rec->state == MeshAssetState::NoSource) {
-      ImGui::SameLine();
-      ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "[NO SOURCE]");
-    } else if (rec->state == MeshAssetState::SourceMissing) {
-      ImGui::SameLine();
-      ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "[SRC MISSING]");
-    } else if (!rec->loaded) {
-      ImGui::SameLine();
-      ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "[LOADING]");
+      browserSelPath = rec->meshPath;
     }
     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
       ImGui::SetDragDropPayload("KZ_ASSET", rec->guid.c_str(), rec->guid.size() + 1);
-      ImGui::Text("%s", mp.filename().string().c_str());
+      ImGui::Text("%s", fn.c_str());
       ImGui::EndDragDropSource();
     }
+    ImGui::Text("%s", shortName(fn).c_str());
+    const char* tag = meshTag(rec);
+    if (tag[0] != '\0') {
+      ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "%s", tag);
+    }
+    ImGui::EndGroup();
     if (ImGui::BeginPopupContextItem("MeshCtx")) {
       bool canReimport = rec->hasSource;
       if (ImGui::MenuItem("Reimport", nullptr, false, canReimport)) {
         if (assets.Reimport(rec->guid)) {
-          Announce(LogLevel::Info, std::string("Reimporting ") + mp.filename().string());
+          Announce(LogLevel::Info, std::string("Reimporting ") + fn);
         } else {
           Announce(LogLevel::Warning, "No source to reimport from");
         }
@@ -2591,7 +2884,6 @@ void EditorApp::DrawAssetBrowser() {
         assetRenameActive = true;
         assetRenameIsTex = false;
         assetRenameGuid = rec->guid;
-        std::string fn = mp.filename().string();
         std::strncpy(assetRenameBuf, fn.c_str(), sizeof(assetRenameBuf) - 1);
         assetRenameBuf[sizeof(assetRenameBuf) - 1] = '\0';
       }
@@ -2599,9 +2891,9 @@ void EditorApp::DrawAssetBrowser() {
         std::vector<RefUse> refs = SceneMeshRefs();
         std::vector<std::string> blocked;
         if (assets.DeleteAssetFile(rec->guid, false, refs, blocked)) {
-          Announce(LogLevel::Warning, std::string("Deleted ") + mp.filename().string());
+          Announce(LogLevel::Warning, std::string("Deleted ") + fn);
         } else {
-          std::string msg = "Cannot delete '" + mp.filename().string() + "': used by " + std::to_string(blocked.size()) + " (";
+          std::string msg = "Cannot delete '" + fn + "': used by " + std::to_string(blocked.size()) + " (";
           for (size_t b = 0; b < blocked.size(); ++b) {
             if (b > 0) {
               msg += ", ";
@@ -2645,48 +2937,58 @@ void EditorApp::DrawAssetBrowser() {
       }
     }
     ImGui::PopID();
+    gridNext();
   }
-  ImGui::Separator();
-  ImGui::Text("Textures:");
-  std::vector<std::string> tguids = assets.AllTexGuids();
-  for (size_t i = 0; i < tguids.size(); ++i) {
-    const TextureRecord* rec = assets.GetTexByGuid(tguids[i]);
+  for (size_t i = 0; i < folderTexs.size(); ++i) {
+    const TextureRecord* rec = folderTexs[i];
     if (rec == nullptr) {
       continue;
     }
-    std::filesystem::path tp(rec->texPath);
-    std::string label = "T " + tp.filename().string() + " (" + std::to_string(rec->data.width) + "x" + std::to_string(rec->data.height) + " " + std::to_string(rec->data.mips.size()) + "mip)";
-    ImGui::PushID(static_cast<int>(100000 + i));
-    ImGui::Selectable(label.c_str(), selectedAssetGuid == rec->guid && selectedAssetIsTex);
+    std::filesystem::path tp(rec->sourcePath);
+    std::string fn = tp.filename().string();
+    void* thumbSrv = nullptr;
+    if (rec->gpu != 0 && rhi != nullptr) {
+      thumbSrv = rhi->GetTextureSRV(rec->gpu);
+    }
+    ImGui::PushID(static_cast<int>(520000 + i));
+    ImGui::BeginGroup();
+    bool sel = selectedAssetGuid == rec->guid && selectedAssetIsTex;
+    bool pressed = false;
+    if (thumbSrv != nullptr) {
+      if (sel) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.45f, 0.65f, 1.0f));
+      }
+      pressed = ImGui::ImageButton("tx", reinterpret_cast<ImTextureID>(thumbSrv), ImVec2(76, 56));
+      if (sel) {
+        ImGui::PopStyleColor();
+      }
+    } else {
+      if (sel) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.45f, 0.65f, 1.0f));
+      }
+      pressed = ImGui::Button("T", ImVec2(76, 56));
+      if (sel) {
+        ImGui::PopStyleColor();
+      }
+    }
+    (void)pressed;
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
       selectedAssetGuid = rec->guid;
       selectedAssetIsTex = true;
+      browserSelPath = rec->sourcePath;
     }
     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
       ImGui::SetDragDropPayload("KZ_TEX", rec->guid.c_str(), rec->guid.size() + 1);
-      ImGui::Text("%s", tp.filename().string().c_str());
+      ImGui::Text("%s", fn.c_str());
       ImGui::EndDragDropSource();
     }
-    if (rec->state == TextureAssetState::Outdated) {
-      ImGui::SameLine();
-      ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "[OUTDATED]");
-    } else if (rec->state == TextureAssetState::NoSource) {
-      ImGui::SameLine();
-      ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "[NO SOURCE]");
-    } else if (rec->state == TextureAssetState::SourceMissing) {
-      ImGui::SameLine();
-      ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "[SRC MISSING]");
-    } else if (!rec->loaded) {
-      ImGui::SameLine();
-      ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "[LOADING]");
-    }
-    ImGui::SameLine();
-    ImGui::Text("gpu:%d/%llu", rec->residentLevels, (unsigned long long)rec->data.mips.size());
+    ImGui::Text("%s", shortName(fn).c_str());
+    ImGui::EndGroup();
     if (ImGui::BeginPopupContextItem("TexCtx")) {
       bool canReimport = rec->hasSource;
       if (ImGui::MenuItem("Reimport", nullptr, false, canReimport)) {
         if (assets.ReimportTexture(rec->guid)) {
-          Announce(LogLevel::Info, std::string("Reimporting ") + tp.filename().string());
+          Announce(LogLevel::Info, std::string("Reimporting ") + fn);
         } else {
           Announce(LogLevel::Warning, "No source to reimport from");
         }
@@ -2695,16 +2997,15 @@ void EditorApp::DrawAssetBrowser() {
         assetRenameActive = true;
         assetRenameIsTex = true;
         assetRenameGuid = rec->guid;
-        std::string fn = tp.filename().string();
         std::strncpy(assetRenameBuf, fn.c_str(), sizeof(assetRenameBuf) - 1);
         assetRenameBuf[sizeof(assetRenameBuf) - 1] = '\0';
       }
       if (ImGui::MenuItem("Delete")) {
         std::vector<std::string> blocked;
         if (assets.DeleteTextureFile(rec->guid, false, blocked)) {
-          Announce(LogLevel::Warning, std::string("Deleted ") + tp.filename().string());
+          Announce(LogLevel::Warning, std::string("Deleted ") + fn);
         } else {
-          std::string msg = "Cannot delete '" + tp.filename().string() + "': used by " + std::to_string(blocked.size()) + " (";
+          std::string msg = "Cannot delete '" + fn + "': used by " + std::to_string(blocked.size()) + " (";
           for (size_t b = 0; b < blocked.size(); ++b) {
             if (b > 0) {
               msg += ", ";
@@ -2736,7 +3037,119 @@ void EditorApp::DrawAssetBrowser() {
       }
     }
     ImGui::PopID();
+    gridNext();
   }
+  if (bf == 0 || bf == 4) {
+    for (size_t i = 0; i < folderGlbs.size(); ++i) {
+      std::string fn = std::filesystem::path(folderGlbs[i]).filename().string();
+      std::filesystem::path sib = std::filesystem::path(folderGlbs[i]).parent_path() / (std::filesystem::path(folderGlbs[i]).stem().string() + ".kzmesh");
+      std::error_code sec;
+      bool ready = std::filesystem::exists(sib, sec) && !sec;
+      ImGui::PushID(static_cast<int>(530000 + i));
+      ImGui::BeginGroup();
+      ImGui::Button("G", ImVec2(76, 56));
+      ImGui::Text("%s", shortName(fn).c_str());
+      ImGui::TextDisabled("%s", ready ? "[READY]" : "[PENDING]");
+      ImGui::EndGroup();
+      ImGui::PopID();
+      gridNext();
+    }
+  }
+  if (bf == 0 || bf == 3) {
+    for (size_t i = 0; i < folderScenes.size(); ++i) {
+      std::string fn = std::filesystem::path(folderScenes[i]).filename().string();
+      ImGui::PushID(static_cast<int>(540000 + i));
+      ImGui::BeginGroup();
+      ImGui::Button("S", ImVec2(76, 56));
+      if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        DoOpenPath(folderScenes[i]);
+      }
+      if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+        browserSelPath = folderScenes[i];
+      }
+      ImGui::Text("%s", shortName(fn).c_str());
+      ImGui::EndGroup();
+      ImGui::PopID();
+      gridNext();
+    }
+  }
+  for (size_t i = 0; i < folderImages.size(); ++i) {
+    bool knownTex = false;
+    for (size_t k = 0; k < folderTexs.size(); ++k) {
+      if (folderTexs[k] != nullptr && folderTexs[k]->sourcePath == folderImages[i]) {
+        knownTex = true;
+        break;
+      }
+    }
+    if (knownTex) {
+      continue;
+    }
+    std::string fn = std::filesystem::path(folderImages[i]).filename().string();
+    std::string ext = lowerExt(folderImages[i]);
+    bool isHdr = ext == ".hdr";
+    ImGui::PushID(static_cast<int>(550000 + i));
+    ImGui::BeginGroup();
+    ImGui::Button(isHdr ? "H" : "I", ImVec2(76, 56));
+    if (isHdr && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+      Kizuri::RHITexture sky = assets.ImportHdrSky(folderImages[i]);
+      if (sky == 0) {
+        Announce(LogLevel::Error, std::string("HDR sky failed: ") + fn);
+      } else if (!renderer.UseHdrSky(sky)) {
+        Announce(LogLevel::Error, "HDR sky adopt failed");
+      } else {
+        renderer.BakeIrradiance();
+        log.Add(LogLevel::Success, std::string("HDR sky loaded: ") + fn);
+      }
+    }
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+      browserSelPath = folderImages[i];
+    }
+    ImGui::Text("%s", shortName(fn).c_str());
+    ImGui::EndGroup();
+    ImGui::PopID();
+    gridNext();
+  }
+  for (size_t i = 0; i < folderMisc.size(); ++i) {
+    std::string fn = std::filesystem::path(folderMisc[i]).filename().string();
+    ImGui::PushID(static_cast<int>(560000 + i));
+    ImGui::BeginGroup();
+    ImGui::Button("L", ImVec2(76, 56));
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+      browserSelPath = folderMisc[i];
+    }
+    ImGui::Text("%s", shortName(fn).c_str());
+    ImGui::EndGroup();
+    ImGui::PopID();
+    gridNext();
+  }
+  ImGui::EndChild();
+  ImGui::BeginChild("BrPreview", ImVec2(0, 0), true);
+  {
+    const MeshRecord* pm = !selectedAssetGuid.empty() && !selectedAssetIsTex ? assets.GetByGuid(selectedAssetGuid) : nullptr;
+    const TextureRecord* pt = !selectedAssetGuid.empty() && selectedAssetIsTex ? assets.GetTexByGuid(selectedAssetGuid) : nullptr;
+    if (pm != nullptr) {
+      size_t verts = pm->data.positions.size() / 3;
+      ImGui::Text("Mesh: %s", std::filesystem::path(pm->meshPath).filename().string().c_str());
+      ImGui::SameLine();
+      ImGui::TextDisabled("%llu verts %llu tris %llu parts", (unsigned long long)verts, (unsigned long long)(pm->data.indices.size() / 3), (unsigned long long)pm->data.parts.size());
+    } else if (pt != nullptr) {
+      if (pt->gpu != 0 && rhi != nullptr) {
+        void* psrv = rhi->GetTextureSRV(pt->gpu);
+        if (psrv != nullptr) {
+          ImGui::Image(reinterpret_cast<ImTextureID>(psrv), ImVec2(96, 96));
+          ImGui::SameLine();
+        }
+      }
+      ImGui::Text("Texture: %s", std::filesystem::path(pt->sourcePath).filename().string().c_str());
+      ImGui::SameLine();
+      ImGui::TextDisabled("%dx%d %llu mip", pt->data.width, pt->data.height, (unsigned long long)pt->data.mips.size());
+    } else if (!browserSelPath.empty()) {
+      ImGui::TextDisabled("%s", browserSelPath.c_str());
+    } else {
+      ImGui::TextDisabled("Select an asset to preview");
+    }
+  }
+  ImGui::EndChild();
   if (ImGui::BeginPopupModal("Force Delete?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::Text("Force delete? Dependents will show missing asset.");
     if (ImGui::Button("Force")) {

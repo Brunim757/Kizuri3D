@@ -44,6 +44,6 @@ float4 main(PSIn pin) : SV_Target
         acc += tap * illum * occ * weight;
         illum *= decay;
     }
-    float3 outc = base + acc / 32.0 * exposure;
+    float3 outc = base + acc / 32.0 * exposure * 0.25;
     return float4(outc, 1.0);
 }

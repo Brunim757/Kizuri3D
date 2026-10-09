@@ -975,6 +975,13 @@ public:
     }
     return nullptr;
   }
+  void* GetTextureSRV(RHITexture tex) const override {
+    auto it = textures.find(tex);
+    if (it != textures.end()) {
+      return it->second.srv.Get();
+    }
+    return nullptr;
+  }
   void BindBackbuffer() override {
     bool same = (curRTs.size() == 1 && curRTs[0] == backId && curDepth == 0);
     if (same) {

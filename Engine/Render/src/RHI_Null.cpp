@@ -330,6 +330,10 @@ public:
     (void)rt;
     return nullptr;
   }
+  void* GetTextureSRV(RHITexture tex) const override {
+    (void)tex;
+    return nullptr;
+  }
   void BindBackbuffer() override {
     Note(false);
   }

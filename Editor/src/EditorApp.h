@@ -122,6 +122,10 @@ struct EditorApp {
   bool assetRenameActive;
   std::string selectedAssetGuid;
   bool selectedAssetIsTex;
+  std::string browserPath;
+  char browserSearch[128];
+  int browserFilter;
+  std::string browserSelPath;
   std::string forceDeleteGuid;
   bool forceDeleteIsTex;
   RHIBuffer defaultVB;

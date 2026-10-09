@@ -72,7 +72,7 @@ EditorApp::EditorApp()
   , viewGodRays(false)
   , viewGodDensity(1.0f)
   , viewGodDecay(0.95f)
-  , viewGodIntensity(0.35f)
+  , viewGodIntensity(0.5f)
   , viewQuality(2)
   , viewX(0.0f)
   , viewY(0.0f)
@@ -108,6 +108,8 @@ EditorApp::EditorApp()
   assetRenameBuf[0] = '\0';
   assetRenameActive = false;
   assetRenameIsTex = false;
+  browserSearch[0] = '\0';
+  browserFilter = 0;
   selectedAssetIsTex = false;
   forceDeleteIsTex = false;
   defaultVB = 0;
