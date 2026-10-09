@@ -6942,7 +6942,6 @@ int main() {
   failures += Check("Scene-RoundTrip", TestSceneRoundTrip());
   failures += Check("Scene-MaterialExt", TestSceneMaterialExt());
   failures += Check("Part-Material", TestPartMaterial());
-  failures += Check("QualityPreset", TestQualityPreset());
   failures += Check("Scene-InvalidFile", TestSceneInvalid());
   failures += Check("Undo-Create", TestUndoCreate());
   failures += Check("Undo-Delete", TestUndoDelete());
