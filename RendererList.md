@@ -350,50 +350,50 @@ Sem Ray Tracing
 
 - [x] Material Inspector completo
 - [x] Mesh materials read-only
-- [ ] Material preview
-- [ ] HDR environment preview
-- [ ] Reflection probe preview
-- [ ] Light preview
-- [ ] Shadow preview
-- [ ] Texture preview
-- [ ] Shader preview
-- [ ] Post-processing volume editor
-- [ ] LOD editor
-- [ ] Decal editor
-- [ ] Lightmap visualization
-- [ ] UV visualization
-- [ ] Normal visualization
-- [ ] Roughness visualization
-- [ ] Metallic visualization
-- [ ] Depth visualization
-- [ ] Overdraw visualization
+- [x] Material preview
+- [x] HDR environment preview
+- [x] Reflection probe preview
+- [x] Light preview
+- [x] Shadow preview
+- [x] Texture preview
+- [x] Shader preview
+- [x] Post-processing volume editor
+- [x] LOD editor
+- [x] Decal editor
+- [x] Lightmap visualization
+- [x] UV visualization
+- [x] Normal visualization
+- [x] Roughness visualization
+- [x] Metallic visualization
+- [x] Depth visualization
+- [x] Overdraw visualization
 - [x] GPU performance overlay
-- [ ] RenderDoc-friendly debugging
+- [x] RenderDoc-friendly debugging
 
 ---
 
 18. Debug / Development
 
-- [ ] Wireframe mode
-- [ ] Unlit view
-- [ ] Albedo-only view
-- [ ] Normal-only view
-- [ ] Roughness-only view
-- [ ] Metallic-only view
-- [ ] AO-only view
-- [ ] Emissive-only view
-- [ ] Depth view
-- [ ] Motion vector view
-- [ ] Shadow map view
-- [ ] Reflection probe view
-- [ ] Lightmap view
-- [ ] Bounding box view
-- [ ] LOD visualization
-- [ ] Overdraw visualization
-- [ ] Material ID visualization
+- [x] Wireframe mode
+- [x] Unlit view
+- [x] Albedo-only view
+- [x] Normal-only view
+- [x] Roughness-only view
+- [x] Metallic-only view
+- [x] AO-only view
+- [x] Emissive-only view
+- [x] Depth view
+- [x] Motion vector view
+- [x] Shadow map view
+- [x] Reflection probe view
+- [x] Lightmap view
+- [x] Bounding box view
+- [x] LOD visualization
+- [x] Overdraw visualization
+- [x] Material ID visualization
 - [x] GPU timing overlay
 - [x] Render statistics
-- [ ] Shader debugging
+- [x] Shader debugging
 
 ---
 

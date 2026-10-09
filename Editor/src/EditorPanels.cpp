@@ -3140,7 +3140,7 @@ void EditorApp::DrawAssetBrowser() {
       folderImages.push_back(fp);
     } else if (ext == ".kzscene") {
       folderScenes.push_back(fp);
-    } else if (ext == ".cube") {
+    } else if (ext == ".cube" || ext == ".hlsl") {
       folderMisc.push_back(fp);
     }
   }
@@ -3642,14 +3642,18 @@ void EditorApp::DrawAssetBrowser() {
       std::string fn = std::filesystem::path(it.path).filename().string();
       std::string ext6 = Kizuri::Path::ExtensionLower(it.path);
       bool isCube = ext6 == ".cube";
+      bool isShader = ext6 == ".hlsl";
       ImGui::PushID(uid++);
       ImGui::BeginGroup();
       ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.32f, 0.32f, 0.34f, 1.0f));
       ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.40f, 0.40f, 0.42f, 1.0f));
-      ImGui::Button(isCube ? "LUT" : "File", ImVec2(96, 64));
+      ImGui::Button(isCube ? "LUT" : (isShader ? "Shader" : "File"), ImVec2(96, 64));
       ImGui::PopStyleColor(2);
       if (isCube && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
         loadCineLut(it.path, fn);
+      }
+      if (isShader && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        ShellExecuteW(nullptr, L"open", std::filesystem::path(it.path).wstring().c_str(), nullptr, nullptr, SW_SHOW);
       }
       if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
         browserSelPath = it.path;
@@ -3711,6 +3715,24 @@ void EditorApp::DrawAssetBrowser() {
       } else if (pext == ".kzscene") {
         if (ImGui::Button("Open Scene")) {
           DoOpenPath(browserSelPath);
+        }
+      } else if (pext == ".hlsl") {
+        size_t lines = 0;
+        {
+          FILE* fp = nullptr;
+          if (fopen_s(&fp, browserSelPath.c_str(), "rb") == 0 && fp != nullptr) {
+            int ch = 0;
+            while ((ch = std::fgetc(fp)) != EOF) {
+              if (ch == '\n') {
+                ++lines;
+              }
+            }
+            std::fclose(fp);
+          }
+        }
+        ImGui::TextDisabled("%llu lines  (double-click opens externally)", (unsigned long long)lines);
+        if (ImGui::Button("Open Externally")) {
+          ShellExecuteW(nullptr, L"open", std::filesystem::path(browserSelPath).wstring().c_str(), nullptr, nullptr, SW_SHOW);
         }
       } else if (pext == ".glb" || pext == ".gltf") {
         ImGui::TextDisabled("Importing runs in the background; the Mesh tile appears when ready.");
