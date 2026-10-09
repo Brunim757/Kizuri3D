@@ -1319,25 +1319,65 @@ void EditorApp::DrawSettings() {
         renderer.SetTaa(viewTaa);
       }
       ImGui::SliderFloat("Env Intensity", &viewEnv, 0.0f, 4.0f);
+      {
+        std::vector<std::string> skyFiles;
+        std::error_code sec;
+        std::string skiesDir = (std::filesystem::path(assets.AssetsDir()) / "Skies").string();
+        for (std::filesystem::directory_iterator sit(skiesDir, sec), send; sit != send && !sec; sit.increment(sec)) {
+          std::error_code fec;
+          if (sit->is_regular_file(fec) && !fec) {
+            std::string ext = sit->path().extension().string();
+            for (size_t ci = 0; ci < ext.size(); ++ci) {
+              if (ext[ci] >= 'A' && ext[ci] <= 'Z') {
+                ext[ci] = static_cast<char>(ext[ci] + ('a' - 'A'));
+              }
+            }
+            if (ext == ".hdr") {
+              skyFiles.push_back(sit->path().string());
+            }
+          }
+        }
+        std::sort(skyFiles.begin(), skyFiles.end());
+        std::string comboItems = "Scene Capture";
+        for (size_t i = 0; i < skyFiles.size(); ++i) {
+          comboItems += std::string("\0") + std::filesystem::path(skyFiles[i]).filename().string();
+        }
+        comboItems += std::string("\0Custom .hdr...\0", 16);
+        int smax = static_cast<int>(skyFiles.size()) + 1;
+        int sm = viewSkyPreset < 0 ? 0 : (viewSkyPreset > smax ? smax : viewSkyPreset);
+        if (ImGui::Combo("Sky", &sm, comboItems.c_str())) {
+          viewSkyPreset = sm;
+          if (sm >= 1 && sm <= static_cast<int>(skyFiles.size())) {
+            Kizuri::RHITexture sky = assets.ImportHdrSky(skyFiles[static_cast<size_t>(sm - 1)]);
+            if (sky == 0) {
+              Announce(LogLevel::Error, "HDR sky failed");
+            } else if (!renderer.UseHdrSky(sky)) {
+              Announce(LogLevel::Error, "HDR sky adopt failed");
+            } else {
+              renderer.BakeIrradiance();
+              log.Add(LogLevel::Success, "HDR sky loaded");
+            }
+          } else if (sm == smax) {
+            std::string picked;
+            if (ShowOpenHdrDialog(window.NativeHandle(), picked)) {
+              Kizuri::RHITexture sky = assets.ImportHdrSky(picked);
+              if (sky == 0) {
+                Announce(LogLevel::Error, std::string("HDR sky failed: ") + picked);
+              } else if (!renderer.UseHdrSky(sky)) {
+                Announce(LogLevel::Error, "HDR sky adopt failed");
+              } else {
+                renderer.BakeIrradiance();
+                log.Add(LogLevel::Success, std::string("HDR sky loaded: ") + picked);
+              }
+            }
+          }
+        }
+      }
       if (ImGui::Button("Bake Environment")) {
         BakeEnvironment();
       }
       if (ImGui::Button("Bake Probes")) {
         BakeProbes();
-      }
-      if (ImGui::Button("Load HDR Sky")) {
-        std::string picked;
-        if (ShowOpenHdrDialog(window.NativeHandle(), picked)) {
-          Kizuri::RHITexture sky = assets.ImportHdrSky(picked);
-          if (sky == 0) {
-            Announce(LogLevel::Error, std::string("HDR sky failed: ") + picked);
-          } else if (!renderer.UseHdrSky(sky)) {
-            Announce(LogLevel::Error, "HDR sky adopt failed");
-          } else {
-            renderer.BakeIrradiance();
-            log.Add(LogLevel::Success, std::string("HDR sky loaded: ") + picked);
-          }
-        }
       }
       ImGui::EndTabItem();
     }
