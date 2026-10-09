@@ -200,7 +200,7 @@ float3 ShadeOne(float3 N, float3 V, float3 L, float3 lightColor, float3 albedo, 
         spec = (Fc * D * G) / max(4.0 * cosLi * cosLo, 1e-5);
     }
     float3 kd = (1.0 - F) * (1.0 - metallic);
-    float3 diff = kd * albedo;
+    float3 diff = kd * albedo / 3.14159265;
     float3 sheenAcc = float3(0.0, 0.0, 0.0);
     if (dot(lb.sheen, lb.sheen) > 1e-8) {
         float sheenD = D_Charlie(cosLh, lb.sheenRough);

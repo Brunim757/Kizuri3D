@@ -1337,15 +1337,37 @@ void EditorApp::DrawSettings() {
         viewQuality = q;
         Kizuri::QualitySettings qs = Kizuri::ApplyQualityPreset(static_cast<Kizuri::QualityLevel>(q));
         viewSsao = qs.ssao;
+        viewAoMode = qs.aoMode;
         viewSsr = qs.ssr;
+        viewSsrTemporal = qs.ssrTemporal;
         viewContact = qs.contact;
         viewSsgi = qs.ssgi;
         viewDof = qs.dof;
         viewMotion = qs.motionBlur;
         viewFxaa = qs.fxaa;
+        viewTaa = qs.taa;
+        viewTaaSharp = qs.taaSharp;
         viewFog = qs.fog;
         viewBloom = qs.bloom;
         viewScale = qs.renderScale;
+        viewShadowFilter = qs.shadowFilter;
+        viewVsmQuality = qs.vsmQuality;
+        viewShadowRange = qs.shadowRange;
+        viewDynRes = qs.dynRes;
+        viewOcc = qs.occ;
+        viewShadowAuto = qs.shadowAuto;
+        viewGodRays = qs.godRays;
+        renderer.SetAoMode(viewAoMode);
+        renderer.SetShadowFilter(viewShadowFilter);
+        renderer.SetVsmQuality(viewVsmQuality);
+        renderer.SetShadowRange(viewShadowRange);
+        renderer.SetTaa(viewTaa);
+        renderer.SetTaaSharpening(viewTaaSharp);
+        renderer.SetSsrTemporal(viewSsrTemporal, viewSsrTemporalBlend);
+        renderer.SetDynamicResolution(viewDynRes, viewDynTarget, 0.5f, 1.0f);
+        renderer.SetOcclusionCulling(viewOcc);
+        renderer.SetShadowAutoRes(viewShadowAuto);
+        renderer.SetGodRays(viewGodRays, viewGodDensity, viewGodDecay, viewGodIntensity);
       }
       ImGui::SliderFloat("Render Scale", &viewScale, 0.5f, 1.0f);
       ImGui::SliderFloat("Sharpness", &viewSharp, 0.0f, 1.0f);
@@ -1362,77 +1384,10 @@ void EditorApp::DrawSettings() {
       if (ImGui::Checkbox("TAA", &viewTaa)) {
         renderer.SetTaa(viewTaa);
       }
-      ImGui::SliderFloat("Env Intensity", &viewEnv, 0.0f, 4.0f);
-      {
-        std::vector<std::string> skyFiles;
-        std::error_code sec;
-        std::string skiesDir = (std::filesystem::path(assets.AssetsDir()) / "Skies").string();
-        for (std::filesystem::directory_iterator sit(skiesDir, sec), send; sit != send && !sec; sit.increment(sec)) {
-          std::error_code fec;
-          if (sit->is_regular_file(fec) && !fec) {
-            std::string ext = sit->path().extension().string();
-            for (size_t ci = 0; ci < ext.size(); ++ci) {
-              if (ext[ci] >= 'A' && ext[ci] <= 'Z') {
-                ext[ci] = static_cast<char>(ext[ci] + ('a' - 'A'));
-              }
-            }
-            if (ext == ".hdr") {
-              skyFiles.push_back(sit->path().string());
-            }
-          }
-        }
-        std::sort(skyFiles.begin(), skyFiles.end());
-        size_t embCount = Kizuri::EmbeddedSkyCount();
-        std::string comboItems = "Scene Capture";
-        for (size_t i = 0; i < embCount; ++i) {
-          comboItems += std::string("\0") + Kizuri::EmbeddedSkyAt(i).name;
-        }
-        for (size_t i = 0; i < skyFiles.size(); ++i) {
-          comboItems += std::string("\0") + std::filesystem::path(skyFiles[i]).filename().string();
-        }
-        comboItems += std::string("\0Custom .hdr...\0", 16);
-        int smax = static_cast<int>(embCount + skyFiles.size()) + 1;
-        int sm = viewSkyPreset < 0 ? 0 : (viewSkyPreset > smax ? smax : viewSkyPreset);
-        if (ImGui::Combo("Sky", &sm, comboItems.c_str())) {
-          viewSkyPreset = sm;
-          Kizuri::RHITexture sky = 0;
-          std::string skyLabel;
-          bool doLoad = true;
-          if (sm == 0) {
-            renderer.SetHdrBackground(false);
-            viewSkyPreset = sm;
-            doLoad = false;
-          } else if (sm >= 1 && static_cast<size_t>(sm) <= embCount) {
-            const Kizuri::EmbeddedSkyEntry& se = Kizuri::EmbeddedSkyAt(static_cast<size_t>(sm - 1));
-            sky = assets.ImportHdrSkyFromMemory(se.data, se.size);
-            skyLabel = se.name;
-          } else if (sm > static_cast<int>(embCount) && sm <= static_cast<int>(embCount + skyFiles.size())) {
-            std::string fp = skyFiles[static_cast<size_t>(sm - 1) - embCount];
-            sky = assets.ImportHdrSky(fp);
-            skyLabel = std::filesystem::path(fp).filename().string();
-          } else if (sm == smax) {
-            std::string picked;
-            if (ShowOpenHdrDialog(window.NativeHandle(), picked)) {
-              sky = assets.ImportHdrSky(picked);
-              skyLabel = std::filesystem::path(picked).filename().string();
-            } else {
-              doLoad = false;
-            }
-          } else {
-            doLoad = false;
-          }
-          if (doLoad) {
-            if (sky == 0) {
-              Announce(LogLevel::Error, std::string("HDR sky failed: ") + skyLabel);
-            } else if (!renderer.UseHdrSky(sky)) {
-              Announce(LogLevel::Error, "HDR sky adopt failed");
-            } else {
-              renderer.BakeIrradiance();
-              log.Add(LogLevel::Success, std::string("HDR sky loaded: ") + skyLabel);
-            }
-          }
-        }
+      if (viewTaa && ImGui::SliderFloat("TAA Sharpness", &viewTaaSharp, 0.0f, 1.0f)) {
+        renderer.SetTaaSharpening(viewTaaSharp);
       }
+      ImGui::SliderFloat("Env Intensity", &viewEnv, 0.0f, 4.0f);
       if (ImGui::Button("Bake Environment")) {
         BakeEnvironment();
       }
@@ -2748,8 +2703,52 @@ void EditorApp::DrawAssetBrowser() {
         ++suffix;
         np = (std::filesystem::path(browserPath) / ("New Folder " + std::to_string(suffix))).string();
       }
-      std::filesystem::create_directory(np, cec);
+      if (std::filesystem::create_directory(np, cec) || !cec) {
+        log.Add(LogLevel::Success, std::string("Folder created: ") + np);
+      } else {
+        Announce(LogLevel::Error, std::string("Could not create folder: ") + np);
+      }
       assets.Scan();
+    }
+    if (ImGui::MenuItem("Import Model...")) {
+      std::string picked;
+      if (ShowOpenGltfDialog(window.NativeHandle(), picked)) {
+        std::error_code cec;
+        std::string dst = (std::filesystem::path(browserPath) / std::filesystem::path(picked).filename()).string();
+        int suffix = 1;
+        while (std::filesystem::exists(dst, cec) && !cec && suffix < 100) {
+          std::string stem = std::filesystem::path(picked).stem().string();
+          std::string ext = std::filesystem::path(picked).extension().string();
+          dst = (std::filesystem::path(browserPath) / (stem + "_" + std::to_string(suffix++) + ext)).string();
+        }
+        std::filesystem::copy_file(picked, dst, cec);
+        if (cec) {
+          Announce(LogLevel::Error, std::string("Import copy failed: ") + picked);
+        } else {
+          log.Add(LogLevel::Success, std::string("Importing: ") + dst);
+          assets.Scan();
+        }
+      }
+    }
+    if (ImGui::MenuItem("Import Texture...")) {
+      std::string picked;
+      if (ShowOpenImageDialog(window.NativeHandle(), picked)) {
+        std::error_code cec;
+        std::string dst = (std::filesystem::path(browserPath) / std::filesystem::path(picked).filename()).string();
+        int suffix = 1;
+        while (std::filesystem::exists(dst, cec) && !cec && suffix < 100) {
+          std::string stem = std::filesystem::path(picked).stem().string();
+          std::string ext = std::filesystem::path(picked).extension().string();
+          dst = (std::filesystem::path(browserPath) / (stem + "_" + std::to_string(suffix++) + ext)).string();
+        }
+        std::filesystem::copy_file(picked, dst, cec);
+        if (cec) {
+          Announce(LogLevel::Error, std::string("Import copy failed: ") + picked);
+        } else {
+          log.Add(LogLevel::Success, std::string("Importing: ") + dst);
+          assets.Scan();
+        }
+      }
     }
     ImGui::EndPopup();
   }
@@ -2771,12 +2770,46 @@ void EditorApp::DrawAssetBrowser() {
     return toLower(std::filesystem::path(p).extension().string());
   };
   auto shortName = [](const std::string& fn) -> std::string {
-    if (fn.size() > 20) {
-      return fn.substr(0, 17) + "...";
+    if (fn.size() > 26) {
+      return fn.substr(0, 23) + "...";
     }
     return fn;
   };
-  float previewH = 122.0f;
+  auto stemName = [](const std::string& fn) -> std::string {
+    size_t dot = fn.find_last_of('.');
+    std::string stem = (dot == std::string::npos) ? fn : fn.substr(0, dot);
+    if (stem.size() > 26) {
+      return stem.substr(0, 23) + "...";
+    }
+    return stem;
+  };
+  auto loadHdrSky = [this](const std::string& path, const std::string& fn) {
+    Kizuri::RHITexture sky = assets.ImportHdrSky(path);
+    if (sky == 0) {
+      Announce(LogLevel::Error, std::string("HDR sky failed: ") + fn);
+    } else if (!renderer.UseHdrSky(sky)) {
+      Announce(LogLevel::Error, "HDR sky adopt failed");
+    } else {
+      renderer.BakeIrradiance();
+      renderer.SetHdrBackground(true);
+      log.Add(LogLevel::Success, std::string("HDR sky loaded: ") + fn);
+    }
+  };
+  auto loadCineLut = [this](const std::string& path, const std::string& fn) {
+    std::vector<unsigned char> lutPx;
+    int lutSize = 0;
+    if (!Kizuri::ParseCubeLut(path, lutPx, lutSize)) {
+      Announce(LogLevel::Error, std::string("LUT parse failed: ") + fn);
+    } else if (!renderer.UploadLut(lutPx.data(), lutSize)) {
+      Announce(LogLevel::Error, "LUT upload failed");
+    } else {
+      viewLutPreset = 5;
+      viewLutAmount = 1.0f;
+      renderer.SetLutAmount(1.0f);
+      log.Add(LogLevel::Success, std::string("LUT loaded: ") + fn);
+    }
+  };
+  float previewH = 210.0f;
   ImGui::BeginChild("BrTree", ImVec2(205.0f, -previewH), true);
   std::function<void(const std::string&, int)> drawTreeDir = [&](const std::string& dir, int depth) {
     if (depth > 8) {
@@ -2961,9 +2994,46 @@ void EditorApp::DrawAssetBrowser() {
     });
   }
   float availX = ImGui::GetContentRegionAvail().x;
-  int cols = availX > 110.0f ? static_cast<int>(availX / 104.0f) : 1;
+  int cols = availX > 130.0f ? static_cast<int>(availX / 120.0f) : 1;
   if (cols < 1) {
     cols = 1;
+  }
+  {
+    auto normPath = [](const std::string& p) -> std::string {
+      std::string o = p;
+      for (size_t i = 0; i < o.size(); ++i) {
+        if (o[i] == '\\') {
+          o[i] = '/';
+        }
+      }
+      return o;
+    };
+    std::vector<std::string> keptGlbs;
+    for (size_t i = 0; i < folderGlbs.size(); ++i) {
+      bool sourced = false;
+      for (size_t k = 0; k < folderMeshes.size() && !sourced; ++k) {
+        if (folderMeshes[k] != nullptr && folderMeshes[k]->hasSource && normPath(folderMeshes[k]->sourcePath) == normPath(folderGlbs[i])) {
+          sourced = true;
+        }
+      }
+      if (!sourced) {
+        keptGlbs.push_back(folderGlbs[i]);
+      }
+    }
+    folderGlbs.swap(keptGlbs);
+    std::vector<std::string> keptImages;
+    for (size_t i = 0; i < folderImages.size(); ++i) {
+      bool sourced = false;
+      for (size_t k = 0; k < folderTexs.size() && !sourced; ++k) {
+        if (folderTexs[k] != nullptr && normPath(folderTexs[k]->sourcePath) == normPath(folderImages[i])) {
+          sourced = true;
+        }
+      }
+      if (!sourced) {
+        keptImages.push_back(folderImages[i]);
+      }
+    }
+    folderImages.swap(keptImages);
   }
   int gridIdx = 0;
   auto gridNext = [&gridIdx, cols]() {
@@ -3041,31 +3111,35 @@ void EditorApp::DrawAssetBrowser() {
       items.push_back(e);
     }
   }
-  for (size_t i = 0; i < folderImages.size(); ++i) {
-    bool knownTex = false;
-    for (size_t k = 0; k < folderTexs.size(); ++k) {
-      if (folderTexs[k] != nullptr && folderTexs[k]->sourcePath == folderImages[i]) {
-        knownTex = true;
-        break;
+  if (bf == 0 || bf == 2) {
+    for (size_t i = 0; i < folderImages.size(); ++i) {
+      bool knownTex = false;
+      for (size_t k = 0; k < folderTexs.size(); ++k) {
+        if (folderTexs[k] != nullptr && folderTexs[k]->sourcePath == folderImages[i]) {
+          knownTex = true;
+          break;
+        }
       }
+      if (knownTex) {
+        continue;
+      }
+      BrEntry e;
+      e.kind = 5;
+      e.path = folderImages[i];
+      e.mesh = nullptr;
+      e.tex = nullptr;
+      items.push_back(e);
     }
-    if (knownTex) {
-      continue;
-    }
-    BrEntry e;
-    e.kind = 5;
-    e.path = folderImages[i];
-    e.mesh = nullptr;
-    e.tex = nullptr;
-    items.push_back(e);
   }
-  for (size_t i = 0; i < folderMisc.size(); ++i) {
-    BrEntry e;
-    e.kind = 6;
-    e.path = folderMisc[i];
-    e.mesh = nullptr;
-    e.tex = nullptr;
-    items.push_back(e);
+  if (bf == 0 || bf == 4) {
+    for (size_t i = 0; i < folderMisc.size(); ++i) {
+      BrEntry e;
+      e.kind = 6;
+      e.path = folderMisc[i];
+      e.mesh = nullptr;
+      e.tex = nullptr;
+      items.push_back(e);
+    }
   }
   std::sort(items.begin(), items.end(), [](const BrEntry& a, const BrEntry& b) {
     if ((a.kind == 0) != (b.kind == 0)) {
@@ -3080,8 +3154,10 @@ void EditorApp::DrawAssetBrowser() {
       std::string fn = std::filesystem::path(it.path).filename().string();
       ImGui::PushID(uid++);
       ImGui::BeginGroup();
-      if (ImGui::Button("D", ImVec2(76, 56))) {
-      }
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.36f, 0.16f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.55f, 0.44f, 0.20f, 1.0f));
+      ImGui::Button("Folder", ImVec2(96, 64));
+      ImGui::PopStyleColor(2);
       if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
         browserPath = it.path;
         browserSelPath = it.path;
@@ -3118,22 +3194,25 @@ void EditorApp::DrawAssetBrowser() {
       bool sel = selectedAssetGuid == rec->guid && !selectedAssetIsTex;
       if (sel) {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.45f, 0.65f, 1.0f));
+      } else {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.16f, 0.32f, 0.52f, 1.0f));
       }
-      ImGui::Button("M", ImVec2(76, 56));
-      if (sel) {
-        ImGui::PopStyleColor();
-      }
+      ImGui::Button("Mesh", ImVec2(96, 64));
+      ImGui::PopStyleColor();
       if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
         selectedAssetGuid = rec->guid;
         selectedAssetIsTex = false;
         browserSelPath = rec->meshPath;
+      }
+      if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        CreateEntityAt(0.0f, 0.0f, 0.0f, rec->guid);
       }
       if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
         ImGui::SetDragDropPayload("KZ_ASSET", rec->guid.c_str(), rec->guid.size() + 1);
         ImGui::Text("%s", fn.c_str());
         ImGui::EndDragDropSource();
       }
-      ImGui::Text("%s", shortName(fn).c_str());
+      ImGui::Text("%s", stemName(fn).c_str());
       const char* tag = meshTag(rec);
       if (tag[0] != '\0') {
         ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "%s", tag);
@@ -3221,18 +3300,18 @@ void EditorApp::DrawAssetBrowser() {
         if (sel) {
           ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.45f, 0.65f, 1.0f));
         }
-        pressed = ImGui::ImageButton("tx", reinterpret_cast<ImTextureID>(thumbSrv), ImVec2(76, 56));
+        pressed = ImGui::ImageButton("tx", reinterpret_cast<ImTextureID>(thumbSrv), ImVec2(96, 64));
         if (sel) {
           ImGui::PopStyleColor();
         }
       } else {
         if (sel) {
           ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.45f, 0.65f, 1.0f));
+        } else {
+          ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.14f, 0.42f, 0.28f, 1.0f));
         }
-        pressed = ImGui::Button("T", ImVec2(76, 56));
-        if (sel) {
-          ImGui::PopStyleColor();
-        }
+        pressed = ImGui::Button("Tex", ImVec2(96, 64));
+        ImGui::PopStyleColor();
       }
       (void)pressed;
       if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
@@ -3245,7 +3324,7 @@ void EditorApp::DrawAssetBrowser() {
         ImGui::Text("%s", fn.c_str());
         ImGui::EndDragDropSource();
       }
-      ImGui::Text("%s", shortName(fn).c_str());
+      ImGui::Text("%s", stemName(fn).c_str());
       ImGui::EndGroup();
       if (ImGui::BeginPopupContextItem("TexCtx")) {
         bool canReimport = rec->hasSource;
@@ -3307,8 +3386,11 @@ void EditorApp::DrawAssetBrowser() {
       bool ready = std::filesystem::exists(sib, sec) && !sec;
       ImGui::PushID(uid++);
       ImGui::BeginGroup();
-      ImGui::Button("G", ImVec2(76, 56));
-      ImGui::Text("%s", shortName(fn).c_str());
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.42f, 0.24f, 0.14f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.52f, 0.30f, 0.18f, 1.0f));
+      ImGui::Button("Source", ImVec2(96, 64));
+      ImGui::PopStyleColor(2);
+      ImGui::Text("%s", stemName(fn).c_str());
       ImGui::TextDisabled("%s", ready ? "[READY]" : "[PENDING]");
       ImGui::EndGroup();
       ImGui::PopID();
@@ -3316,7 +3398,10 @@ void EditorApp::DrawAssetBrowser() {
       std::string fn = std::filesystem::path(it.path).filename().string();
       ImGui::PushID(uid++);
       ImGui::BeginGroup();
-      ImGui::Button("S", ImVec2(76, 56));
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.30f, 0.22f, 0.48f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.38f, 0.28f, 0.58f, 1.0f));
+      ImGui::Button("Scene", ImVec2(96, 64));
+      ImGui::PopStyleColor(2);
       if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
         DoOpenPath(it.path);
       }
@@ -3341,17 +3426,12 @@ void EditorApp::DrawAssetBrowser() {
       bool isHdr = ext == ".hdr";
       ImGui::PushID(uid++);
       ImGui::BeginGroup();
-      ImGui::Button(isHdr ? "H" : "I", ImVec2(76, 56));
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.30f, 0.55f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.26f, 0.38f, 0.66f, 1.0f));
+      ImGui::Button(isHdr ? "HDR Sky" : "Image", ImVec2(96, 64));
+      ImGui::PopStyleColor(2);
       if (isHdr && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-        Kizuri::RHITexture sky = assets.ImportHdrSky(it.path);
-        if (sky == 0) {
-          Announce(LogLevel::Error, std::string("HDR sky failed: ") + fn);
-        } else if (!renderer.UseHdrSky(sky)) {
-          Announce(LogLevel::Error, "HDR sky adopt failed");
-        } else {
-          renderer.BakeIrradiance();
-          log.Add(LogLevel::Success, std::string("HDR sky loaded: ") + fn);
-        }
+        loadHdrSky(it.path, fn);
       }
       if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
         browserSelPath = it.path;
@@ -3361,9 +3441,22 @@ void EditorApp::DrawAssetBrowser() {
       ImGui::PopID();
     } else if (it.kind == 6) {
       std::string fn = std::filesystem::path(it.path).filename().string();
+      std::string ext6 = std::filesystem::path(it.path).extension().string();
+      for (size_t ci = 0; ci < ext6.size(); ++ci) {
+        if (ext6[ci] >= 'A' && ext6[ci] <= 'Z') {
+          ext6[ci] = static_cast<char>(ext6[ci] + ('a' - 'A'));
+        }
+      }
+      bool isCube = ext6 == ".cube";
       ImGui::PushID(uid++);
       ImGui::BeginGroup();
-      ImGui::Button("L", ImVec2(76, 56));
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.32f, 0.32f, 0.34f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.40f, 0.40f, 0.42f, 1.0f));
+      ImGui::Button(isCube ? "LUT" : "File", ImVec2(96, 64));
+      ImGui::PopStyleColor(2);
+      if (isCube && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        loadCineLut(it.path, fn);
+      }
       if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
         browserSelPath = it.path;
       }
@@ -3381,23 +3474,61 @@ void EditorApp::DrawAssetBrowser() {
     if (pm != nullptr) {
       size_t verts = pm->data.positions.size() / 3;
       ImGui::Text("Mesh: %s", std::filesystem::path(pm->meshPath).filename().string().c_str());
+      ImGui::TextDisabled("%llu verts  %llu tris  %llu parts", (unsigned long long)verts, (unsigned long long)(pm->data.indices.size() / 3), (unsigned long long)pm->data.parts.size());
+      if (ImGui::Button("Add to Scene")) {
+        CreateEntityAt(0.0f, 0.0f, 0.0f, pm->guid);
+      }
       ImGui::SameLine();
-      ImGui::TextDisabled("%llu verts %llu tris %llu parts", (unsigned long long)verts, (unsigned long long)(pm->data.indices.size() / 3), (unsigned long long)pm->data.parts.size());
+      ImGui::TextDisabled("double-click a tile also adds it");
     } else if (pt != nullptr) {
       if (pt->gpu != 0 && rhi != nullptr) {
         void* psrv = rhi->GetTextureSRV(pt->gpu);
         if (psrv != nullptr) {
-          ImGui::Image(reinterpret_cast<ImTextureID>(psrv), ImVec2(96, 96));
-          ImGui::SameLine();
+          float avail = ImGui::GetContentRegionAvail().x;
+          float side = avail > 180.0f ? 180.0f : avail;
+          if (side > 32.0f) {
+            ImGui::Image(reinterpret_cast<ImTextureID>(psrv), ImVec2(side, side));
+          }
         }
       }
       ImGui::Text("Texture: %s", std::filesystem::path(pt->sourcePath).filename().string().c_str());
-      ImGui::SameLine();
-      ImGui::TextDisabled("%dx%d %llu mip", pt->data.width, pt->data.height, (unsigned long long)pt->data.mips.size());
+      ImGui::TextDisabled("%dx%d  %llu mip", pt->data.width, pt->data.height, (unsigned long long)pt->data.mips.size());
     } else if (!browserSelPath.empty()) {
-      ImGui::TextDisabled("%s", browserSelPath.c_str());
+      std::error_code pec;
+      bool isDir = std::filesystem::is_directory(browserSelPath, pec) && !pec;
+      std::string pext = std::filesystem::path(browserSelPath).extension().string();
+      for (size_t ci = 0; ci < pext.size(); ++ci) {
+        if (pext[ci] >= 'A' && pext[ci] <= 'Z') {
+          pext[ci] = static_cast<char>(pext[ci] + ('a' - 'A'));
+        }
+      }
+      std::string pfn = std::filesystem::path(browserSelPath).filename().string();
+      ImGui::Text("%s", pfn.c_str());
+      if (isDir) {
+        if (ImGui::Button("Open Folder")) {
+          browserPath = browserSelPath;
+        }
+      } else if (pext == ".hdr") {
+        ImGui::TextDisabled("Double-click loads it as sky, or:");
+        if (ImGui::Button("Set as Sky")) {
+          loadHdrSky(browserSelPath, pfn);
+        }
+      } else if (pext == ".cube") {
+        ImGui::TextDisabled("Color grading LUT, or:");
+        if (ImGui::Button("Load LUT")) {
+          loadCineLut(browserSelPath, pfn);
+        }
+      } else if (pext == ".kzscene") {
+        if (ImGui::Button("Open Scene")) {
+          DoOpenPath(browserSelPath);
+        }
+      } else if (pext == ".glb" || pext == ".gltf") {
+        ImGui::TextDisabled("Importing runs in the background; the Mesh tile appears when ready.");
+      } else {
+        ImGui::TextDisabled("%s", browserSelPath.c_str());
+      }
     } else {
-      ImGui::TextDisabled("Select an asset to preview");
+      ImGui::TextDisabled("Select an asset: drag meshes into the viewport, double-click HDR/LUT/scene.");
     }
   }
   ImGui::EndChild();

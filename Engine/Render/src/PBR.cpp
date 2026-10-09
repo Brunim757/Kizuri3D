@@ -106,9 +106,9 @@ void ShadeCore(
     (1.0f - F[2]) * (1.0f - metallic)
   };
   float diff[3] = {
-    kd[0] * albedo[0],
-    kd[1] * albedo[1],
-    kd[2] * albedo[2]
+    kd[0] * albedo[0] / 3.14159265f,
+    kd[1] * albedo[1] / 3.14159265f,
+    kd[2] * albedo[2] / 3.14159265f
   };
   outColor[0] = (diff[0] + spec[0]) * lightColor[0] * cosLi * scale;
   outColor[1] = (diff[1] + spec[1]) * lightColor[1] * cosLi * scale;

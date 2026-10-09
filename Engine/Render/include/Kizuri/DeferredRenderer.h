@@ -214,6 +214,8 @@ public:
   void SetShadowDebug(bool debug);
   void SetGrade(float exposure, bool aces);
   void SetTaa(bool on);
+  void SetTaaSharpening(float strength);
+  void InvalidateTaa();
   bool IsTaaValid() const;
   void SetToneMapping(int mode);
   void SetAutoExposure(bool on);
@@ -528,6 +530,10 @@ public:
   int toneMode;
   RHIPixelShader taaPS;
   RHIConstBuffer taaCB;
+  RHIPixelShader taaSharpenPS;
+  RHIConstBuffer taaSharpCB;
+  RHIRenderTarget taaSharpA;
+  float taaSharpness;
   RHIPixelShader lumPS;
   RHIConstBuffer lumCB;
   RHIRenderTarget lumA;

@@ -147,7 +147,7 @@ float3 ShadeFwd(float3 N, float3 V, float3 L, float3 lightColor, float3 albedo, 
     float3 kd = (1.0 - F) * (1.0 - metallic);
     float wrapLi = saturate((dot(N, L) + 0.5) / 1.5);
     wrapLi *= wrapLi;
-    return (kd * albedo * wrapLi + spec * cosLi) * lightColor;
+    return (kd * albedo / 3.14159265 * wrapLi + spec * cosLi) * lightColor;
 }
 float4 main(PSIn pin) : SV_Target
 {

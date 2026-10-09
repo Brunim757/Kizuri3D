@@ -39,7 +39,6 @@ EditorApp::EditorApp()
   , viewTint(0.0f)
   , viewLutAmount(0.0f)
   , viewLutPreset(0)
-  , viewSkyPreset(0)
   , viewBloom(0.5f)
   , viewScale(1.0f)
   , viewSharp(0.5f)
@@ -69,6 +68,7 @@ EditorApp::EditorApp()
   , viewSsgi(true)
   , viewFxaa(true)
   , viewTaa(false)
+  , viewTaaSharp(0.25f)
   , viewEnv(1.0f)
   , viewDof(false)
   , viewFocusDist(10.0f)
@@ -376,17 +376,7 @@ std::string EditorApp::FindAsset(const char* name) {
   return name;
 }
 bool EditorApp::Initialize() {
-  auto stage = [](const char* s) {
-    FILE* fp = std::fopen("kizuri_startup.log", "a");
-    if (fp != nullptr) {
-      std::fputs(s, fp);
-      std::fputs("\n", fp);
-      std::fclose(fp);
-    }
-  };
-  stage("window");
   if (!window.Create(L"Kizuri3D Editor", 1600, 900)) {
-    stage("FAIL window.Create");
     return false;
   }
   window.SetMessageHook([this](void* hwnd, unsigned int msg, unsigned long long wParam, long long lParam) -> long long {
@@ -405,9 +395,7 @@ bool EditorApp::Initialize() {
   desc.height = window.Height();
   desc.vsync = true;
   rhi = CreateRHI(RHI_API::D3D11);
-  stage("rhi");
   if (rhi == nullptr || !rhi->Initialize(desc)) {
-    stage("FAIL rhi.Initialize (DirectX 11 indisponivel?)");
     return false;
   }
   IMGUI_CHECKVERSION();
@@ -434,10 +422,8 @@ bool EditorApp::Initialize() {
     Announce(LogLevel::Error, std::string("Mesh load failed: ") + cubePath);
   }
   std::string shaderDir = FindShaderDir();
-  stage("renderer");
   if (!renderer.Initialize(rhi, window.Width(), window.Height(), shaderDir.c_str())) {
     log.Add(LogLevel::Error, "Deferred renderer init failed");
-    stage("FAIL renderer.Initialize (Shaders/ ausente ou HLSL falhou?)");
     return false;
   }
   if (cubeReady) {
@@ -463,30 +449,25 @@ bool EditorApp::Initialize() {
   InitStoragePaths();
   assets.SetAssetsDir(ResolveAssetsDir());
   assets.SetGpuRHI(rhi);
-  stage("assets");
   try {
     assets.Scan();
   } catch (...) {
-    stage("FAIL assets.Scan");
     return false;
   }
   {
     std::string idx = "Assets indexed: " + std::to_string(assets.AllGuids().size()) + " meshes, " + std::to_string(assets.AllTexGuids().size()) + " textures, pending " + std::to_string(assets.PendingImports());
     log.Add(LogLevel::Info, idx);
   }
-  stage("hdrsky");
   try {
     if (Kizuri::EmbeddedSkyCount() > 0) {
       const Kizuri::EmbeddedSkyEntry& se = Kizuri::EmbeddedSkyAt(0);
       Kizuri::RHITexture sky = assets.ImportHdrSkyFromMemory(se.data, se.size);
       if (sky != 0 && renderer.UseHdrSky(sky)) {
         renderer.BakeIrradiance();
-        viewSkyPreset = 1;
         log.Add(LogLevel::Success, std::string("Built-in HDR sky: ") + se.name);
       }
     }
   } catch (...) {
-    stage("FAIL embedded sky (ignorado)");
   }
   UploadDefaultCube();
   OfferRestoreFor(ReadLastScene());

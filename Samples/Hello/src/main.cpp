@@ -1921,6 +1921,17 @@ bool TestLightFeatures() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
+bool TestQualityPreset() {
+  Kizuri::QualitySettings low = Kizuri::ApplyQualityPreset(Kizuri::QualityLevel::Low);
+  Kizuri::QualitySettings ultra = Kizuri::ApplyQualityPreset(Kizuri::QualityLevel::Ultra);
+  Kizuri::QualitySettings high = Kizuri::ApplyQualityPreset(Kizuri::QualityLevel::High);
+  bool ok = !low.taa && !low.ssr && !low.godRays && low.renderScale < 1.0f;
+  ok = ok && ultra.taa && ultra.ssrTemporal && ultra.aoMode == 3 && ultra.shadowFilter == 3;
+  ok = ok && ultra.vsmQuality == 0 && ultra.godRays && ultra.renderScale == 1.0f;
+  ok = ok && ultra.bloom == 1.0f && ultra.motionBlur && ultra.dof && ultra.ssgi;
+  ok = ok && high.aoMode == 2 && high.shadowFilter == 2 && high.taa;
+  return ok;
+}
 bool TestIblBake() {
   Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
   if (rhi == nullptr) {
@@ -2337,7 +2348,17 @@ bool TestTaaPassDelta() {
   renderer.BeginObjects(view, proj);
   renderer.EndObjectsToTexture(cam);
   uint32_t on = renderer.GetStats().postPasses;
-  bool ok = on == off + 1;
+  bool ok = on == off + 2;
+  renderer.SetTaaSharpening(0.0f);
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  uint32_t nosharp = renderer.GetStats().postPasses;
+  ok = ok && nosharp == on - 1;
+  renderer.SetTaaSharpening(2.0f);
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && renderer.GetStats().postPasses == on;
+  renderer.SetTaaSharpening(0.25f);
   renderer.Shutdown();
   rhi->Shutdown();
   Kizuri::DestroyRHI(rhi);
@@ -6894,6 +6915,7 @@ int main() {
   failures += Check("HdrBackground", TestHdrBackground());
   failures += Check("RectLight", TestRectLight());
   failures += Check("LightFeatures", TestLightFeatures());
+  failures += Check("QualityPreset", TestQualityPreset());
   failures += Check("IblBake", TestIblBake());
   failures += Check("TaaHistory", TestTaaHistory());
   failures += Check("AutoExposure", TestAutoExposure());

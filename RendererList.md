@@ -217,7 +217,7 @@ Sem Ray Tracing
 - [x] Temporal jitter
 - [x] Motion vectors
 - [x] History buffers
-- [ ] TAA sharpening
+- [x] TAA sharpening
 - [x] TAA ghosting reduction
 - [x] Temporal reconstruction
 

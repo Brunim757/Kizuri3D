@@ -59,7 +59,6 @@ struct EditorApp {
   float viewTint;
   float viewLutAmount;
   int viewLutPreset;
-  int viewSkyPreset;
   float viewBloom;
   float viewScale;
   float viewSharp;
@@ -90,6 +89,7 @@ struct EditorApp {
   bool viewSsgi;
   bool viewFxaa;
   bool viewTaa;
+  float viewTaaSharp;
   float viewEnv;
   bool viewDof;
   float viewFocusDist;
