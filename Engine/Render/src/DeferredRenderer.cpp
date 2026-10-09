@@ -49,6 +49,7 @@ struct LightConstants {
   float probeBoxMax[4][4];
   float iblInfo[4];
   float shadowCtl[4];
+  float vsmInfo[4];
 };
 struct MatConstants {
   float albedo[4];
@@ -400,6 +401,18 @@ DeferredRenderer::DeferredRenderer()
   , shadowFilter(0)
   , shadowNormalBias(1.0f)
   , shadowAutoBias(true)
+  , shadowMoments(0)
+  , shadowMomentsTmp(0)
+  , momentsPS(0)
+  , momentsBlurPS(0)
+  , momentsCB(0)
+  , pointSampler(0)
+  , momentsSize(1024)
+  , momentsQuality(1)
+  , momentsValid(false)
+  , vsmBleed(0.3f)
+  , evsmExponent(4.0f)
+  , shadowRange(0.0f)
   , hasCasterHash(false)
   , lastCasterHash(0)
   , shadowAutoFrames(0)
@@ -612,6 +625,26 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (taaPS == 0) {
     return false;
   }
+  std::string momentsPath = dir + "/MomentsPS.hlsl";
+  momentsPS = rhi->CreatePixelShaderFromFile(momentsPath.c_str(), "main");
+  if (momentsPS == 0) {
+    return false;
+  }
+  std::string momentsBlurPath = dir + "/MomentsBlurPS.hlsl";
+  momentsBlurPS = rhi->CreatePixelShaderFromFile(momentsBlurPath.c_str(), "main");
+  if (momentsBlurPS == 0) {
+    return false;
+  }
+  float momentsInit[4] = { 0.0f, 4.0f, 0.0f, 0.0f };
+  momentsCB = rhi->CreateConstantBuffer(sizeof(momentsInit), &momentsInit);
+  if (momentsCB == 0) {
+    return false;
+  }
+  pointSampler = rhi->CreateSamplerPoint();
+  if (pointSampler == 0) {
+    return false;
+  }
+  RecreateMomentsTargets();
   float taaInit[28] = { 0.0f };
   taaCB = rhi->CreateConstantBuffer(sizeof(taaInit), &taaInit);
   if (taaCB == 0) {
@@ -887,6 +920,15 @@ void DeferredRenderer::Shutdown() {
     rhi->DestroyRenderTarget(shadowAtlas);
     shadowAtlas = 0;
   }
+  if (shadowMoments != 0) {
+    rhi->DestroyRenderTarget(shadowMoments);
+    shadowMoments = 0;
+  }
+  if (shadowMomentsTmp != 0) {
+    rhi->DestroyRenderTarget(shadowMomentsTmp);
+    shadowMomentsTmp = 0;
+  }
+  momentsValid = false;
   if (shadowCube != 0) {
     rhi->DestroyRenderTarget(shadowCube);
     shadowCube = 0;
@@ -1450,6 +1492,9 @@ void DeferredRenderer::RenderShadowMaps() {
   stats.shadowCached = false;
   if (shadowCacheOn && hasCasterHash && casterHash == lastCasterHash && shadowAtlas != 0 && shadowCube != 0) {
     stats.shadowCached = true;
+    if (shadowFilter >= 2 && !momentsValid) {
+      UpdateShadowMoments();
+    }
     return;
   }
   shadowCascadeActive = 0;
@@ -1738,6 +1783,7 @@ void DeferredRenderer::RenderShadowMaps() {
   shadowMapsValid = shadowCascadeActive > 0 || shadowSpotActive > 0 || shadowPointActive;
   lastCasterHash = casterHash;
   hasCasterHash = true;
+  UpdateShadowMoments();
 }
 bool DeferredRenderer::Resize(int nw, int nh) {
   if (nw <= 0 || nh <= 0) {
@@ -2095,7 +2141,25 @@ void DeferredRenderer::SetShadowCaching(bool on) {
   }
 }
 void DeferredRenderer::SetShadowFilter(int mode) {
-  shadowFilter = mode < 0 ? 0 : (mode > 1 ? 1 : mode);
+  shadowFilter = mode < 0 ? 0 : (mode > 3 ? 3 : mode);
+  momentsValid = false;
+}
+void DeferredRenderer::SetVsmQuality(int q) {
+  momentsQuality = q < 0 ? 0 : (q > 2 ? 2 : q);
+  momentsValid = false;
+  RecreateMomentsTargets();
+}
+void DeferredRenderer::SetVsmBleed(float bleed) {
+  vsmBleed = bleed < 0.0f ? 0.0f : (bleed > 0.9f ? 0.9f : bleed);
+}
+void DeferredRenderer::SetEvsmExponent(float c) {
+  evsmExponent = c < 0.5f ? 0.5f : (c > 5.0f ? 5.0f : c);
+}
+void DeferredRenderer::SetShadowRange(float range) {
+  shadowRange = range < 0.0f ? 0.0f : range;
+}
+bool DeferredRenderer::MomentsReady() const {
+  return momentsValid && shadowMoments != 0;
 }
 void DeferredRenderer::SetNormalBias(float scale) {
   shadowNormalBias = scale < 0.0f ? 0.0f : (scale > 4.0f ? 4.0f : scale);
@@ -2154,6 +2218,86 @@ void DeferredRenderer::RecreateShadowTargets() {
   shadowCube = rhi->CreateShadowCube(shadowCubeSize);
   shadowsAvailable = shadowAtlas != 0 && shadowCube != 0 && shadowSampler != 0;
   hasCasterHash = false;
+  RecreateMomentsTargets();
+}
+void DeferredRenderer::RecreateMomentsTargets() {
+  if (rhi == nullptr) {
+    return;
+  }
+  if (shadowMoments != 0) {
+    rhi->DestroyRenderTarget(shadowMoments);
+    shadowMoments = 0;
+  }
+  if (shadowMomentsTmp != 0) {
+    rhi->DestroyRenderTarget(shadowMomentsTmp);
+    shadowMomentsTmp = 0;
+  }
+  momentsValid = false;
+  int cap = shadowAtlasSize > 2048 ? 2048 : shadowAtlasSize;
+  if (momentsQuality == 1) {
+    cap /= 2;
+  } else if (momentsQuality == 2) {
+    cap /= 4;
+  }
+  if (cap < 256) {
+    cap = 256;
+  }
+  momentsSize = cap;
+  shadowMoments = rhi->CreateRenderTarget(momentsSize, momentsSize, RHIFormat::RGBA16F);
+  shadowMomentsTmp = rhi->CreateRenderTarget(momentsSize, momentsSize, RHIFormat::RGBA16F);
+}
+void DeferredRenderer::UpdateShadowMoments() {
+  momentsValid = false;
+  if (rhi == nullptr || !shadowsAvailable || shadowFilter < 2) {
+    return;
+  }
+  if (momentsPS == 0 || momentsBlurPS == 0 || momentsCB == 0) {
+    return;
+  }
+  if (shadowMoments == 0 || shadowMomentsTmp == 0) {
+    RecreateMomentsTargets();
+  }
+  if (shadowMoments == 0 || shadowMomentsTmp == 0) {
+    return;
+  }
+  float mi[4] = { shadowFilter >= 3 ? 2.0f : 1.0f, evsmExponent, 0.0f, 0.0f };
+  rhi->UpdateConstantBuffer(momentsCB, &mi, sizeof(mi));
+  rhi->SetPixelConstantBuffer(0, momentsCB);
+  rhi->SetPixelSampler(0, pointSampler);
+  rhi->SetRenderTargets(1, &shadowMoments, 0);
+  RHIViewport mvp;
+  mvp.x = 0.0f;
+  mvp.y = 0.0f;
+  mvp.w = static_cast<float>(momentsSize);
+  mvp.h = static_cast<float>(momentsSize);
+  mvp.minD = 0.0f;
+  mvp.maxD = 1.0f;
+  rhi->SetViewport(mvp);
+  rhi->SetVertexShader(lightVS);
+  rhi->SetPixelShader(momentsPS);
+  rhi->SetPixelTexture(0, shadowAtlas);
+  NoteFullscreen();
+  rhi->SetPixelTexture(0, 0);
+  float inv = momentsSize > 0 ? 1.0f / static_cast<float>(momentsSize) : 0.0f;
+  int passes = momentsQuality == 0 ? 2 : 1;
+  for (int p = 0; p < passes; ++p) {
+    float bh[4] = { inv, 0.0f, 0.0f, 0.0f };
+    rhi->UpdateConstantBuffer(momentsCB, &bh, sizeof(bh));
+    rhi->SetPixelSampler(0, sampler);
+    rhi->SetPixelShader(momentsBlurPS);
+    rhi->SetPixelTexture(0, 0);
+    rhi->SetRenderTargets(1, &shadowMomentsTmp, 0);
+    rhi->SetPixelTexture(0, shadowMoments);
+    NoteFullscreen();
+    rhi->SetPixelTexture(0, 0);
+    float bv[4] = { 0.0f, inv, 0.0f, 0.0f };
+    rhi->UpdateConstantBuffer(momentsCB, &bv, sizeof(bv));
+    rhi->SetRenderTargets(1, &shadowMoments, 0);
+    rhi->SetPixelTexture(0, shadowMomentsTmp);
+    NoteFullscreen();
+    rhi->SetPixelTexture(0, 0);
+  }
+  momentsValid = true;
 }
 void DeferredRenderer::UpdateShadowAutoRes() {
   if (!shadowAutoRes) {
@@ -3342,6 +3486,10 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   lc.shadowCtl[1] = shadowNormalBias;
   lc.shadowCtl[2] = shadowAutoBias ? 1.0f : 0.0f;
   lc.shadowCtl[3] = 1.0f;
+  lc.vsmInfo[0] = MomentsReady() ? 1.0f : 0.0f;
+  lc.vsmInfo[1] = vsmBleed;
+  lc.vsmInfo[2] = evsmExponent;
+  lc.vsmInfo[3] = shadowRange;
   for (int pi = 0; pi < 4; ++pi) {
     lc.probeBoxMin[pi][0] = probeBoxMin[pi][0];
     lc.probeBoxMin[pi][1] = probeBoxMin[pi][1];
@@ -3359,6 +3507,9 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelTexture(4, shadowAtlas);
     rhi->SetPixelTexture(5, shadowCube);
     rhi->SetPixelSampler(1, shadowSampler);
+  }
+  if (MomentsReady()) {
+    rhi->SetPixelTexture(21, shadowMoments);
   }
   if (ssaoValid) {
     rhi->SetPixelTexture(6, ssaoA);
@@ -3398,6 +3549,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture(15, 0);
   rhi->SetPixelTexture(16, 0);
   rhi->SetPixelTexture(17, 0);
+  rhi->SetPixelTexture(21, 0);
   rhi->SetPixelTexture2D(18, 0);
   rhi->SetPixelTexture2D(19, 0);
   rhi->SetPixelTexture(20, 0);

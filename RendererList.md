@@ -100,8 +100,8 @@ Futuro
 - [x] Cascaded Shadow Maps
 - [x] PCF
 - [x] PCSS
-- [ ] VSM
-- [ ] EVSM
+- [x] VSM
+- [x] EVSM
 - [x] Contact shadows
 - [x] Soft shadows
 - [x] Shadow bias automático
@@ -110,7 +110,7 @@ Futuro
 - [x] Shadow caching
 - [x] Shadow resolution dinâmica
 - [x] Cascades configuráveis
-- [ ] Distance-based shadow quality
+- [x] Distance-based shadow quality
 
 ---
 

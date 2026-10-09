@@ -68,6 +68,10 @@ struct EditorApp {
   bool viewOcc;
   bool viewShadowAuto;
   int viewShadowFilter;
+  int viewVsmQuality;
+  float viewVsmBleed;
+  float viewEvsmExp;
+  float viewShadowRange;
   float viewNormalBias;
   bool viewAutoBias;
   bool viewSsao;

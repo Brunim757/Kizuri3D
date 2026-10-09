@@ -1402,10 +1402,24 @@ void EditorApp::DrawSettings() {
       if (ImGui::Checkbox("Shadow Auto Res", &viewShadowAuto)) {
         renderer.SetShadowAutoRes(viewShadowAuto);
       }
-      int sf = viewShadowFilter < 0 ? 0 : (viewShadowFilter > 1 ? 1 : viewShadowFilter);
-      if (ImGui::Combo("Shadow Filter", &sf, "PCSS\0PCF 3x3\0")) {
+      int sf = viewShadowFilter < 0 ? 0 : (viewShadowFilter > 3 ? 3 : viewShadowFilter);
+      if (ImGui::Combo("Shadow Filter", &sf, "PCSS\0PCF 3x3\0VSM\0EVSM\0")) {
         viewShadowFilter = sf;
         renderer.SetShadowFilter(sf);
+      }
+      if (sf >= 2) {
+        if (ImGui::Combo("VSM Quality", &viewVsmQuality, "Full\0Half\0Quarter\0")) {
+          renderer.SetVsmQuality(viewVsmQuality);
+        }
+        if (ImGui::SliderFloat("VSM Bleed", &viewVsmBleed, 0.0f, 0.9f)) {
+          renderer.SetVsmBleed(viewVsmBleed);
+        }
+        if (sf >= 3 && ImGui::SliderFloat("EVSM Exponent", &viewEvsmExp, 0.5f, 5.0f)) {
+          renderer.SetEvsmExponent(viewEvsmExp);
+        }
+      }
+      if (ImGui::SliderFloat("Shadow Range (0=off)", &viewShadowRange, 0.0f, 200.0f)) {
+        renderer.SetShadowRange(viewShadowRange);
       }
       if (ImGui::SliderFloat("Normal Bias", &viewNormalBias, 0.0f, 4.0f)) {
         renderer.SetNormalBias(viewNormalBias);

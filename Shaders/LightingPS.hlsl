@@ -40,6 +40,7 @@ cbuffer LightCB : register(b0)
     float4 ProbeBoxMax[4];
     float4 IblInfo;
     float4 ShadowCtl;
+    float4 VsmInfo;
 };
 Texture2D SSAOTX : register(t6);
 Texture2D SsrTX : register(t7);
@@ -58,6 +59,7 @@ TextureCube IrradianceTX : register(t19);
 Texture2D BrdfTX : register(t20);
 Texture2D ShadowAtlas : register(t4);
 TextureCube PointCube : register(t5);
+Texture2D MomentsTX : register(t21);
 SamplerState ShadowSampler : register(s1);
 static const float2 Poisson16[16] = {
     float2(-0.9428, -0.3997),
@@ -305,6 +307,65 @@ float SampleTilePCSS(float3 wpos, float3 nrm, row_major float4x4 vp, float tile,
         return (sp.z - bias < d1) ? 1.0 : 0.0;
     }
     return PCSSFilter2D(uv, sp.z, filterUV, bias);
+}
+float ChebyshevUpper(float m1, float m2, float z, float bleed)
+{
+    float var = max(m2 - m1 * m1, 1e-5);
+    float d = max(z - m1, 0.0);
+    float p = var / (var + d * d);
+    return clamp((p - bleed) / max(1.0 - bleed, 1e-4), 0.0, 1.0);
+}
+float SampleTileVSM(float3 wpos, float3 nrm, row_major float4x4 vp, float tile, float tileK, float nearZ, float farZ, float uvScale, float perspTanHalf, bool evsm)
+{
+    if (VsmInfo.w > 0.0 && distance(wpos, CamPos.xyz) > VsmInfo.w) {
+        return 1.0;
+    }
+    if (VsmInfo.x < 0.5) {
+        return 1.0;
+    }
+    float usInit = uvScale;
+    float4 sp0 = mul(float4(wpos, 1.0), vp);
+    float recv0 = nearZ;
+    if (sp0.w > 1e-6) {
+        recv0 = nearZ + (sp0.z / sp0.w) * max(farZ - nearZ, 1e-4);
+    }
+    if (perspTanHalf > 0.0 && recv0 > 1e-4) {
+        usInit = 0.5 * clamp(tileK, 0.05, 1.0) / max(2.0 * perspTanHalf * recv0, 1e-6);
+    }
+    float nb = ShadowInfo.w / max(usInit, 1e-6) * ShadowCtl.y;
+    float3 wposB2 = wpos + nrm * nb;
+    float4 sp = mul(float4(wposB2, 1.0), vp);
+    if (sp.w <= 0.0) {
+        return 1.0;
+    }
+    sp.xyz /= sp.w;
+    if (abs(sp.x) > 1.0 || abs(sp.y) > 1.0 || sp.z < 0.0 || sp.z > 1.0) {
+        return 1.0;
+    }
+    float tx = fmod(tile, 2.0);
+    float ty = floor(tile / 2.0);
+    float k = clamp(tileK, 0.05, 1.0);
+    float u = (sp.x * 0.5 + 0.5) * 0.5 * k + tx * 0.5;
+    float v = (0.5 - sp.y * 0.5) * 0.5 * k + ty * 0.5;
+    float4 m = MomentsTX.Sample(LinearSampler, float2(u, v));
+    float bleed = clamp(VsmInfo.y, 0.0, 0.9);
+    float zb = sp.z - 0.0003;
+    if (!evsm) {
+        return (zb <= m.x) ? 1.0 : ChebyshevUpper(m.x, m.y, zb, bleed);
+    }
+    float c = clamp(VsmInfo.z, 0.5, 5.0);
+    float pw = exp(c * zb);
+    float nw = exp(-c * zb);
+    float sPos = (pw <= m.x) ? 1.0 : ChebyshevUpper(m.x, m.y, pw, bleed);
+    float sNeg = (nw <= m.z) ? 1.0 : ChebyshevUpper(m.z, m.w, nw, bleed);
+    return min(sPos, sNeg);
+}
+float SampleTileShadow(float3 wpos, float3 nrm, row_major float4x4 vp, float tile, float tileK, float nearZ, float farZ, float uvScale, float perspTanHalf, float effSize)
+{
+    if (ShadowCtl.x > 1.5) {
+        return SampleTileVSM(wpos, nrm, vp, tile, tileK, nearZ, farZ, uvScale, perspTanHalf, ShadowCtl.x > 2.5);
+    }
+    return SampleTilePCSS(wpos, nrm, vp, tile, tileK, nearZ, farZ, uvScale, perspTanHalf, effSize);
 }
 float CascadeShadowSingle(float3 wpos, float3 nrm)
 {
@@ -591,7 +652,7 @@ float4 main(PSIn pin) : SV_Target
             if (ShadowInfo.y > 0.5) {
                 for (int c = 0; c < 4; ++c) {
                     if (CascadeLight[c] == (float)i && viewDepth <= CascadeSplit[c]) {
-                        dirShadow = SampleTilePCSS(wposB, N, CascadeVP[c], (float)c, CascadeK[c], CascadeNear[c], CascadeFar[c], CascadeUV[c], 0.0, CascadeSize[c]);
+                        dirShadow = SampleTileShadow(wposB, N, CascadeVP[c], (float)c, CascadeK[c], CascadeNear[c], CascadeFar[c], CascadeUV[c], 0.0, CascadeSize[c]);
                         break;
                     }
                 }
@@ -613,7 +674,7 @@ float4 main(PSIn pin) : SV_Target
                         if ((int)(SpotMeta[s].y + 0.5) == i && SpotMeta[s].x >= 0.0) {
                             float cosH = max(LightC[i].a, 0.05);
                             float tanH = sqrt(max(1.0 - cosH * cosH, 1e-6)) / cosH;
-                            lightShadow = SampleTilePCSS(wposB, N, SpotVP[s], SpotMeta[s].x, SpotMeta[s].w, 0.5, max(LightB[i].w, 1.0), 0.0, tanH, SpotMeta[s].z);
+                            lightShadow = SampleTileShadow(wposB, N, SpotVP[s], SpotMeta[s].x, SpotMeta[s].w, 0.5, max(LightB[i].w, 1.0), 0.0, tanH, SpotMeta[s].z);
                         }
                     }
                 }

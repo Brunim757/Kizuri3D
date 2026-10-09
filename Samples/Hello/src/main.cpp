@@ -1529,7 +1529,154 @@ bool TestShadowCache() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
-bool TestIblBake() {
+static bool InitNullRenderer(Kizuri::IRHI*& rhi, Kizuri::DeferredRenderer& renderer) {
+  rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  if (rhi == nullptr) {
+    return false;
+  }
+  Kizuri::RHIDesc desc;
+  desc.windowHandle = nullptr;
+  desc.width = 160;
+  desc.height = 100;
+  desc.vsync = false;
+  if (!rhi->Initialize(desc)) {
+    Kizuri::DestroyRHI(rhi);
+    rhi = nullptr;
+    return false;
+  }
+  const char* shaderDirs[3] = { "Shaders", "Samples/../Shaders", "." };
+  for (int i = 0; i < 3; ++i) {
+    if (renderer.Initialize(rhi, 160, 100, shaderDirs[i])) {
+      return true;
+    }
+    renderer.Shutdown();
+  }
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  rhi = nullptr;
+  return false;
+}
+bool TestVSM() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  Kizuri::RenderDirectionalLight dl;
+  dl.dir[0] = 0.0f;
+  dl.dir[1] = -1.0f;
+  dl.dir[2] = 0.0f;
+  dl.color[0] = 1.0f;
+  dl.color[1] = 1.0f;
+  dl.color[2] = 1.0f;
+  dl.intensity = 1.0f;
+  dl.castShadow = true;
+  dl.effectiveSize = 1.0f;
+  dl.shadowSize = 1024;
+  dl.cascades = 1;
+  dl.lambda = 0.5f;
+  renderer.AddDirectionalLight(dl);
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 0 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  renderer.SetShadowFilter(2);
+  renderer.SetVsmQuality(2);
+  renderer.SetVsmBleed(0.3f);
+  renderer.SetShadowRange(0.0f);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  bool ok = renderer.MomentsReady();
+  ok = ok && renderer.GetStats().lightingDraws == 1;
+  renderer.SetVsmQuality(0);
+  renderer.SetVsmBleed(2.0f);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && renderer.MomentsReady();
+  renderer.SetShadowRange(50.0f);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && renderer.GetStats().lightingDraws == 1;
+  renderer.SetShadowFilter(0);
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestEVSM() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  Kizuri::RenderDirectionalLight dl;
+  dl.dir[0] = 0.0f;
+  dl.dir[1] = -1.0f;
+  dl.dir[2] = 0.0f;
+  dl.color[0] = 1.0f;
+  dl.color[1] = 1.0f;
+  dl.color[2] = 1.0f;
+  dl.intensity = 1.0f;
+  dl.castShadow = true;
+  dl.effectiveSize = 1.0f;
+  dl.shadowSize = 1024;
+  dl.cascades = 1;
+  dl.lambda = 0.5f;
+  renderer.AddDirectionalLight(dl);
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 0 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  renderer.SetShadowFilter(3);
+  renderer.SetEvsmExponent(4.0f);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  bool ok = renderer.MomentsReady();
+  renderer.SetEvsmExponent(100.0f);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && renderer.MomentsReady() && renderer.GetStats().lightingDraws == 1;
+  renderer.SetShadowFilter(0);
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
   Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
   if (rhi == nullptr) {
     return false;
@@ -6495,6 +6642,8 @@ int main() {
   failures += Check("OcclusionCull", TestOcclusionCull());
   failures += Check("GeoBatching", TestGeoBatching());
   failures += Check("ShadowCache", TestShadowCache());
+  failures += Check("VSM", TestVSM());
+  failures += Check("EVSM", TestEVSM());
   failures += Check("IblBake", TestIblBake());
   failures += Check("TaaHistory", TestTaaHistory());
   failures += Check("AutoExposure", TestAutoExposure());
