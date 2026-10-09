@@ -429,6 +429,33 @@ bool TestGamepad() {
   }
   return st.leftX >= -1.0f && st.leftX <= 1.0f && st.leftTrigger >= 0.0f && st.leftTrigger <= 1.0f;
 }
+static bool InitNullRenderer(Kizuri::IRHI*& rhi, Kizuri::DeferredRenderer& renderer) {
+  rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  if (rhi == nullptr) {
+    return false;
+  }
+  Kizuri::RHIDesc desc;
+  desc.windowHandle = nullptr;
+  desc.width = 160;
+  desc.height = 100;
+  desc.vsync = false;
+  if (!rhi->Initialize(desc)) {
+    Kizuri::DestroyRHI(rhi);
+    rhi = nullptr;
+    return false;
+  }
+  const char* shaderDirs[3] = { "Shaders", "Samples/../Shaders", "." };
+  for (int i = 0; i < 3; ++i) {
+    if (renderer.Initialize(rhi, 160, 100, shaderDirs[i])) {
+      return true;
+    }
+    renderer.Shutdown();
+  }
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  rhi = nullptr;
+  return false;
+}
 bool TestDebugViews() {
   Kizuri::IRHI* rhi = nullptr;
   Kizuri::DeferredRenderer renderer;
@@ -534,7 +561,12 @@ bool TestPostVolume() {
   ok = ok && e3 != nullptr && !e3->hasPost;
   return ok;
 }
-bool TestRHINull() {  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  rhi = nullptr;
+  return false;
+}
+bool TestRHINull() {
   if (rhi == nullptr) {
     return false;
   }
@@ -1859,33 +1891,6 @@ bool TestShadowCache() {
   rhi->Shutdown();
   Kizuri::DestroyRHI(rhi);
   return ok;
-}
-static bool InitNullRenderer(Kizuri::IRHI*& rhi, Kizuri::DeferredRenderer& renderer) {
-  rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
-  if (rhi == nullptr) {
-    return false;
-  }
-  Kizuri::RHIDesc desc;
-  desc.windowHandle = nullptr;
-  desc.width = 160;
-  desc.height = 100;
-  desc.vsync = false;
-  if (!rhi->Initialize(desc)) {
-    Kizuri::DestroyRHI(rhi);
-    rhi = nullptr;
-    return false;
-  }
-  const char* shaderDirs[3] = { "Shaders", "Samples/../Shaders", "." };
-  for (int i = 0; i < 3; ++i) {
-    if (renderer.Initialize(rhi, 160, 100, shaderDirs[i])) {
-      return true;
-    }
-    renderer.Shutdown();
-  }
-  rhi->Shutdown();
-  Kizuri::DestroyRHI(rhi);
-  rhi = nullptr;
-  return false;
 }
 bool TestVSM() {
   Kizuri::IRHI* rhi = nullptr;
