@@ -387,7 +387,7 @@ void EditorApp::RenderScene() {
   }
   renderer.SetFog(viewFog, viewFogDensity, viewFogColor);
   renderer.SetHeightFog(viewFogHeight, viewFogBase);
-  renderer.SetGodRays(viewGodRays, viewGodDensity, viewGodDecay);
+  renderer.SetGodRays(viewGodRays, viewGodDensity, viewGodDecay, viewGodIntensity);
   renderer.SetEnvIntensity(viewEnv);
   SubmitSceneDraws(cpos);
   renderer.EndObjectsToTexture(cpos);
@@ -1265,6 +1265,7 @@ void EditorApp::DrawSettings() {
       ImGui::Checkbox("God Rays", &viewGodRays);
       ImGui::SliderFloat("Shaft Density", &viewGodDensity, 0.1f, 3.0f);
       ImGui::SliderFloat("Shaft Decay", &viewGodDecay, 0.8f, 0.999f);
+      ImGui::SliderFloat("Shaft Intensity", &viewGodIntensity, 0.0f, 2.0f);
       ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Render")) {

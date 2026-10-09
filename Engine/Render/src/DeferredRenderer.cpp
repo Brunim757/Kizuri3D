@@ -324,6 +324,7 @@ DeferredRenderer::DeferredRenderer()
   , godOn(false)
   , godDensity(1.0f)
   , godDecay(0.95f)
+  , godIntensity(0.35f)
   , godRan(false)
   , taaA(0)
   , taaB(0)
@@ -1375,10 +1376,11 @@ void DeferredRenderer::SetHeightFog(float falloff, float baseHeight) {
   fogHeightFalloff = falloff < 0.0f ? 0.0f : (falloff > 1.0f ? 1.0f : falloff);
   fogBaseHeight = baseHeight;
 }
-void DeferredRenderer::SetGodRays(bool on, float density, float decay) {
+void DeferredRenderer::SetGodRays(bool on, float density, float decay, float intensity) {
   godOn = on;
   godDensity = density < 0.1f ? 0.1f : (density > 3.0f ? 3.0f : density);
   godDecay = decay < 0.8f ? 0.8f : (decay > 0.999f ? 0.999f : decay);
+  godIntensity = intensity < 0.0f ? 0.0f : (intensity > 2.0f ? 2.0f : intensity);
 }
 void DeferredRenderer::RenderShadowMaps() {
   uint64_t casterHash = CasterHash();
@@ -1773,8 +1775,6 @@ void DeferredRenderer::BeginObjects(const float view[16], const float proj[16]) 
   std::memcpy(prevProj, lastProj, sizeof(prevProj));
   std::memcpy(lastView, view, sizeof(lastView));
   std::memcpy(lastProj, proj, sizeof(lastProj));
-  std::memcpy(prevViewU, lastViewU, sizeof(prevViewU));
-  std::memcpy(prevProjU, lastProjU, sizeof(prevProjU));
   std::memcpy(lastViewU, view, sizeof(lastViewU));
   std::memcpy(lastProjU, proj, sizeof(lastProjU));
   ++taaFrame;
@@ -3550,7 +3550,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
         sunU = cx / cw * 0.5f + 0.5f;
         sunV = 0.5f - cy / cw * 0.5f;
       }
-      float gc[16] = { sunU, sunV, godDensity, 1.0f, godDecay, 1.0f, 0.0f, 0.0f, camPos[0], camPos[1], camPos[2], 1.0f, mainCam.camFwd[0], mainCam.camFwd[1], mainCam.camFwd[2], 0.0f };
+      float gc[16] = { sunU, sunV, godDensity, godIntensity, godDecay, 1.0f, 0.0f, 0.0f, camPos[0], camPos[1], camPos[2], 1.0f, mainCam.camFwd[0], mainCam.camFwd[1], mainCam.camFwd[2], 0.0f };
       rhi->UpdateConstantBuffer(godCB, &gc, sizeof(gc));
       rhi->SetPixelConstantBuffer(0, godCB);
       rhi->SetPixelSampler(0, sampler);
@@ -3655,7 +3655,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
         for (int rr = 0; rr < 4; ++rr) {
           float s = 0.0f;
           for (int kk = 0; kk < 4; ++kk) {
-            s += prevViewU[cc * 4 + kk] * prevProjU[kk * 4 + rr];
+            s += prevView[cc * 4 + kk] * prevProj[kk * 4 + rr];
           }
           pc.prevVP[cc * 4 + rr] = s;
         }
@@ -3809,8 +3809,8 @@ bool DeferredRenderer::CreateTargets() {
   ssgiB = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   fxaaA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   gradeA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
-  taaA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
-  taaB = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
+  taaA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA16F);
+  taaB = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA16F);
   lumA = rhi->CreateRenderTarget(64, 64, RHIFormat::RGBA16F);
   lumB = rhi->CreateRenderTarget(8, 8, RHIFormat::RGBA16F);
   expA = rhi->CreateRenderTarget(1, 1, RHIFormat::RGBA16F);

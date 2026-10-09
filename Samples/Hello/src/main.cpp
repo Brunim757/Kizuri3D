@@ -1602,12 +1602,12 @@ bool TestAtmosphere() {
   float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
   float cam[3] = { 0, 0, 0 };
   renderer.SetHeightFog(0.1f, 2.0f);
-  renderer.SetGodRays(true, 1.5f, 0.97f);
+  renderer.SetGodRays(true, 1.5f, 0.97f, 0.5f);
   renderer.BeginObjects(view, proj);
   renderer.EndObjectsToTexture(cam);
   bool ok = renderer.GetStats().lightingDraws == 1;
   ok = ok && renderer.GetStats().postPasses >= 2;
-  renderer.SetGodRays(false, 1.0f, 0.95f);
+  renderer.SetGodRays(false, 1.0f, 0.95f, 0.35f);
   renderer.SetHeightFog(0.0f, 0.0f);
   renderer.BeginObjects(view, proj);
   renderer.EndObjectsToTexture(cam);

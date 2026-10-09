@@ -90,6 +90,7 @@ struct EditorApp {
   bool viewGodRays;
   float viewGodDensity;
   float viewGodDecay;
+  float viewGodIntensity;
   int viewQuality;
   float viewX;
   float viewY;

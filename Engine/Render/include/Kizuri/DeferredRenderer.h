@@ -194,7 +194,7 @@ public:
   void SetAutoExposure(bool on);
   void SetGrading(float contrast, float saturation, float temperature, float tint);
   void SetHeightFog(float falloff, float baseHeight);
-  void SetGodRays(bool on, float density, float decay);
+  void SetGodRays(bool on, float density, float decay, float intensity);
   bool UploadLut(const unsigned char* rgba, int size);
   void SetLutAmount(float amount);
   void SetBloom(float strength);
@@ -480,6 +480,7 @@ public:
   bool godOn;
   float godDensity;
   float godDecay;
+  float godIntensity;
   bool godRan;  RHIRenderTarget taaA;
   RHIRenderTarget taaB;
   RHIRenderTarget taaRead;
@@ -490,8 +491,6 @@ public:
   uint64_t taaFrame;
   float lastViewU[16];
   float lastProjU[16];
-  float prevViewU[16];
-  float prevProjU[16];
   RHIPixelShader brdfPS;
   RHIPixelShader irrPS;
   RHIConstBuffer irrCB;

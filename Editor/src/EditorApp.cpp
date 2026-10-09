@@ -68,6 +68,7 @@ EditorApp::EditorApp()
   , viewGodRays(false)
   , viewGodDensity(1.0f)
   , viewGodDecay(0.95f)
+  , viewGodIntensity(0.35f)
   , viewQuality(2)
   , viewX(0.0f)
   , viewY(0.0f)
@@ -356,7 +357,7 @@ std::string EditorApp::FindAsset(const char* name) {
   return name;
 }
 bool EditorApp::Initialize() {
-  if (!window.Create(L"Kizuri Editor - Fase 3", 1600, 900)) {
+  if (!window.Create(L"Kizuri3D Editor", 1600, 900)) {
     return false;
   }
   window.SetMessageHook([this](void* hwnd, unsigned int msg, unsigned long long wParam, long long lParam) -> long long {
@@ -424,7 +425,7 @@ bool EditorApp::Initialize() {
   RawInputPoll::GetMousePosition(mx, my);
   lastMouseX = mx;
   lastMouseY = my;
-  log.Add(LogLevel::Success, "Kizuri Editor ready");
+  log.Add(LogLevel::Success, "Kizuri3D Editor ready");
   gizmoOp = static_cast<int>(ImGuizmo::TRANSLATE);
   InitStoragePaths();
   assets.SetAssetsDir(ResolveAssetsDir());
