@@ -172,6 +172,7 @@ public:
   bool EnsureTextureKind(const std::string& guid, TexKind kind);
   void SetGpuRHI(IRHI* rhi);
   RHITexture ImportHdrSky(const std::string& path);
+  RHITexture EquirectToCube(const float* hdr, int w, int h);
   bool EnsureMeshGpu(const std::string& guid, size_t maxBytes);
   void DropMeshGpu(MeshRecord& record);
   void DropTexGpu(TextureRecord& record);

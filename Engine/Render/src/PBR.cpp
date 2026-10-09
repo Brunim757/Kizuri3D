@@ -2,9 +2,6 @@
 #include <cmath>
 namespace Kizuri {
 namespace {
-float Dot3(const float a[3], const float b[3]) {
-  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
 void Norm3(float v[3]) {
   float l = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
   if (l > 1e-6f) {
@@ -116,7 +113,6 @@ void ShadeCore(
   outColor[0] = (diff[0] + spec[0]) * lightColor[0] * cosLi * scale;
   outColor[1] = (diff[1] + spec[1]) * lightColor[1] * cosLi * scale;
   outColor[2] = (diff[2] + spec[2]) * lightColor[2] * cosLi * scale;
-  (void)Dot3;
 }
 }
 void PBR_Directional(

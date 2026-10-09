@@ -15,6 +15,21 @@ jobs:
         with:
           path: build/_deps
           key: deps-${{ runner.os }}-${{ github.repository }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', '**/CMakeLists.txt') }}
+      - name: MSVC version stamp
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build | Out-Null
+          $cl = Get-ChildItem "C:\Program Files\Microsoft Visual Studio" -Recurse -Filter cl.exe | Where-Object { $_.FullName -match "Hostx64" } | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $cl) { $cl = Get-ChildItem "C:\Program Files\Microsoft Visual Studio" -Recurse -Filter cl.exe | Select-Object -First 1 -ExpandProperty FullName
+          }
+          & "$cl" 2>&1 | Select-Object -First 1 | Out-File -FilePath build/msvc-stamp.txt -NoNewline
+      - name: Cache build tree
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: build-${{ runner.os }}-${{ hashFiles('build/msvc-stamp.txt', '**/*.cpp', '**/*.h', '**/*.hlsl', 'CMakeLists.txt', 'cmake/**', '**/CMakeLists.txt') }}
+          restore-keys: |
+            build-${{ runner.os }}-
       - name: Validate shaders
         shell: pwsh
         run: |
