@@ -14,7 +14,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/_deps
-          key: deps-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', '**/CMakeLists.txt') }}
+          key: deps-${{ runner.os }}-${{ github.repository }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', '**/CMakeLists.txt') }}
       - name: Validate shaders
         shell: pwsh
         run: |
