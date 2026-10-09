@@ -400,11 +400,6 @@ public:
   float shadowRange;
   void RecreateMomentsTargets();
   void UpdateShadowMoments();
-  void SetVsmQuality(int q);
-  void SetVsmBleed(float bleed);
-  void SetEvsmExponent(float c);
-  void SetShadowRange(float range);
-  bool MomentsReady() const;
   bool hasCasterHash;  uint64_t lastCasterHash;
   int shadowAutoFrames;
   double shadowAutoAccum;
