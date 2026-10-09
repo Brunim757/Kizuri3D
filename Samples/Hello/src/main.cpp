@@ -1677,6 +1677,96 @@ bool TestEVSM() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
+bool TestGTAO() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 5 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  renderer.SetSsao(true, 1.0f, 0.5f);
+  renderer.SetAoMode(2);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  bool ok = renderer.BentReady();
+  ok = ok && renderer.GetStats().lightingDraws == 1;
+  renderer.SetAoMode(3);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && renderer.BentReady();
+  renderer.SetAoMode(1);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && !renderer.BentReady() && renderer.GetStats().lightingDraws == 1;
+  renderer.SetAoMode(0);
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestSsrTemporal() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 5 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  renderer.SetSsr(true);
+  renderer.SetSsrTemporal(true, 0.85f);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  bool ok = renderer.GetStats().lightingDraws == 1;
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && renderer.SsrTemporalReady() && renderer.GetStats().lightingDraws == 1;
+  renderer.SetSsrTemporal(false, 0.0f);
+  ok = ok && !renderer.SsrTemporalReady();
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
 bool TestIblBake() {
   Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
   if (rhi == nullptr) {
@@ -6645,6 +6735,8 @@ int main() {
   failures += Check("ShadowCache", TestShadowCache());
   failures += Check("VSM", TestVSM());
   failures += Check("EVSM", TestEVSM());
+  failures += Check("GTAO", TestGTAO());
+  failures += Check("SsrTemporal", TestSsrTemporal());
   failures += Check("IblBake", TestIblBake());
   failures += Check("TaaHistory", TestTaaHistory());
   failures += Check("AutoExposure", TestAutoExposure());

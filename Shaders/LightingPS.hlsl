@@ -60,6 +60,7 @@ Texture2D BrdfTX : register(t20);
 Texture2D ShadowAtlas : register(t4);
 TextureCube PointCube : register(t5);
 Texture2D MomentsTX : register(t21);
+Texture2D BentTX : register(t22);
 SamplerState ShadowSampler : register(s1);
 static const float2 Poisson16[16] = {
     float2(-0.9428, -0.3997),
@@ -701,7 +702,11 @@ float4 main(PSIn pin) : SV_Target
     float3 hemi = SkyGradient(N, normalize(SkySun.xyz), SkyColor.rgb, sint2);
     float3 difEnv = hemi * 0.5;
     if (IblInfo.x > 0.5) {
-        difEnv = IrradianceTX.Sample(LinearSampler, N).rgb * GradeInfo.z / 3.14159265359;
+        float3 Nb = N;
+        if (SsaoInfo.z > 0.5) {
+            Nb = normalize(BentTX.SampleLevel(LinearSampler, pin.uv, 0).xyz * 2.0 - 1.0);
+        }
+        difEnv = IrradianceTX.Sample(LinearSampler, Nb).rgb * GradeInfo.z / 3.14159265359;
     }
     amb = albedo * difEnv * ao;
     float3 R = reflect(-V, N);

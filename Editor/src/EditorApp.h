@@ -75,9 +75,12 @@ struct EditorApp {
   float viewNormalBias;
   bool viewAutoBias;
   bool viewSsao;
+  int viewAoMode;
   float viewSsaoIntensity;
   float viewSsaoRadius;
   bool viewSsr;
+  bool viewSsrTemporal;
+  float viewSsrTemporalBlend;
   bool viewContact;
   bool viewSsgi;
   bool viewFxaa;

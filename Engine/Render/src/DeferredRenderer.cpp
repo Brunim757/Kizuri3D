@@ -262,26 +262,38 @@ DeferredRenderer::DeferredRenderer()
   , fsrSharpness(0.5f)
   , ssaoPS(0)
   , ssaoBlurPS(0)
+  , gtaoPS(0)
   , ssaoCB(0)
   , ssaoA(0)
   , ssaoB(0)
+  , bentA(0)
   , ssaoW(1)
   , ssaoH(1)
   , ssaoOn(true)
+  , aoMode(1)
   , ssaoIntensity(1.0f)
   , ssaoRadius(0.5f)
   , ssaoValid(false)
+  , bentValid(false)
   , fogOn(true)
   , fogDensity(0.002f)
   , fogHeightFalloff(0.0f)
   , fogBaseHeight(0.0f)
   , ssrPS(0)
+  , ssrTemporalPS(0)
   , ssrCB(0)
+  , ssrTCB(0)
   , ssrA(0)
+  , ssrTmp(0)
+  , ssrHist(0)
+  , ssrHistB(0)
   , ssrW(1)
   , ssrH(1)
   , ssrOn(true)
   , ssrValid(false)
+  , ssrTemporalOn(false)
+  , ssrTemporalBlend(0.85f)
+  , ssrHistValid(false)
   , contactPS(0)
   , contactA(0)
   , contactOn(true)
@@ -511,6 +523,8 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   std::string fsrRcasPath = dir + "/FsrRcasPS.hlsl";
   std::string ssaoPath = dir + "/SsaoPS.hlsl";
   std::string ssaoBlurPath = dir + "/SsaoBlurPS.hlsl";
+  std::string gtaoPath = dir + "/GtaoPS.hlsl";
+  std::string ssrTemporalPath = dir + "/SsrTemporalPS.hlsl";
   std::string ssrPath = dir + "/SsrPS.hlsl";
   std::string contactPath = dir + "/ContactPS.hlsl";
   std::string filmPath = dir + "/FilmPS.hlsl";
@@ -548,8 +562,16 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (ssaoPS == 0 || ssaoBlurPS == 0) {
     return false;
   }
+  gtaoPS = rhi->CreatePixelShaderFromFile(gtaoPath.c_str(), "main");
+  if (gtaoPS == 0) {
+    return false;
+  }
   ssrPS = rhi->CreatePixelShaderFromFile(ssrPath.c_str(), "main");
   if (ssrPS == 0) {
+    return false;
+  }
+  ssrTemporalPS = rhi->CreatePixelShaderFromFile(ssrTemporalPath.c_str(), "main");
+  if (ssrTemporalPS == 0) {
     return false;
   }
   contactPS = rhi->CreatePixelShaderFromFile(contactPath.c_str(), "main");
@@ -710,6 +732,11 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (ssrCB == 0) {
     return false;
   }
+  float ssrTInit[24] = { 0.0f };
+  ssrTCB = rhi->CreateConstantBuffer(sizeof(ssrTInit), &ssrTInit);
+  if (ssrTCB == 0) {
+    return false;
+  }
   PostConstants pc;
   std::memset(&pc, 0, sizeof(pc));
   filmCB = rhi->CreateConstantBuffer(sizeof(PostConstants), &pc);
@@ -795,7 +822,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (decalVB == 0 || decalIB == 0) {
     return false;
   }
-  float decalInit[16] = { 0.0f };
+  float decalInit[24] = { 0.0f };
   decalCB = rhi->CreateConstantBuffer(sizeof(decalInit), &decalInit);
   if (decalCB == 0) {
     return false;
@@ -978,6 +1005,10 @@ void DeferredRenderer::Shutdown() {
   if (ssrCB != 0) {
     rhi->DestroyConstantBuffer(ssrCB);
     ssrCB = 0;
+  }
+  if (ssrTCB != 0) {
+    rhi->DestroyConstantBuffer(ssrTCB);
+    ssrTCB = 0;
   }
   if (filmCB != 0) {
     rhi->DestroyConstantBuffer(filmCB);
@@ -1276,8 +1307,7 @@ void DeferredRenderer::SetBloom(float strength) {
     bloomStrength = 2.0f;
   }
 }
-void DeferredRenderer::SetSsao(bool on, float intensity, float radius) {  ssaoOn = on;
-  ssaoIntensity = intensity;
+void DeferredRenderer::SetSsao(bool on, float intensity, float radius) {  ssaoOn = on;  ssaoIntensity = intensity;
   if (ssaoIntensity < 0.0f) {
     ssaoIntensity = 0.0f;
   }
@@ -1294,6 +1324,27 @@ void DeferredRenderer::SetSsao(bool on, float intensity, float radius) {  ssaoOn
 }
 void DeferredRenderer::SetSsr(bool on) {
   ssrOn = on;
+}
+void DeferredRenderer::SetAoMode(int mode) {
+  aoMode = mode < 0 ? 0 : (mode > 3 ? 3 : mode);
+  if (aoMode == 0) {
+    ssaoOn = false;
+  } else {
+    ssaoOn = true;
+  }
+}
+bool DeferredRenderer::BentReady() const {
+  return bentValid && bentA != 0;
+}
+void DeferredRenderer::SetSsrTemporal(bool on, float blend) {
+  ssrTemporalOn = on;
+  ssrTemporalBlend = blend < 0.0f ? 0.0f : (blend > 0.95f ? 0.95f : blend);
+  if (!on) {
+    ssrHistValid = false;
+  }
+}
+bool DeferredRenderer::SsrTemporalReady() const {
+  return ssrTemporalOn && ssrHistValid && ssrHist != 0 && ssrHistB != 0;
 }
 void DeferredRenderer::SetContact(bool on) {
   contactOn = on;
@@ -2915,6 +2966,8 @@ void DeferredRenderer::RenderDecals() {
   rhi->SetVertexConstantBuffer(0, geoCB);
   rhi->SetPixelConstantBuffer(0, decalCB);
   rhi->SetPixelSampler(0, geoSampler);
+  rhi->SetPixelSampler(1, sampler);
+  rhi->SetPixelTexture(1, gPosition);
   rhi->SetRenderTargets(1, &gAlbedo, gDepth);
   for (size_t i = 0; i < decalDraws.size(); ++i) {
     const DecalDrawItem& d = decalDraws[i];
@@ -2923,7 +2976,7 @@ void DeferredRenderer::RenderDecals() {
     std::memcpy(gc.view, lastView, sizeof(gc.view));
     std::memcpy(gc.proj, lastProj, sizeof(gc.proj));
     rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
-    float dc[16];
+    float dc[24];
     dc[0] = d.invWorld[0];
     dc[1] = d.invWorld[1];
     dc[2] = d.invWorld[2];
@@ -2940,12 +2993,21 @@ void DeferredRenderer::RenderDecals() {
     dc[13] = d.size[1];
     dc[14] = d.size[2];
     dc[15] = d.fade;
+    dc[16] = static_cast<float>(w);
+    dc[17] = static_cast<float>(h);
+    dc[18] = viewX;
+    dc[19] = viewY;
+    dc[20] = 0.0f;
+    dc[21] = 0.0f;
+    dc[22] = 0.0f;
+    dc[23] = 0.0f;
     rhi->UpdateConstantBuffer(decalCB, &dc, sizeof(dc));
     rhi->SetPixelTexture2D(0, d.tex);
     rhi->DrawIndexed(36, 0, 0);
     ++stats.decalDraws;
   }
   rhi->SetPixelTexture2D(0, 0);
+  rhi->SetPixelTexture(1, 0);
   blend.enable = false;
   rhi->SetBlendState(blend);
   ds.depthWrite = true;
@@ -3120,8 +3182,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     }
   }
   if (!captureMode && toTexture && ssrOn && ssrA != 0 && ssrPS != 0) {
-    SsrConstants sc;
-    std::memcpy(sc.viewProj, ssaoVP, sizeof(sc.viewProj));
+    SsrConstants sc;    std::memcpy(sc.viewProj, ssaoVP, sizeof(sc.viewProj));
     sc.camPos[0] = camPos[0];
     sc.camPos[1] = camPos[1];
     sc.camPos[2] = camPos[2];
@@ -3137,7 +3198,9 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->UpdateConstantBuffer(ssrCB, &sc, sizeof(sc));
     rhi->SetPixelConstantBuffer(0, ssrCB);
     rhi->SetPixelSampler(0, sampler);
-    rhi->SetRenderTargets(1, &ssrA, 0);
+    RHIRenderTarget ssrSpatial = (ssrTemporalOn && ssrTemporalPS != 0 && ssrTCB != 0 && ssrTmp != 0 && ssrHist != 0 && ssrHistB != 0) ? ssrTmp : ssrA;
+    bool doTemporal = ssrSpatial == ssrTmp;
+    rhi->SetRenderTargets(1, &ssrSpatial, 0);
     RHIViewport svp;
     svp.x = 0.0f;
     svp.y = 0.0f;
@@ -3156,6 +3219,44 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelTexture(0, 0);
     rhi->SetPixelTexture(1, 0);
     rhi->SetPixelTexture(2, 0);
+    if (doTemporal) {
+      float st[24] = { 0.0f };
+      std::memcpy(&st[0], ssaoVP, sizeof(float) * 16);
+      st[16] = ssrTemporalBlend;
+      st[17] = 0.0f;
+      st[18] = 0.0f;
+      st[19] = 0.0f;
+      st[20] = camPos[0];
+      st[21] = camPos[1];
+      st[22] = camPos[2];
+      st[23] = 1.0f;
+      rhi->UpdateConstantBuffer(ssrTCB, &st, sizeof(st));
+      rhi->SetPixelConstantBuffer(0, ssrTCB);
+      rhi->SetPixelSampler(0, sampler);
+      RHIRenderTarget ssrMrts[2] = { ssrA, ssrHistB };
+      rhi->SetRenderTargets(2, ssrMrts, 0);
+      RHIViewport tvp;
+      tvp.x = 0.0f;
+      tvp.y = 0.0f;
+      tvp.w = static_cast<float>(ssrW);
+      tvp.h = static_cast<float>(ssrH);
+      tvp.minD = 0.0f;
+      tvp.maxD = 1.0f;
+      rhi->SetViewport(tvp);
+      rhi->SetVertexShader(lightVS);
+      rhi->SetPixelShader(ssrTemporalPS);
+      rhi->SetPixelTexture(0, ssrTmp);
+      rhi->SetPixelTexture(1, ssrHist);
+      rhi->SetPixelTexture(2, gPosition);
+      NoteFullscreen();
+      rhi->SetPixelTexture(0, 0);
+      rhi->SetPixelTexture(1, 0);
+      rhi->SetPixelTexture(2, 0);
+      RHIRenderTarget swapHist = ssrHist;
+      ssrHist = ssrHistB;
+      ssrHistB = swapHist;
+      ssrHistValid = true;
+    }
   } else if (ssrA != 0) {
     rhi->ClearRenderTarget(ssrA, 0.0f, 0.0f, 0.0f, 0.0f);
   }
@@ -3196,11 +3297,20 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   } else if (contactA != 0) {
     rhi->ClearRenderTarget(contactA, 1.0f, 1.0f, 1.0f, 1.0f);
   }
-  if (!captureMode && toTexture && ssaoOn && ssaoA != 0 && ssaoB != 0) {
+  bentValid = false;
+  int effAo = ssaoOn ? aoMode : 0;
+  if (effAo < 1) {
+    effAo = 0;
+  }
+  if (effAo > 3) {
+    effAo = 3;
+  }
+  if (!captureMode && toTexture && effAo >= 1 && ssaoA != 0 && ssaoB != 0) {
+    bool useGtao = effAo >= 2 && gtaoPS != 0 && bentA != 0;
     float sq[24] = { 0.0f };
     sq[0] = ssaoRadius;
     sq[1] = ssaoIntensity;
-    sq[2] = 0.0f;
+    sq[2] = effAo == 2 ? 2.0f : (effAo >= 3 ? 4.0f : 0.0f);
     sq[3] = 0.0f;
     sq[4] = camPos[0];
     sq[5] = camPos[1];
@@ -3211,7 +3321,12 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelConstantBuffer(0, ssaoCB);
     rhi->SetPixelSampler(0, sampler);
     rhi->SetPixelSampler(1, sampler);
-    rhi->SetRenderTargets(1, &ssaoA, 0);
+    if (useGtao) {
+      RHIRenderTarget aoMrts[2] = { ssaoA, bentA };
+      rhi->SetRenderTargets(2, aoMrts, 0);
+    } else {
+      rhi->SetRenderTargets(1, &ssaoA, 0);
+    }
     RHIViewport svp;
     svp.x = 0.0f;
     svp.y = 0.0f;
@@ -3221,7 +3336,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     svp.maxD = 1.0f;
     rhi->SetViewport(svp);
     rhi->SetVertexShader(lightVS);
-    rhi->SetPixelShader(ssaoPS);
+    rhi->SetPixelShader(useGtao ? gtaoPS : ssaoPS);
     rhi->SetPixelTexture(0, gPosition);
     rhi->SetPixelTexture(1, gNormalRough);
     NoteFullscreen();
@@ -3241,6 +3356,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelTexture(2, gNormalRough);
     NoteFullscreen();
     ssaoValid = true;
+    bentValid = useGtao;
     rhi->SetPixelTexture(0, 0);
     rhi->SetPixelTexture(1, 0);
     rhi->SetPixelTexture(2, 0);
@@ -3467,7 +3583,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   lc.skyColor[3] = 0.0f;
   lc.ssaoInfo[0] = ssaoValid ? 1.0f : 0.0f;
   lc.ssaoInfo[1] = ssaoIntensity;
-  lc.ssaoInfo[2] = 0.0f;
+  lc.ssaoInfo[2] = BentReady() ? 1.0f : 0.0f;
   lc.ssaoInfo[3] = 0.0f;
   std::memcpy(lc.ssaoVP, ssaoVP, sizeof(lc.ssaoVP));
   lc.fogInfo[0] = fogOn ? 1.0f : 0.0f;
@@ -3511,13 +3627,15 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   if (MomentsReady()) {
     rhi->SetPixelTexture(21, shadowMoments);
   }
+  if (BentReady()) {
+    rhi->SetPixelTexture(22, bentA);
+  }
   if (ssaoValid) {
     rhi->SetPixelTexture(6, ssaoA);
   }
   if (ssrValid) {
     rhi->SetPixelTexture(7, ssrA);
-  }
-  rhi->SetPixelTexture(8, contactA);
+  }  rhi->SetPixelTexture(8, contactA);
   if (captureMode) {
     rhi->SetPixelTexture2D(9, 0);
   } else {
@@ -3550,6 +3668,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture(16, 0);
   rhi->SetPixelTexture(17, 0);
   rhi->SetPixelTexture(21, 0);
+  rhi->SetPixelTexture(22, 0);
   rhi->SetPixelTexture2D(18, 0);
   rhi->SetPixelTexture2D(19, 0);
   rhi->SetPixelTexture(20, 0);
@@ -4028,9 +4147,14 @@ bool DeferredRenderer::CreateTargets() {
   }
   ssaoA = rhi->CreateRenderTarget(ssaoW, ssaoH, RHIFormat::RGBA8_UNORM);
   ssaoB = rhi->CreateRenderTarget(ssaoW, ssaoH, RHIFormat::RGBA8_UNORM);
+  bentA = rhi->CreateRenderTarget(ssaoW, ssaoH, RHIFormat::RGBA8_UNORM);
   ssrW = w;
   ssrH = h;
   ssrA = rhi->CreateRenderTarget(ssrW, ssrH, RHIFormat::RGBA8_UNORM);
+  ssrTmp = rhi->CreateRenderTarget(ssrW, ssrH, RHIFormat::RGBA8_UNORM);
+  ssrHist = rhi->CreateRenderTarget(ssrW, ssrH, RHIFormat::RGBA16F);
+  ssrHistB = rhi->CreateRenderTarget(ssrW, ssrH, RHIFormat::RGBA16F);
+  ssrHistValid = false;
   contactA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   filmA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   ssgiA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
@@ -4044,7 +4168,7 @@ bool DeferredRenderer::CreateTargets() {
   expA = rhi->CreateRenderTarget(1, 1, RHIFormat::RGBA16F);
   expB = rhi->CreateRenderTarget(1, 1, RHIFormat::RGBA16F);
   godA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
-  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && ssrA != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0 && lumA != 0 && lumB != 0 && expA != 0 && expB != 0 && godA != 0;
+  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 &&   fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && bentA != 0 && ssrA != 0 && ssrTmp != 0 && ssrHist != 0 && ssrHistB != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0 && lumA != 0 && lumB != 0 && expA != 0 && expB != 0 && godA != 0;
 }
 void DeferredRenderer::DestroyTargets() {
   if (rhi == nullptr) {
@@ -4122,10 +4246,28 @@ void DeferredRenderer::DestroyTargets() {
     rhi->DestroyRenderTarget(ssaoB);
     ssaoB = 0;
   }
+  if (bentA != 0) {
+    rhi->DestroyRenderTarget(bentA);
+    bentA = 0;
+  }
+  bentValid = false;
   if (ssrA != 0) {
     rhi->DestroyRenderTarget(ssrA);
     ssrA = 0;
   }
+  if (ssrTmp != 0) {
+    rhi->DestroyRenderTarget(ssrTmp);
+    ssrTmp = 0;
+  }
+  if (ssrHist != 0) {
+    rhi->DestroyRenderTarget(ssrHist);
+    ssrHist = 0;
+  }
+  if (ssrHistB != 0) {
+    rhi->DestroyRenderTarget(ssrHistB);
+    ssrHistB = 0;
+  }
+  ssrHistValid = false;
   if (contactA != 0) {
     rhi->DestroyRenderTarget(contactA);
     contactA = 0;

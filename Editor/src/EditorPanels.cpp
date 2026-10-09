@@ -313,7 +313,9 @@ void EditorApp::RenderScene() {
   renderer.SetLutAmount(viewLutAmount);
   renderer.SetBloom(viewBloom);
   renderer.SetSsao(viewSsao, viewSsaoIntensity, viewSsaoRadius);
+  renderer.SetAoMode(viewSsao ? viewAoMode : 0);
   renderer.SetSsr(viewSsr);
+  renderer.SetSsrTemporal(viewSsrTemporal, viewSsrTemporalBlend);
   renderer.SetContact(viewContact);
   renderer.SetDof(viewDof, viewFocusDist, viewFocusRange);
   renderer.SetMotionBlur(viewMotion, viewMotionScale);
@@ -1260,10 +1262,21 @@ void EditorApp::DrawSettings() {
       ImGui::SliderFloat("Bloom", &viewBloom, 0.0f, 2.0f);
       ImGui::Separator();
       ImGui::Checkbox("SSAO", &viewSsao);
+      int am = viewAoMode < 0 ? 0 : (viewAoMode > 3 ? 3 : viewAoMode);
+      if (ImGui::Combo("AO Mode", &am, "Off\0SSAO\0HBAO\0GTAO\0")) {
+        viewAoMode = am;
+        renderer.SetAoMode(am);
+      }
       ImGui::SliderFloat("SSAO Intensity", &viewSsaoIntensity, 0.0f, 2.0f);
       ImGui::SliderFloat("SSAO Radius", &viewSsaoRadius, 0.1f, 2.0f);
       ImGui::Separator();
       ImGui::Checkbox("SSR", &viewSsr);
+      if (ImGui::Checkbox("SSR Temporal", &viewSsrTemporal)) {
+        renderer.SetSsrTemporal(viewSsrTemporal, viewSsrTemporalBlend);
+      }
+      if (viewSsrTemporal && ImGui::SliderFloat("SSR Blend", &viewSsrTemporalBlend, 0.0f, 0.95f)) {
+        renderer.SetSsrTemporal(true, viewSsrTemporalBlend);
+      }
       ImGui::Checkbox("Contact Shadows", &viewContact);
       ImGui::Checkbox("SSGI", &viewSsgi);
       ImGui::Separator();

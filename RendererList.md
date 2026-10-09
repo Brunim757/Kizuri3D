@@ -117,15 +117,15 @@ Futuro
 5. Screen Space
 
 - [x] Screen Space Ambient Occlusion
-- [ ] GTAO
-- [ ] HBAO-like techniques
+- [x] GTAO
+- [x] HBAO-like techniques
 - [x] Screen Space Reflections
-- [ ] SSR temporal
+- [x] SSR temporal
 - [x] Screen Space Contact Shadows
 - [x] Screen Space Global Illumination
-- [ ] Screen Space Bent Normals
-- [ ] Screen Space Decals
-- [ ] Depth-aware effects
+- [x] Screen Space Bent Normals
+- [x] Screen Space Decals
+- [x] Depth-aware effects
 
 ---
 
