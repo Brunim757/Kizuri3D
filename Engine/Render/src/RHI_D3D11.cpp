@@ -1288,6 +1288,31 @@ public:
   void DestroyTexture3D(RHITexture3D tex) override {
     tex3ds.erase(tex);
   }
+  bool UpdateCubeFace(RHITexture cube, int face, int size, uint32_t rowPitch, const void* data, size_t bytes) override {
+    auto it = textures.find(cube);
+    if (it == textures.end() || !it->second.isCube || data == nullptr) {
+      return false;
+    }
+    if (face < 0 || face > 5 || size != it->second.w || size != it->second.h) {
+      return false;
+    }
+    size_t bpp = it->second.fmt == RHITextureFormat::RGBA16F ? 8 : 4;
+    if (rowPitch != static_cast<uint32_t>(size) * bpp) {
+      return false;
+    }
+    if (bytes != static_cast<size_t>(rowPitch) * static_cast<size_t>(size)) {
+      return false;
+    }
+    int levels = 1;
+    int s = size;
+    while (s > 1) {
+      s >>= 1;
+      ++levels;
+    }
+    UINT sub = D3D11CalcSubresource(0, static_cast<UINT>(face), static_cast<UINT>(levels));
+    context->UpdateSubresource(it->second.tex.Get(), sub, nullptr, data, rowPitch, 0);
+    return true;
+  }
   RHITexture CreateEnvCube(int size) override {
     if (size < 16 || size > 512) {
       return 0;

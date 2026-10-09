@@ -1617,6 +1617,78 @@ bool TestAtmosphere() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
+bool TestHdrSky() {
+  std::error_code ec;
+  std::filesystem::path dir = std::filesystem::temp_directory_path(ec) / "kzhdrsky_test";
+  if (ec) {
+    return false;
+  }
+  std::filesystem::create_directories(dir, ec);
+  std::filesystem::path fp = dir / "sky.hdr";
+  {
+    FILE* f = std::fopen(fp.string().c_str(), "wb");
+    if (f == nullptr) {
+      return false;
+    }
+    const char* head = "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 2 +X 4\n";
+    std::fwrite(head, 1, std::strlen(head), f);
+    for (int i = 0; i < 8; ++i) {
+      unsigned char px[4] = { 128, 128, 128, 129 };
+      std::fwrite(px, 1, 4, f);
+    }
+    std::fclose(f);
+  }
+  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  if (rhi == nullptr) {
+    std::filesystem::remove_all(dir, ec);
+    return false;
+  }
+  Kizuri::RHIDesc desc;
+  desc.windowHandle = nullptr;
+  desc.width = 160;
+  desc.height = 100;
+  desc.vsync = false;
+  if (!rhi->Initialize(desc)) {
+    Kizuri::DestroyRHI(rhi);
+    std::filesystem::remove_all(dir, ec);
+    return false;
+  }
+  Kizuri::AssetDatabase db;
+  db.SetAssetsDir(dir.string());
+  db.SetGpuRHI(rhi);
+  bool ok = db.ImportHdrSky((dir / "missing.hdr").string()) == 0;
+  Kizuri::RHITexture sky = db.ImportHdrSky(fp.string());
+  ok = ok && sky != 0;
+  Kizuri::DeferredRenderer renderer;
+  const char* shaderDirs[3] = { "Shaders", "Samples/../Shaders", "." };
+  bool rok = false;
+  for (int i = 0; i < 3 && !rok; ++i) {
+    if (renderer.Initialize(rhi, 160, 100, shaderDirs[i])) {
+      rok = true;
+    } else {
+      renderer.Shutdown();
+    }
+  }
+  if (!rok) {
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    std::filesystem::remove_all(dir, ec);
+    return false;
+  }
+  ok = ok && renderer.UseHdrSky(sky);
+  ok = ok && !renderer.UseHdrSky(0);
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float cam[3] = { 0, 0, 0 };
+  renderer.BeginObjects(view, proj);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && renderer.GetStats().lightingDraws == 1;
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  std::filesystem::remove_all(dir, ec);
+  return ok;
+}
 bool TestCubeLut() {  std::error_code ec;
   std::filesystem::path dir = std::filesystem::temp_directory_path(ec) / "kzcubelut_test";
   if (ec) {
@@ -6417,6 +6489,7 @@ int main() {
   failures += Check("TaaHistory", TestTaaHistory());
   failures += Check("AutoExposure", TestAutoExposure());
   failures += Check("CubeLut", TestCubeLut());
+  failures += Check("HdrSky", TestHdrSky());
   failures += Check("Atmosphere", TestAtmosphere());
   failures += Check("TaaOff", TestTaaOff());
   failures += Check("TaaResize", TestTaaResize());

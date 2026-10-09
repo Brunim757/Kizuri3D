@@ -150,6 +150,7 @@ public:
   virtual RHITexture3D CreateTexture3D(int w, int h, int d, RHITextureFormat fmt) = 0;
   virtual bool UpdateTexture3D(RHITexture3D tex, int w, int h, int d, uint32_t rowPitch, uint32_t slicePitch, const void* data, size_t bytes) = 0;
   virtual void DestroyTexture3D(RHITexture3D tex) = 0;
+  virtual bool UpdateCubeFace(RHITexture cube, int face, int size, uint32_t rowPitch, const void* data, size_t bytes) = 0;
 };
 IRHI* CreateRHI(RHI_API api);
 void DestroyRHI(IRHI* rhi);

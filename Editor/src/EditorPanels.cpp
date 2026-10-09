@@ -1221,6 +1221,19 @@ void EditorApp::DrawSettings() {
       ImGui::SliderFloat("Temperature", &viewTemp, -1.0f, 1.0f);
       ImGui::SliderFloat("Tint", &viewTint, -1.0f, 1.0f);
       ImGui::SliderFloat("LUT Amount", &viewLutAmount, 0.0f, 1.0f);
+      int lp = viewLutPreset < 0 ? 0 : (viewLutPreset > 5 ? 5 : viewLutPreset);
+      if (ImGui::Combo("LUT Preset", &lp, "None\0Warm\0Cool\0Noir\0Vintage\0Custom\0")) {
+        viewLutPreset = lp;
+        if (lp == 0) {
+          renderer.SetLutAmount(0.0f);
+          viewLutAmount = 0.0f;
+        } else if (lp < 5) {
+          if (renderer.SetLutPreset(lp)) {
+            viewLutAmount = 1.0f;
+            renderer.SetLutAmount(1.0f);
+          }
+        }
+      }
       if (ImGui::Button("Load .cube LUT")) {
         std::string picked;
         if (ShowOpenCubeDialog(window.NativeHandle(), picked)) {
@@ -1231,6 +1244,7 @@ void EditorApp::DrawSettings() {
           } else if (!renderer.UploadLut(lutPx.data(), lutSize)) {
             Announce(LogLevel::Error, "LUT upload failed");
           } else {
+            viewLutPreset = 5;
             viewLutAmount = 1.0f;
             renderer.SetLutAmount(1.0f);
             log.Add(LogLevel::Success, std::string("LUT loaded: ") + picked);
@@ -1305,6 +1319,20 @@ void EditorApp::DrawSettings() {
       }
       if (ImGui::Button("Bake Probes")) {
         BakeProbes();
+      }
+      if (ImGui::Button("Load HDR Sky")) {
+        std::string picked;
+        if (ShowOpenHdrDialog(window.NativeHandle(), picked)) {
+          Kizuri::RHITexture sky = assets.ImportHdrSky(picked);
+          if (sky == 0) {
+            Announce(LogLevel::Error, std::string("HDR sky failed: ") + picked);
+          } else if (!renderer.UseHdrSky(sky)) {
+            Announce(LogLevel::Error, "HDR sky adopt failed");
+          } else {
+            renderer.BakeIrradiance();
+            log.Add(LogLevel::Success, std::string("HDR sky loaded: ") + picked);
+          }
+        }
       }
       ImGui::EndTabItem();
     }

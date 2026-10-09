@@ -197,6 +197,7 @@ public:
   void SetGodRays(bool on, float density, float decay, float intensity);
   bool UploadLut(const unsigned char* rgba, int size);
   void SetLutAmount(float amount);
+  bool SetLutPreset(int preset);
   void SetBloom(float strength);
   void SetFsr(float scale, float sharpness);
   void SetSsao(bool on, float intensity, float radius);
@@ -220,6 +221,7 @@ public:
   bool BeginProbeCapture(RHITexture cube);
   void GenerateEnvMips();
   bool BakeIrradiance();
+  bool UseHdrSky(RHITexture cube);
   void SetEnvIntensity(float intensity);
   void SetEnvProbes(int count, const RHITexture* cubes, const float (*boxMin)[4], const float (*boxMax)[4]);
   void DrawObject(const float world[16]);

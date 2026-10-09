@@ -4,8 +4,10 @@
 #include "Kizuri/Assets/TexCodec.h"
 #include "Kizuri/Assets/TextureImporter.h"
 #include "Kizuri/Log.h"
+#include <stb_image.h>
 #include <cctype>
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <new>
 #include <system_error>
@@ -1300,6 +1302,162 @@ size_t AssetDatabase::DrainUploads(IRHI* rhi, size_t maxBytes) {
 }
 void AssetDatabase::SetGpuRHI(IRHI* rhi) {
   gpuRhi = rhi;
+}
+namespace {
+uint16_t FloatToHalf(float f) {
+  uint32_t x = 0;
+  std::memcpy(&x, &f, sizeof(uint32_t));
+  uint32_t sign = (x >> 16) & 0x8000u;
+  int32_t exp = static_cast<int32_t>((x >> 23) & 0xffu) - 127 + 15;
+  uint32_t mant = x & 0x7fffffu;
+  if (exp >= 31) {
+    return static_cast<uint16_t>(sign | 0x7bffu);
+  }
+  if (exp <= 0) {
+    if (exp < -10) {
+      return static_cast<uint16_t>(sign);
+    }
+    mant |= 0x800000u;
+    uint32_t shift = static_cast<uint32_t>(1 - exp);
+    uint32_t half = mant >> shift;
+    uint32_t rest = mant & ((shift >= 32 ? 0xffffffffu : ((1u << shift) - 1u)));
+    uint32_t halfway = 1u << (shift - 1u);
+    if (rest > halfway || (rest == halfway && (half & 1u) != 0u)) {
+      ++half;
+    }
+    return static_cast<uint16_t>(sign | (half >> 0));
+  }
+  uint32_t half = (static_cast<uint32_t>(exp) << 10) | (mant >> 13);
+  uint32_t rest = mant & 0x1fffu;
+  if (rest > 0x1000u || (rest == 0x1000u && (half & 1u) != 0u)) {
+    ++half;
+    if ((half & 0x7c00u) == 0x7c00u) {
+      half = 0x7bffu;
+    }
+  }
+  return static_cast<uint16_t>(sign | half);
+}
+void EquirectDir(int face, float u, float v, float& dx, float& dy, float& dz) {
+  float nx = u * 2.0f - 1.0f;
+  float ny = 1.0f - v * 2.0f;
+  if (face == 0) {
+    dx = 1.0f;
+    dy = ny;
+    dz = -nx;
+  } else if (face == 1) {
+    dx = -1.0f;
+    dy = ny;
+    dz = nx;
+  } else if (face == 2) {
+    dx = nx;
+    dy = 1.0f;
+    dz = -ny;
+  } else if (face == 3) {
+    dx = nx;
+    dy = -1.0f;
+    dz = ny;
+  } else if (face == 4) {
+    dx = nx;
+    dy = ny;
+    dz = 1.0f;
+  } else {
+    dx = -nx;
+    dy = ny;
+    dz = -1.0f;
+  }
+  float len = std::sqrt(dx * dx + dy * dy + dz * dz);
+  if (len > 1e-9f) {
+    dx /= len;
+    dy /= len;
+    dz /= len;
+  }
+}
+}
+RHITexture AssetDatabase::ImportHdrSky(const std::string& path) {
+  if (gpuRhi == nullptr || path.empty()) {
+    return 0;
+  }
+  int w = 0;
+  int h = 0;
+  int comp = 0;
+  float* hdr = stbi_loadf(path.c_str(), &w, &h, &comp, 3);
+  if (hdr == nullptr || w <= 0 || h <= 0) {
+    if (hdr != nullptr) {
+      stbi_image_free(hdr);
+    }
+    return 0;
+  }
+  int face = w / 4;
+  if (face < 16) {
+    face = 16;
+  }
+  if (face > 512) {
+    face = 512;
+  }
+  RHITexture cube = gpuRhi->CreateEnvCube(face);
+  if (cube == 0) {
+    stbi_image_free(hdr);
+    return 0;
+  }
+  std::vector<uint16_t> facePx(static_cast<size_t>(face) * face * 4);
+  const float pi = 3.14159265359f;
+  for (int f = 0; f < 6; ++f) {
+    for (int y = 0; y < face; ++y) {
+      for (int x = 0; x < face; ++x) {
+        float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(face);
+        float v = (static_cast<float>(y) + 0.5f) / static_cast<float>(face);
+        float dx = 0.0f;
+        float dy = 0.0f;
+        float dz = 0.0f;
+        EquirectDir(f, u, v, dx, dy, dz);
+        float eu = std::atan2(dz, dx) / (2.0f * pi) + 0.5f;
+        float ev = std::acos(dy < -1.0f ? -1.0f : (dy > 1.0f ? 1.0f : dy)) / pi;
+        float sx = eu * static_cast<float>(w) - 0.5f;
+        float sy = ev * static_cast<float>(h) - 0.5f;
+        int x0 = static_cast<int>(std::floor(sx));
+        int y0 = static_cast<int>(std::floor(sy));
+        float fx = sx - static_cast<float>(x0);
+        float fy = sy - static_cast<float>(y0);
+        float rgb[3] = { 0.0f, 0.0f, 0.0f };
+        for (int oy = 0; oy < 2; ++oy) {
+          for (int ox = 0; ox < 2; ++ox) {
+            int ix = x0 + ox;
+            int iy = y0 + oy;
+            while (ix < 0) {
+              ix += w;
+            }
+            while (ix >= w) {
+              ix -= w;
+            }
+            if (iy < 0) {
+              iy = 0;
+            }
+            if (iy >= h) {
+              iy = h - 1;
+            }
+            float wgt = (ox == 0 ? 1.0f - fx : fx) * (oy == 0 ? 1.0f - fy : fy);
+            size_t si = (static_cast<size_t>(iy) * w + ix) * 3;
+            rgb[0] += hdr[si + 0] * wgt;
+            rgb[1] += hdr[si + 1] * wgt;
+            rgb[2] += hdr[si + 2] * wgt;
+          }
+        }
+        size_t di = (static_cast<size_t>(y) * face + x) * 4;
+        facePx[di + 0] = FloatToHalf(rgb[0]);
+        facePx[di + 1] = FloatToHalf(rgb[1]);
+        facePx[di + 2] = FloatToHalf(rgb[2]);
+        facePx[di + 3] = FloatToHalf(1.0f);
+      }
+    }
+    uint32_t row = static_cast<uint32_t>(face) * 8;
+    if (!gpuRhi->UpdateCubeFace(cube, f, face, row, facePx.data(), static_cast<size_t>(row) * face)) {
+      stbi_image_free(hdr);
+      return 0;
+    }
+  }
+  stbi_image_free(hdr);
+  gpuRhi->GenerateCubeMips(cube);
+  return cube;
 }
 void AssetDatabase::DropMeshGpu(MeshRecord& record) {
   if (gpuRhi != nullptr) {

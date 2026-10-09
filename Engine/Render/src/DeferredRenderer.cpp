@@ -1153,6 +1153,53 @@ bool DeferredRenderer::UploadLut(const unsigned char* rgba, int size) {
 void DeferredRenderer::SetLutAmount(float amount) {
   lutAmount = amount < 0.0f ? 0.0f : (amount > 1.0f ? 1.0f : amount);
 }
+bool DeferredRenderer::SetLutPreset(int preset) {
+  if (rhi == nullptr || preset < 0 || preset > 4) {
+    return false;
+  }
+  if (preset == 0) {
+    lutAmount = 0.0f;
+    return true;
+  }
+  const int n = 32;
+  std::vector<unsigned char> px(static_cast<size_t>(n) * n * n * 4);
+  for (int b = 0; b < n; ++b) {
+    for (int g = 0; g < n; ++g) {
+      for (int r = 0; r < n; ++r) {
+        float fr = static_cast<float>(r) / static_cast<float>(n - 1);
+        float fg = static_cast<float>(g) / static_cast<float>(n - 1);
+        float fb = static_cast<float>(b) / static_cast<float>(n - 1);
+        float or_ = fr;
+        float og = fg;
+        float ob = fb;
+        if (preset == 1) {
+          or_ = fr * 1.08f;
+          ob = fb * 0.90f;
+        } else if (preset == 2) {
+          or_ = fr * 0.90f;
+          ob = fb * 1.08f;
+        } else if (preset == 3) {
+          float l = fr * 0.2126f + fg * 0.7152f + fb * 0.0722f;
+          float c = (l - 0.5f) * 1.2f + 0.5f;
+          or_ = c;
+          og = c;
+          ob = c;
+        } else {
+          float l = fr * 0.2126f + fg * 0.7152f + fb * 0.0722f;
+          or_ = l + (fr - l) * 0.7f + (l - 0.5f) * 0.25f;
+          og = l + (fg - l) * 0.7f - (l - 0.5f) * 0.10f;
+          ob = l + (fb - l) * 0.7f - (l - 0.5f) * 0.35f;
+        }
+        size_t o = (static_cast<size_t>(b) * n * n + static_cast<size_t>(g) * n + static_cast<size_t>(r)) * 4;
+        px[o + 0] = static_cast<unsigned char>((or_ < 0.0f ? 0.0f : (or_ > 1.0f ? 1.0f : or_)) * 255.0f + 0.5f);
+        px[o + 1] = static_cast<unsigned char>((og < 0.0f ? 0.0f : (og > 1.0f ? 1.0f : og)) * 255.0f + 0.5f);
+        px[o + 2] = static_cast<unsigned char>((ob < 0.0f ? 0.0f : (ob > 1.0f ? 1.0f : ob)) * 255.0f + 0.5f);
+        px[o + 3] = 255;
+      }
+    }
+  }
+  return UploadLut(px.data(), n);
+}
 void DeferredRenderer::SetTaa(bool on) {
   if (on == taaOn) {
     return;
@@ -1309,6 +1356,18 @@ void DeferredRenderer::GenerateEnvMips() {
   std::memcpy(lastProj, savedLastProj, sizeof(lastProj));
   std::memcpy(prevView, savedPrevView, sizeof(prevView));
   std::memcpy(prevProj, savedPrevProj, sizeof(prevProj));
+}
+bool DeferredRenderer::UseHdrSky(RHITexture cube) {
+  if (rhi == nullptr || cube == 0) {
+    return false;
+  }
+  if (envCube != 0) {
+    rhi->DestroyTexture(envCube);
+  }
+  envCube = cube;
+  captureCube = cube;
+  hasCasterHash = false;
+  return true;
 }
 bool DeferredRenderer::BakeIrradiance() {
   if (rhi == nullptr || irrPS == 0 || envCube == 0) {

@@ -14,17 +14,17 @@ float3 FaceDirection(int face, float2 uv)
 {
     float2 p = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
     if (face == 0) {
-        return normalize(float3(1.0, -p.y, -p.x));
+        return normalize(float3(1.0, p.y, -p.x));
     } else if (face == 1) {
-        return normalize(float3(-1.0, -p.y, p.x));
+        return normalize(float3(-1.0, p.y, p.x));
     } else if (face == 2) {
-        return normalize(float3(p.x, 1.0, p.y));
+        return normalize(float3(p.x, 1.0, -p.y));
     } else if (face == 3) {
-        return normalize(float3(p.x, -1.0, -p.y));
+        return normalize(float3(p.x, -1.0, p.y));
     } else if (face == 4) {
-        return normalize(float3(p.x, -p.y, 1.0));
+        return normalize(float3(p.x, p.y, 1.0));
     }
-    return normalize(float3(-p.x, -p.y, -1.0));
+    return normalize(float3(-p.x, p.y, -1.0));
 }
 float4 main(PSIn pin) : SV_Target
 {

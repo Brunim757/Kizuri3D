@@ -533,6 +533,23 @@ public:
   void DestroyTexture3D(RHITexture3D tex) override {
     tex3ds.erase(tex);
   }
+  bool UpdateCubeFace(RHITexture cube, int face, int size, uint32_t rowPitch, const void* data, size_t bytes) override {
+    auto it = textures.find(cube);
+    if (it == textures.end() || !it->second.isCube || data == nullptr) {
+      return false;
+    }
+    if (face < 0 || face > 5 || size != it->second.w || size != it->second.h) {
+      return false;
+    }
+    size_t bpp = it->second.fmt == RHITextureFormat::RGBA16F ? 8 : 4;
+    if (rowPitch != static_cast<uint32_t>(size) * bpp) {
+      return false;
+    }
+    if (bytes != static_cast<size_t>(rowPitch) * static_cast<size_t>(size)) {
+      return false;
+    }
+    return true;
+  }
   void GetMemoryStats(uint64_t& textureBytes, uint64_t& targetBytes, uint64_t& bufferBytes) const override {    textureBytes = 0;
     for (const auto& kv : textures) {
       if (kv.second.isCube) {
