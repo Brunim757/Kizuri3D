@@ -1,4 +1,5 @@
 #include "Kizuri/Core.h"
+#include "Kizuri/JobSystem.h"
 #include <DirectXMath.h>
 #include <TaskScheduler.h>
 #include <zstd.h>
@@ -32,18 +33,25 @@ bool Core_TestDirectXMath() {
   return o.x == 6.0f && o.y == 8.0f && o.z == 10.0f && o.w == 12.0f;
 }
 bool Core_TestTaskSystem() {
-  enki::TaskScheduler scheduler;
-  scheduler.Initialize();
-  uint32_t n = scheduler.GetNumTaskThreads();
-  if (n == 0) {
+  JobSystem jobs;
+  if (!jobs.Initialize()) {
+    return false;
+  }
+  if (jobs.GetThreadCount() == 0) {
     return false;
   }
   std::atomic<int> value(0);
   FillTask task(&value);
-  scheduler.AddTaskSetToPipe(&task);
-  scheduler.WaitforTask(&task);
+  jobs.AddTask(&task);
+  jobs.WaitForTask(&task);
   bool ok = (value.load(std::memory_order_relaxed) == 42);
-  scheduler.WaitforAllAndShutdown();
+  ok = ok && jobs.SubmittedCount() >= 1 && jobs.CompletedCount() >= 1;
+  std::atomic<int> sum(0);
+  jobs.ParallelFor(256, [&](uint32_t i) {
+    sum.fetch_add(static_cast<int>(i), std::memory_order_relaxed);
+  });
+  ok = ok && sum.load(std::memory_order_relaxed) == 32640;
+  jobs.Shutdown();
   return ok;
 }
 bool Core_TestZstd() {

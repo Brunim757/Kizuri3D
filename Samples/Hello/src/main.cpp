@@ -7,6 +7,13 @@
 #include "Kizuri/Allocator.h"
 #include "Kizuri/JobSystem.h"
 #include "Kizuri/Origin.h"
+#include "Kizuri/Logger.h"
+#include "Kizuri/Clock.h"
+#include "Kizuri/Path.h"
+#include "Kizuri/Settings.h"
+#include "Kizuri/Profile.h"
+#include "Kizuri/Assert.h"
+#include "Kizuri/Input.h"
 #include "Kizuri/RHI.h"
 #include "Kizuri/Camera.h"
 #include "Kizuri/MeshLoader.h"
@@ -94,7 +101,18 @@ bool TestPool() {
   void* a = pool.Allocate();
   void* b = pool.Allocate();
   bool ok = (a != nullptr && b != nullptr && a != b);
+  ok = ok && pool.Owns(a) && pool.Owns(b);
+  int stackVar = 0;
+  ok = ok && !pool.Owns(&stackVar) && !pool.Owns(nullptr);
+  ok = ok && pool.UsedCount() == 2;
+  ok = ok && pool.CheckHealthy();
+  size_t fc = pool.FreeCount();
   pool.Free(a);
+  pool.Free(a);
+  ok = ok && pool.FreeCount() == fc + 1;
+  pool.Free(reinterpret_cast<void*>(0x1234));
+  ok = ok && pool.FreeCount() == fc + 1;
+  ok = ok && pool.CheckHealthy();
   pool.Free(b);
   pool.Shutdown();
   return ok;
@@ -124,6 +142,14 @@ bool TestArena() {
   }
   void* c = arena.Allocate(1024, 8);
   bool ok = (c != nullptr);
+  ok = ok && arena.HighWater() >= 1024;
+  size_t sp = arena.SavePoint();
+  void* d = arena.Allocate(512, 8);
+  ok = ok && d != nullptr && arena.Used() == sp + 512;
+  arena.TrimTo(sp);
+  ok = ok && arena.Used() == sp;
+  ok = ok && arena.Allocate(arena.Capacity() + 1, 8) == nullptr;
+  ok = ok && arena.Allocate(0, 8) == nullptr;
   arena.Shutdown();
   return ok;
 }
@@ -200,10 +226,210 @@ bool TestOrigin() {
   if (notNeeded) {
     return false;
   }
+  double qx = 0.0;
+  double qy = 0.0;
+  double qz = 0.0;
+  o.GetLastShift(qx, qy, qz);
+  if (qx != 100000.0 || qy != 0.0 || qz != 0.0) {
+    return false;
+  }
   return true;
 }
-bool TestRHINull() {
-  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+bool TestLogger() {
+  static int calls = 0;
+  static Kizuri::Severity lastLevel = Kizuri::Severity::Trace;
+  static std::string lastMsg;
+  calls = 0;
+  Kizuri::SetLogSink([](Kizuri::Severity level, const char* file, int line, const char* message) {
+    (void)file;
+    (void)line;
+    ++calls;
+    lastLevel = level;
+    lastMsg = message != nullptr ? message : "";
+  });
+  KZ_LOG_INFO("hello-info");
+  KZ_LOG_WARN(std::string("hello-warn"));
+  KZ_LOG_ERROR("hello-error");
+  bool ok = calls == 3 && lastLevel == Kizuri::Severity::Error && lastMsg == "hello-error";
+  ok = ok && std::string(Kizuri::SeverityName(Kizuri::Severity::Warning)) == "WARN";
+  Kizuri::SetLogSink(nullptr);
+  KZ_LOG_INFO("no-sink-no-crash");
+  return ok;
+}
+bool TestClock() {
+  double s = Kizuri::Clock::Seconds();
+  if (s <= 0.0) {
+    return false;
+  }
+  if (Kizuri::Clock::Millis() == 0 || Kizuri::Clock::Micros() == 0) {
+    return false;
+  }
+  Kizuri::Stopwatch sw;
+  if (sw.Running() || sw.ElapsedSeconds() != 0.0) {
+    return false;
+  }
+  sw.Start();
+  volatile int spin = 0;
+  for (int i = 0; i < 100000; ++i) {
+    spin += i;
+  }
+  (void)spin;
+  sw.Stop();
+  bool ok = sw.ElapsedMs() >= 0.0 && !sw.Running();
+  double e = sw.Restart();
+  ok = ok && e >= 0.0 && sw.Running();
+  return ok;
+}
+bool TestPath() {
+  using namespace Kizuri;
+  bool ok = Path::FileName("a/b\\c.PNG") == "c.PNG";
+  ok = ok && Path::Stem("a/b\\c.PNG") == "c";
+  ok = ok && Path::Extension("a/b\\c.PNG") == ".PNG";
+  ok = ok && Path::ExtensionLower("a/b\\c.PNG") == ".png";
+  ok = ok && Path::Parent("a/b/c.png") == "a/b";
+  ok = ok && Path::Combine("a/b", "c.png") == "a/b/c.png";
+  ok = ok && Path::Combine("a/b/", "c.png") == "a/b/c.png";
+  ok = ok && Path::Normalize("a\\b/c") == "a/b/c";
+  ok = ok && Path::HasExtension("x.PNG", ".png") && !Path::HasExtension("x.png", ".jpg");
+  ok = ok && Path::FileName("plain") == "plain" && Path::Stem("plain") == "plain" && Path::Extension("plain").empty();
+  ok = ok && Str::ToLowerCopy("AbC") == "abc";
+  std::string m = "AbC";
+  Str::ToLowerInPlace(m);
+  ok = ok && m == "abc";
+  ok = ok && Str::StartsWith("hello", "he") && !Str::StartsWith("he", "hello");
+  ok = ok && Str::EndsWith("hello", "lo") && !Str::EndsWith("lo", "hello");
+  ok = ok && Str::Trim("  x \t") == "x";
+  ok = ok && AlignUp(13, 8) == 16 && AlignUp(16, 8) == 16 && IsPowerOfTwo(8) && !IsPowerOfTwo(12);
+  return ok;
+}
+bool TestSettings() {
+  Kizuri::Settings cfg;
+  cfg.Set("name", "kizuri");
+  cfg.SetInt("quality", 3);
+  cfg.SetFloat("exposure", 1.25);
+  cfg.SetBool("taa", true);
+  bool ok = cfg.Get("name", "") == "kizuri";
+  ok = ok && cfg.GetInt("quality", 0) == 3;
+  ok = ok && cfg.GetFloat("exposure", 0.0) > 1.24 && cfg.GetFloat("exposure", 0.0) < 1.26;
+  ok = ok && cfg.GetBool("taa", false);
+  ok = ok && cfg.Get("missing", "fb") == "fb" && cfg.GetInt("missing", 7) == 7;
+  ok = ok && cfg.GetFloat("missing", 7.0) == 7.0 && !cfg.GetBool("missing", true) == false;
+  ok = ok && cfg.Has("name") && !cfg.Has("nope");
+  const char* tmp = "kizuri_test_settings_tmp.ini";
+  ok = ok && cfg.Save(tmp);
+  Kizuri::Settings back;
+  ok = ok && back.Load(tmp);
+  ok = ok && back.Get("name", "") == "kizuri" && back.GetInt("quality", 0) == 3;
+  ok = ok && back.GetBool("taa", false);
+  ok = ok && back.Remove("name") && !back.Has("name");
+  back.Clear();
+  ok = ok && back.Keys().empty();
+  std::remove(tmp);
+  Kizuri::Settings nofile;
+  ok = ok && !nofile.Load("kizuri_no_such_file_xyz.ini");
+  return ok;
+}
+bool TestProfile() {
+  static int begins = 0;
+  static int ends = 0;
+  static int tstarts = 0;
+  static int tstops = 0;
+  begins = 0;
+  ends = 0;
+  tstarts = 0;
+  tstops = 0;
+  Kizuri::Profiler::SetZoneHooks([](const char* name, const char* file, int line) {
+    (void)name;
+    (void)file;
+    (void)line;
+    ++begins;
+  }, []() {
+    ++ends;
+  });
+  Kizuri::Profiler::SetThreadHooks([](uint32_t t) {
+    (void)t;
+    ++tstarts;
+  }, [](uint32_t t) {
+    (void)t;
+    ++tstops;
+  });
+  {
+    KZ_PROFILE_SCOPE("test-zone");
+    KZ_PROFILE_BEGIN("inner");
+    KZ_PROFILE_END();
+  }
+  Kizuri::Profiler::NoteThreadStart(3);
+  Kizuri::Profiler::NoteThreadStop(3);
+  bool ok = begins == 2 && ends == 2 && tstarts == 1 && tstops == 1;
+  Kizuri::Profiler::SetZoneHooks(nullptr, nullptr);
+  Kizuri::Profiler::SetThreadHooks(nullptr, nullptr);
+  KZ_PROFILE_SCOPE("null-hooks-no-crash");
+  return ok;
+}
+bool TestParallelFor() {
+  Kizuri::JobSystem js;
+  if (!js.Initialize()) {
+    return false;
+  }
+  std::atomic<int> sum(0);
+  js.ParallelFor(1000, [&](uint32_t i) {
+    sum.fetch_add(static_cast<int>(i), std::memory_order_relaxed);
+  });
+  bool ok = sum.load() == 499500;
+  ok = ok && js.SubmittedCount() >= 1 && js.CompletedCount() >= 1;
+  ok = ok && js.GetThreadNum() == 0;
+  std::atomic<int> direct(0);
+  js.Shutdown();
+  js.ParallelFor(10, [&](uint32_t i) {
+    direct.fetch_add(static_cast<int>(i), std::memory_order_relaxed);
+  });
+  ok = ok && direct.load() == 45;
+  return ok;
+}
+bool TestRebaseWorld() {
+  Kizuri::Scene scene;
+  Kizuri::Transform t;
+  Kizuri::MakeIdentityTransform(t);
+  t.position[0] = 10000.0f;
+  t.position[1] = 20.0f;
+  t.position[2] = -5.0f;
+  Kizuri::EntityId eid = scene.CreateEntity("Far");
+  if (!eid.IsValid()) {
+    return false;
+  }
+  Kizuri::Entity* e = scene.Get(eid);
+  if (e == nullptr) {
+    return false;
+  }
+  e->transform = t;
+  scene.ClearDirty();
+  scene.RebaseWorld(10000.0, 0.0, 0.0);
+  bool ok = scene.IsDirty();
+  const Kizuri::Entity* e2 = scene.Get(eid);
+  ok = ok && e2 != nullptr;
+  float dx = e2->transform.position[0];
+  ok = ok && dx > -0.01f && dx < 0.01f;
+  ok = ok && e2->transform.position[1] == 20.0f;
+  double ox = 0.0;
+  double oy = 0.0;
+  double oz = 0.0;
+  scene.Origin().GetOrigin(ox, oy, oz);
+  ok = ok && ox == 10000.0 && oy == 0.0 && oz == 0.0;
+  scene.RebaseWorld(0.0, 0.0, 0.0);
+  return ok;
+}
+bool TestGamepad() {
+  bool connected = Kizuri::RawInputPoll::IsGamepadConnected();
+  Kizuri::GamepadState st = Kizuri::RawInputPoll::GetGamepadState();
+  if (st.connected != connected) {
+    return false;
+  }
+  if (!connected) {
+    return st.buttons == 0 && st.leftX == 0.0f && st.leftTrigger == 0.0f;
+  }
+  return st.leftX >= -1.0f && st.leftX <= 1.0f && st.leftTrigger >= 0.0f && st.leftTrigger <= 1.0f;
+}
+bool TestRHINull() {  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
   if (rhi == nullptr) {
     return false;
   }
@@ -6937,7 +7163,15 @@ int main() {
   failures += Check("PoolAllocator", TestPool());
   failures += Check("ArenaAllocator", TestArena());
   failures += Check("JobSystem", TestJobSystem());
+  failures += Check("ParallelFor", TestParallelFor());
   failures += Check("OriginRebasing", TestOrigin());
+  failures += Check("RebaseWorld", TestRebaseWorld());
+  failures += Check("Logger", TestLogger());
+  failures += Check("Clock", TestClock());
+  failures += Check("PathUtils", TestPath());
+  failures += Check("Settings", TestSettings());
+  failures += Check("Profiler", TestProfile());
+  failures += Check("Gamepad", TestGamepad());
   failures += Check("RHI-Null", TestRHINull());
   failures += Check("FrustumCull", TestFrustumCull());
   failures += Check("FrustumCullNull", TestFrustumCullNull());

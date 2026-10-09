@@ -1,8 +1,8 @@
 #include "Kizuri/Assets/AssetDatabase.h"
-#include "Kizuri/Assets/Guid.h"
-#include "Kizuri/Assets/MeshImporter.h"
+#include "Kizuri/Assets/Guid.h"#include "Kizuri/Assets/MeshImporter.h"
 #include "Kizuri/Assets/TexCodec.h"
 #include "Kizuri/Assets/TextureImporter.h"
+#include "Kizuri/Path.h"
 #include "Kizuri/Log.h"
 #include <stb_image.h>
 #include <cctype>
@@ -100,9 +100,52 @@ void ImportMeshTask::ExecuteRange(enki::TaskSetPartition range, uint32_t threadn
     outQueue->push_back(result);
   }
 }
+namespace {
+size_t TaskBlockSize() {
+  size_t s = sizeof(ImportMeshTask);
+  if (sizeof(LodBakeTask) > s) {
+    s = sizeof(LodBakeTask);
+  }
+  if (sizeof(ImportTexTask) > s) {
+    s = sizeof(ImportTexTask);
+  }
+  if (sizeof(HashTask) > s) {
+    s = sizeof(HashTask);
+  }
+  return s;
+}
+size_t TaskBlockAlign() {
+  size_t a = alignof(ImportMeshTask);
+  if (alignof(LodBakeTask) > a) {
+    a = alignof(LodBakeTask);
+  }
+  if (alignof(ImportTexTask) > a) {
+    a = alignof(ImportTexTask);
+  }
+  if (alignof(HashTask) > a) {
+    a = alignof(HashTask);
+  }
+  return a;
+}
+}
+void* TaskMemory::Allocate(AssetDatabase* db, size_t size, size_t alignment) {
+  if (db == nullptr) {
+    return nullptr;
+  }
+  return db->AllocTaskMemory(size, alignment);
+}
+void TaskMemory::Release(AssetDatabase* db, void* p) {
+  if (db == nullptr) {
+    return;
+  }
+  db->FreeTaskMemory(p);
+}
 AssetDatabase::AssetDatabase()
   : jobsReady(false)
+  , taskPool(TaskBlockSize(), 1024, TaskBlockAlign())
+  , skyScratch(2 * 1024 * 1024)
   , nextTaskId(1) {
+  skyScratch.Initialize();
 }
 void AssetDatabase::SetAssetsDir(const std::string& dir) {
   assetsDir = dir;
@@ -114,13 +157,37 @@ void AssetDatabase::EnsureJobs() {
   if (!jobsReady) {
     jobsReady = jobs.Initialize();
   }
+  taskPool.Initialize();
+}
+void* AssetDatabase::AllocTaskMemory(size_t size, size_t alignment) {
+  (void)alignment;
+  taskPool.Initialize();
+  void* mem = taskPool.Allocate();
+  if (mem != nullptr && size <= taskPool.BlockSize()) {
+    return mem;
+  }
+  if (mem != nullptr) {
+    taskPool.Free(mem);
+  }
+  return ::operator new(size, std::nothrow);
+}
+void AssetDatabase::FreeTaskMemory(void* p) {
+  if (p == nullptr) {
+    return;
+  }
+  if (taskPool.Owns(p)) {
+    taskPool.Free(p);
+    return;
+  }
+  ::operator delete(p);
 }
 void AssetDatabase::EnqueueImport(const std::string& sourcePath, const std::string& meshPath, const std::string& keepGuid) {
   EnsureJobs();
   if (!jobsReady) {
     return;
   }
-  std::unique_ptr<ImportMeshTask> task(new ImportMeshTask());
+  TaskPtr<ImportMeshTask> task = MakeTask<ImportMeshTask>();
+  if (task == nullptr) { return; }
   task->sourcePath = sourcePath;
   task->meshPath = meshPath;
   task->keepGuid = keepGuid;
@@ -174,7 +241,8 @@ void AssetDatabase::EnqueueLodBake(const MeshAssetData& baseData, const std::str
   if (!jobsReady) {
     return;
   }
-  std::unique_ptr<LodBakeTask> task(new LodBakeTask());
+  TaskPtr<LodBakeTask> task = MakeTask<LodBakeTask>();
+  if (task == nullptr) { return; }
   task->baseData = baseData;
   task->meshPath = meshPath;
   task->taskId = nextTaskId++;
@@ -204,10 +272,7 @@ void AssetDatabase::Scan() {
     if (!it->is_regular_file(ec) || ec) {
       continue;
     }
-    std::string ext = it->path().extension().string();
-    for (size_t i = 0; i < ext.size(); ++i) {
-      ext[i] = static_cast<char>(tolower(ext[i]));
-    }
+    std::string ext = Kizuri::Path::ExtensionLower(it->path().string());
     if (ext == ".glb" || ext == ".gltf") {
       glbFiles.push_back(it->path().string());
     } else if (ext == ".kzmesh") {
@@ -445,7 +510,8 @@ void AssetDatabase::EnqueueDecode(const std::string& compiledPath, bool isTex) {
     return;
   }
   if (isTex) {
-    std::unique_ptr<ImportTexTask> task(new ImportTexTask());
+    TaskPtr<ImportTexTask> task = MakeTask<ImportTexTask>();
+  if (task == nullptr) { return; }
     task->sourcePath = "";
     task->texPath = compiledPath;
     task->keepGuid = "";
@@ -456,7 +522,8 @@ void AssetDatabase::EnqueueDecode(const std::string& compiledPath, bool isTex) {
     pendingTex.push_back(std::move(task));
     inflightTex.push_back(compiledPath);
   } else {
-    std::unique_ptr<ImportMeshTask> task(new ImportMeshTask());
+    TaskPtr<ImportMeshTask> task = MakeTask<ImportMeshTask>();
+  if (task == nullptr) { return; }
     task->sourcePath = "";
     task->meshPath = compiledPath;
     task->keepGuid = "";
@@ -473,7 +540,8 @@ void AssetDatabase::EnqueueHash(const std::string& path, const std::string& guid
   if (!jobsReady) {
     return;
   }
-  std::unique_ptr<HashTask> task(new HashTask());
+  TaskPtr<HashTask> task = MakeTask<HashTask>();
+  if (task == nullptr) { return; }
   task->path = path;
   task->guid = guid;
   task->isTex = isTex;
@@ -573,7 +641,8 @@ void AssetDatabase::EnqueueTexImport(const std::string& sourcePath, const std::s
   if (!jobsReady) {
     return;
   }
-  std::unique_ptr<ImportTexTask> task(new ImportTexTask());
+  TaskPtr<ImportTexTask> task = MakeTask<ImportTexTask>();
+  if (task == nullptr) { return; }
   task->sourcePath = sourcePath;
   task->texPath = texPath;
   task->keepGuid = keepGuid;
@@ -986,10 +1055,7 @@ size_t AssetDatabase::RelocateMissing() {
     if (!it->is_regular_file(ec) || ec) {
       continue;
     }
-    std::string ext = it->path().extension().string();
-    for (size_t i = 0; i < ext.size(); ++i) {
-      ext[i] = static_cast<char>(tolower(ext[i]));
-    }
+    std::string ext = Kizuri::Path::ExtensionLower(it->path().string());
     bool isTex = IsImageExt(ext);
     if (ext != ".glb" && ext != ".gltf" && !isTex) {
       continue;
@@ -1424,7 +1490,13 @@ RHITexture AssetDatabase::EquirectToCube(const float* hdr, int w, int h) {
   if (cube == 0) {
     return 0;
   }
-  std::vector<uint16_t> facePx(static_cast<size_t>(face) * face * 4);
+  size_t faceBytes = static_cast<size_t>(face) * face * 4 * sizeof(uint16_t);
+  size_t mark = skyScratch.SavePoint();
+  uint16_t* facePx = static_cast<uint16_t*>(skyScratch.Allocate(faceBytes, alignof(uint16_t)));
+  if (facePx == nullptr) {
+    skyScratch.TrimTo(mark);
+    return 0;
+  }
   const float pi = 3.14159265359f;
   for (int f = 0; f < 6; ++f) {
     for (int y = 0; y < face; ++y) {
@@ -1475,11 +1547,13 @@ RHITexture AssetDatabase::EquirectToCube(const float* hdr, int w, int h) {
       }
     }
     uint32_t row = static_cast<uint32_t>(face) * 8;
-    if (!gpuRhi->UpdateCubeFace(cube, f, face, row, facePx.data(), static_cast<size_t>(row) * face)) {
+    if (!gpuRhi->UpdateCubeFace(cube, f, face, row, facePx, static_cast<size_t>(row) * face)) {
+      skyScratch.TrimTo(mark);
       return 0;
     }
   }
   gpuRhi->GenerateCubeMips(cube);
+  skyScratch.TrimTo(mark);
   return cube;
 }
 void AssetDatabase::DropMeshGpu(MeshRecord& record) {

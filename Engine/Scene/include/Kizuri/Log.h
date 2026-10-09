@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <stdint.h>
+#include <mutex>
 namespace Kizuri {
 enum class LogLevel {
   Info,
@@ -25,5 +26,6 @@ public:
 private:
   std::vector<LogEntry> entries;
   uint64_t nextSeq;
+  mutable std::mutex mtx;
 };
 }

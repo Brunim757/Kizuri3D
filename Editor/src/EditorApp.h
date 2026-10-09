@@ -157,6 +157,9 @@ struct EditorApp {
   AutosaveManager autosave;
   std::string tmpAutosaveDir;
   std::string sessionFilePath;
+  std::string settingsFilePath;
+  void LoadEditorSettings();
+  void SaveEditorSettings();
   std::string pendingRestoreMain;
   bool restorePromptQueued;
   EditorApp();

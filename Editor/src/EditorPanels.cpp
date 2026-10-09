@@ -5,6 +5,7 @@
 #include "Kizuri/Assets/LightmapBaker.h"
 #include "Kizuri/Assets/TexCodec.h"
 #include "Kizuri/QualityPreset.h"
+#include "Kizuri/Path.h"
 #include "FileDialog.h"
 #include "Kizuri/DebugDraw.h"
 #include "Kizuri/Input.h"
@@ -277,6 +278,21 @@ void EditorApp::RenderScene() {
   DirectX::XMFLOAT4X4 pf;
   DirectX::XMStoreFloat4x4(&vf, view);
   DirectX::XMStoreFloat4x4(&pf, proj);
+  {
+    float rcx = 0.0f;
+    float rcy = 0.0f;
+    float rcz = 0.0f;
+    camera.GetPosition(rcx, rcy, rcz);
+    if (scene.Origin().RebaseIfNeeded(rcx, rcy, rcz, 5000.0)) {
+      double sx = 0.0;
+      double sy = 0.0;
+      double sz = 0.0;
+      scene.Origin().GetLastShift(sx, sy, sz);
+      scene.RebaseWorld(sx, sy, sz);
+      camera.SetPosition(rcx - static_cast<float>(sx), rcy - static_cast<float>(sy), rcz - static_cast<float>(sz));
+      log.Add(LogLevel::Info, "World rebased for large coordinates");
+    }
+  }
   float cpx = 0.0f;
   float cpy = 0.0f;
   float cpz = 0.0f;
@@ -2753,12 +2769,7 @@ void EditorApp::DrawAssetBrowser() {
     ImGui::EndPopup();
   }
   auto toLower = [](std::string v) -> std::string {
-    for (size_t i = 0; i < v.size(); ++i) {
-      if (v[i] >= 'A' && v[i] <= 'Z') {
-        v[i] = static_cast<char>(v[i] + ('a' - 'A'));
-      }
-    }
-    return v;
+    return Kizuri::Str::ToLowerCopy(v);
   };
   auto nameMatches = [this, &toLower](const std::string& fn) -> bool {
     if (browserSearch[0] == '\0') {
@@ -3413,16 +3424,7 @@ void EditorApp::DrawAssetBrowser() {
       ImGui::PopID();
     } else if (it.kind == 5) {
       std::string fn = std::filesystem::path(it.path).filename().string();
-      std::string ext;
-      {
-        std::string e = std::filesystem::path(it.path).extension().string();
-        for (size_t ci = 0; ci < e.size(); ++ci) {
-          if (e[ci] >= 'A' && e[ci] <= 'Z') {
-            e[ci] = static_cast<char>(e[ci] + ('a' - 'A'));
-          }
-        }
-        ext = e;
-      }
+      std::string ext = Kizuri::Path::ExtensionLower(it.path);
       bool isHdr = ext == ".hdr";
       ImGui::PushID(uid++);
       ImGui::BeginGroup();
@@ -3441,12 +3443,7 @@ void EditorApp::DrawAssetBrowser() {
       ImGui::PopID();
     } else if (it.kind == 6) {
       std::string fn = std::filesystem::path(it.path).filename().string();
-      std::string ext6 = std::filesystem::path(it.path).extension().string();
-      for (size_t ci = 0; ci < ext6.size(); ++ci) {
-        if (ext6[ci] >= 'A' && ext6[ci] <= 'Z') {
-          ext6[ci] = static_cast<char>(ext6[ci] + ('a' - 'A'));
-        }
-      }
+      std::string ext6 = Kizuri::Path::ExtensionLower(it.path);
       bool isCube = ext6 == ".cube";
       ImGui::PushID(uid++);
       ImGui::BeginGroup();
@@ -3497,12 +3494,7 @@ void EditorApp::DrawAssetBrowser() {
     } else if (!browserSelPath.empty()) {
       std::error_code pec;
       bool isDir = std::filesystem::is_directory(browserSelPath, pec) && !pec;
-      std::string pext = std::filesystem::path(browserSelPath).extension().string();
-      for (size_t ci = 0; ci < pext.size(); ++ci) {
-        if (pext[ci] >= 'A' && pext[ci] <= 'Z') {
-          pext[ci] = static_cast<char>(pext[ci] + ('a' - 'A'));
-        }
-      }
+      std::string pext = Kizuri::Path::ExtensionLower(browserSelPath);
       std::string pfn = std::filesystem::path(browserSelPath).filename().string();
       ImGui::Text("%s", pfn.c_str());
       if (isDir) {

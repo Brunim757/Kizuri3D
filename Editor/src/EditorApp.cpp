@@ -3,6 +3,10 @@
 #include "EditorApp.h"
 #include "Kizuri/Assets/EmbeddedSkies.h"
 #include "Kizuri/Input.h"
+#include "Kizuri/Path.h"
+#include "Kizuri/QualityPreset.h"
+#include "Kizuri/Settings.h"
+#include "Kizuri/Logger.h"
 #include "Kizuri/SceneSerializer.h"
 #include "Kizuri/Assets/MeshCodec.h"
 #include "FileDialog.h"
@@ -17,6 +21,9 @@
 #include <shellapi.h>
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 namespace Kizuri {
+namespace {
+LogStore* g_sinkLog = nullptr;
+}
 EditorApp::EditorApp()
   : rhi(nullptr)
   , cubeReady(false)
@@ -333,14 +340,7 @@ void EditorApp::HandleOsDrop(void* hdrop) {
       continue;
     }
     std::string src(narrow);
-    std::string ext;
-    size_t dot = src.find_last_of('.');
-    if (dot != std::string::npos) {
-      ext = src.substr(dot);
-      for (size_t k = 0; k < ext.size(); ++k) {
-        ext[k] = static_cast<char>(tolower(ext[k]));
-      }
-    }
+    std::string ext = Kizuri::Path::ExtensionLower(src);
     if (ext != ".glb" && ext != ".gltf" && ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".tga" && ext != ".bmp" && ext != ".kzmesh" && ext != ".kztex") {
       Announce(LogLevel::Warning, std::string("Dropped file ignored: ") + src);
       continue;
@@ -383,6 +383,11 @@ bool EditorApp::Initialize() {
     if (msg == WM_DROPFILES) {
       HandleOsDrop(reinterpret_cast<void*>(static_cast<uintptr_t>(lParam)));
       return 1;
+    }
+    if (msg == WM_MOUSEWHEEL) {
+      RawInputPoll::OnMouseWheel(static_cast<short>((wParam >> 16) & 0xFFFF));
+      ImGui_ImplWin32_WndProcHandler(static_cast<HWND>(hwnd), msg, static_cast<WPARAM>(wParam), static_cast<LPARAM>(lParam));
+      return 0;
     }
     LRESULT r = ImGui_ImplWin32_WndProcHandler(static_cast<HWND>(hwnd), msg, static_cast<WPARAM>(wParam), static_cast<LPARAM>(lParam));
     return r != 0 ? 1 : 0;
@@ -447,6 +452,22 @@ bool EditorApp::Initialize() {
   log.Add(LogLevel::Success, "Kizuri3D Editor ready");
   gizmoOp = static_cast<int>(ImGuizmo::TRANSLATE);
   InitStoragePaths();
+  LoadEditorSettings();
+  g_sinkLog = &log;
+  Kizuri::SetLogSink([](Kizuri::Severity level, const char* file, int line, const char* message) {
+    (void)file;
+    (void)line;
+    if (g_sinkLog == nullptr || message == nullptr) {
+      return;
+    }
+    if (level == Kizuri::Severity::Trace || level == Kizuri::Severity::Info) {
+      g_sinkLog->Add(Kizuri::LogLevel::Info, message);
+    } else if (level == Kizuri::Severity::Warning) {
+      g_sinkLog->Add(Kizuri::LogLevel::Warning, message);
+    } else {
+      g_sinkLog->Add(Kizuri::LogLevel::Error, message);
+    }
+  });
   assets.SetAssetsDir(ResolveAssetsDir());
   assets.SetGpuRHI(rhi);
   try {
@@ -475,6 +496,9 @@ bool EditorApp::Initialize() {
   return true;
 }
 void EditorApp::Shutdown() {
+  SaveEditorSettings();
+  g_sinkLog = nullptr;
+  SetLogSink(nullptr);
   if (!scene.IsDirty()) {
     DeleteRecoveryFile(CurrentRecoveryPath());
   }
@@ -879,6 +903,57 @@ void EditorApp::InitStoragePaths() {
   std::filesystem::path sp(appDir);
   sp /= "lastscene.txt";
   sessionFilePath = sp.string();
+  std::filesystem::path cfg(appDir);
+  cfg /= "settings.ini";
+  settingsFilePath = cfg.string();
+}
+void EditorApp::LoadEditorSettings() {
+  if (settingsFilePath.empty()) {
+    return;
+  }
+  Kizuri::Settings cfg;
+  if (!cfg.Load(settingsFilePath)) {
+    return;
+  }
+  viewQuality = static_cast<int>(cfg.GetInt("quality", viewQuality));
+  if (viewQuality < 0 || viewQuality > 3) {
+    viewQuality = 2;
+  }
+  Kizuri::QualitySettings qs = Kizuri::ApplyQualityPreset(static_cast<Kizuri::QualityLevel>(viewQuality));
+  viewSsao = qs.ssao;
+  viewAoMode = qs.aoMode;
+  viewSsr = qs.ssr;
+  viewSsrTemporal = qs.ssrTemporal;
+  viewContact = qs.contact;
+  viewSsgi = qs.ssgi;
+  viewDof = qs.dof;
+  viewMotion = qs.motionBlur;
+  viewFxaa = qs.fxaa;
+  viewTaa = qs.taa;
+  viewTaaSharp = static_cast<float>(qs.taaSharp);
+  viewFog = qs.fog;
+  viewBloom = qs.bloom;
+  viewScale = qs.renderScale;
+  viewShadowFilter = qs.shadowFilter;
+  viewVsmQuality = qs.vsmQuality;
+  viewShadowRange = static_cast<float>(qs.shadowRange);
+  viewDynRes = qs.dynRes;
+  viewOcc = qs.occ;
+  viewShadowAuto = qs.shadowAuto;
+  viewGodRays = qs.godRays;
+  viewExposure = static_cast<float>(cfg.GetFloat("exposure", viewExposure));
+  viewEnv = static_cast<float>(cfg.GetFloat("envIntensity", viewEnv));
+}
+void EditorApp::SaveEditorSettings() {
+  if (settingsFilePath.empty()) {
+    return;
+  }
+  Kizuri::Settings cfg;
+  cfg.Load(settingsFilePath);
+  cfg.SetInt("quality", viewQuality);
+  cfg.SetFloat("exposure", viewExposure);
+  cfg.SetFloat("envIntensity", viewEnv);
+  cfg.Save(settingsFilePath);
 }
 std::string EditorApp::ReadLastScene() {
   if (sessionFilePath.empty()) {

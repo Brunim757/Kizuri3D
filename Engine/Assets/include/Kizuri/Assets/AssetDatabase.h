@@ -2,6 +2,7 @@
 #include "Kizuri/Assets/MeshCodec.h"
 #include "Kizuri/Assets/TexCodec.h"
 #include "Kizuri/Assets/TextureImporter.h"
+#include "Kizuri/Allocator.h"
 #include "Kizuri/JobSystem.h"
 #include "Kizuri/RHI.h"
 #include <TaskScheduler.h>
@@ -138,7 +139,29 @@ struct HashTask : public enki::ITaskSet {
   std::atomic<int> progress;
   std::mutex* outMutex;
   std::vector<HashResult>* outQueue;
-};class AssetDatabase {
+};
+class AssetDatabase;
+constexpr size_t TaskBlockMax(size_t a, size_t b) {
+  return a > b ? a : b;
+}
+struct TaskMemory {
+  static void* Allocate(AssetDatabase* db, size_t size, size_t alignment);
+  static void Release(AssetDatabase* db, void* p);
+};
+template<typename T>
+struct TaskDeleter {
+  AssetDatabase* db = nullptr;
+  void operator()(T* p) const {
+    if (p == nullptr) {
+      return;
+    }
+    p->~T();
+    TaskMemory::Release(db, p);
+  }
+};
+template<typename T>
+using TaskPtr = std::unique_ptr<T, TaskDeleter<T>>;
+class AssetDatabase {
 public:
   AssetDatabase();
   void SetAssetsDir(const std::string& dir);
@@ -162,8 +185,7 @@ public:
   bool DeleteAssetFile(const std::string& guid, bool force, const std::vector<RefUse>& refs, std::vector<std::string>& blockedBy);
   std::map<std::string, size_t> ComputeRefCounts(const std::vector<RefUse>& refs) const;
   const TextureRecord* GetTexByGuid(const std::string& guid) const;
-  std::vector<std::string> AllTexGuids() const;
-  bool ReimportTexture(const std::string& guid);
+  std::vector<std::string> AllTexGuids() const;  bool ReimportTexture(const std::string& guid);
   bool RenameTextureFile(const std::string& guid, const std::string& newFileName);
   bool DeleteTextureFile(const std::string& guid, bool force, std::vector<std::string>& blockedBy);
   std::map<std::string, size_t> ComputeTexRefCounts() const;
@@ -185,13 +207,15 @@ private:
   std::map<std::string, MeshRecord> records;
   JobSystem jobs;
   bool jobsReady;
+  PoolAllocator taskPool;
+  ArenaAllocator skyScratch;
   size_t nextTaskId;
-  std::vector<std::unique_ptr<ImportMeshTask>> pending;
-  std::vector<std::unique_ptr<LodBakeTask>> pendingLod;
+  std::vector<TaskPtr<ImportMeshTask>> pending;
+  std::vector<TaskPtr<LodBakeTask>> pendingLod;
   std::vector<std::string> inflight;
-  std::vector<std::unique_ptr<ImportTexTask>> pendingTex;
+  std::vector<TaskPtr<ImportTexTask>> pendingTex;
   std::vector<std::string> inflightTex;
-  std::vector<std::unique_ptr<HashTask>> pendingHash;
+  std::vector<TaskPtr<HashTask>> pendingHash;
   std::mutex completedTexMutex;
   std::vector<ImportTexResult> completedTex;
   std::mutex completedHashMutex;
@@ -210,6 +234,17 @@ private:
   std::map<std::string, int64_t> seenMeshTime;
   std::map<std::string, std::string> pathToGuid;
   void EnsureJobs();
+  void* AllocTaskMemory(size_t size, size_t alignment);
+  void FreeTaskMemory(void* p);
+  template<typename T>
+  TaskPtr<T> MakeTask() {
+    void* mem = AllocTaskMemory(sizeof(T), alignof(T));
+    if (mem == nullptr) {
+      return TaskPtr<T>(nullptr, TaskDeleter<T>{ this });
+    }
+    T* obj = new (mem) T();
+    return TaskPtr<T>(obj, TaskDeleter<T>{ this });
+  }
   void EnqueueImport(const std::string& sourcePath, const std::string& meshPath, const std::string& keepGuid);
   void EnqueueLodBake(const MeshAssetData& baseData, const std::string& meshPath);  void EnqueueTexImport(const std::string& sourcePath, const std::string& texPath, const std::string& keepGuid);
   void EnqueueDecode(const std::string& compiledPath, bool isTex);

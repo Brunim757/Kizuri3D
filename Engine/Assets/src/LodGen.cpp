@@ -1,5 +1,6 @@
 #include "Kizuri/Assets/MeshCodec.h"
 #include "Kizuri/Assets/Guid.h"
+#include "Kizuri/Path.h"
 #include <meshoptimizer.h>
 namespace Kizuri {
 namespace {
@@ -109,12 +110,7 @@ bool IsAutoLodPath(const std::string& path) {
     return false;
   }
   std::string tail = path.substr(path.size() - 12);
-  for (size_t i = 0; i < tail.size(); ++i) {
-    char c = tail[i];
-    if (c >= 'A' && c <= 'Z') {
-      tail[i] = static_cast<char>(c + ('a' - 'A'));
-    }
-  }
+  Kizuri::Str::ToLowerInPlace(tail);
   return tail == "_lod1.kzmesh" || tail == "_lod2.kzmesh";
 }
 void SelectAutoLod(float dist, float nearDist, float farDist, int& tierA, int& tierB, float& fadeB) {  tierA = 0;
