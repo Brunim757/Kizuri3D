@@ -137,8 +137,7 @@ void LightConePoints(const float apex[3], const float dir[3], float angleDeg, fl
     ++k;
   }
 }
-void LightArrowPoints(const float origin[3], const float dir[3], float length, float outPoints[6][3]) {
-  float len = length > 0.0f ? length : 0.0f;
+void LightArrowPoints(const float origin[3], const float dir[3], float length, float outPoints[6][3]) {  float len = length > 0.0f ? length : 0.0f;
   float d[3] = { dir[0], dir[1], dir[2] };
   Norm3(d);
   float u[3];
@@ -167,5 +166,37 @@ void LightArrowPoints(const float origin[3], const float dir[3], float length, f
   outPoints[5][0] = tx - d[0] * hl - u[0] * hw;
   outPoints[5][1] = ty - d[1] * hl - u[1] * hw;
   outPoints[5][2] = tz - d[2] * hl - u[2] * hw;
+}
+void LightRectPoints(const float center[3], const float normal[3], float halfW, float halfH, float outPoints[10][3]) {
+  float n[3] = { normal[0], normal[1], normal[2] };
+  Norm3(n);
+  float u[3];
+  float v[3];
+  PerpBasis(n, u, v);
+  float hw = halfW > 0.0f ? halfW : 0.5f;
+  float hh = halfH > 0.0f ? halfH : 0.5f;
+  float c[4][3];
+  for (int k = 0; k < 4; ++k) {
+    float su = (k == 0 || k == 3) ? -hw : hw;
+    float sv = (k < 2) ? -hh : hh;
+    c[k][0] = center[0] + u[0] * su + v[0] * sv;
+    c[k][1] = center[1] + u[1] * su + v[1] * sv;
+    c[k][2] = center[2] + u[2] * su + v[2] * sv;
+  }
+  for (int k = 0; k < 4; ++k) {
+    int n2 = (k + 1) % 4;
+    outPoints[k * 2][0] = c[k][0];
+    outPoints[k * 2][1] = c[k][1];
+    outPoints[k * 2][2] = c[k][2];
+    outPoints[k * 2 + 1][0] = c[n2][0];
+    outPoints[k * 2 + 1][1] = c[n2][1];
+    outPoints[k * 2 + 1][2] = c[n2][2];
+  }
+  outPoints[8][0] = center[0];
+  outPoints[8][1] = center[1];
+  outPoints[8][2] = center[2];
+  outPoints[9][0] = center[0] + n[0];
+  outPoints[9][1] = center[1] + n[1];
+  outPoints[9][2] = center[2] + n[2];
 }
 }

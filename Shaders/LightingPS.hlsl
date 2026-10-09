@@ -563,6 +563,9 @@ float4 main(PSIn pin) : SV_Target
         ray = normalize(ray);
         float sint = max(SkySun.w, 1e-3);
         float3 sk = SkyGradient(ray, normalize(SkySun.xyz), SkyColor.rgb, sint);
+        if (IblInfo.y > 0.5) {
+            sk = EnvTX.SampleLevel(LinearSampler, ray, 0).rgb;
+        }
         if (FogInfo.x > 0.5) {
             sk = ApplyFog(sk, ray, 150.0, pin.uv);
         }
@@ -706,7 +709,7 @@ float4 main(PSIn pin) : SV_Target
         if (SsaoInfo.z > 0.5) {
             Nb = normalize(BentTX.SampleLevel(LinearSampler, pin.uv, 0).xyz * 2.0 - 1.0);
         }
-        difEnv = IrradianceTX.Sample(LinearSampler, Nb).rgb * GradeInfo.z / 3.14159265359;
+        difEnv = IrradianceTX.SampleLevel(LinearSampler, Nb, 0).rgb * GradeInfo.z / 3.14159265359;
     }
     amb = albedo * difEnv * ao;
     float3 R = reflect(-V, N);

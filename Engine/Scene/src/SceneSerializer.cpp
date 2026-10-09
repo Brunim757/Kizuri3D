@@ -139,7 +139,7 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
     if (e->hasLight) {
       const LightData& l = e->light;
       std::fprintf(fp, "LIGHT %d %.9g %.9g %.9g %.9g", l.type, l.color[0], l.color[1], l.color[2], l.intensity);
-      if (l.type == static_cast<int>(LightType::Point) || l.type == static_cast<int>(LightType::Spot)) {
+      if (l.type == static_cast<int>(LightType::Point) || l.type == static_cast<int>(LightType::Spot) || l.type == static_cast<int>(LightType::Rect)) {
         std::fprintf(fp, " %.9g", l.radius);
       }
       if (l.type == static_cast<int>(LightType::Spot)) {
@@ -151,13 +151,14 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
       if (l.type == static_cast<int>(LightType::Directional) && l.castShadow) {
         std::fprintf(fp, " %d %.9g", l.cascades, l.lambda);
       }
-      std::fprintf(fp, "\n");
+      std::fprintf(fp, " LINK %d %d AREA %.9g %.9g\n", l.linkMask, l.layer, l.areaW, l.areaH);
     }
     if (e->hasMaterial) {
       const MaterialData& m = e->material;
       std::fprintf(fp, "MATERIAL %.9g %.9g %.9g %.9g %.9g \"%s\" \"%s\" \"%s\" \"%s\"\n", m.albedo[0], m.albedo[1], m.albedo[2], m.metallic, m.roughness, EscapeName(m.albedoTex).c_str(), EscapeName(m.normalTex).c_str(), EscapeName(m.ormTex).c_str(), EscapeName(m.heightTex).c_str());
       std::fprintf(fp, "MATERIALX %.9g %.9g %.9g %.9g %.9g %d %d %d %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\"\n", m.alpha, m.emissive[0], m.emissive[1], m.emissive[2], m.emissiveStrength, m.unlit ? 1 : 0, m.doubleSided ? 1 : 0, m.alphaMode, m.alphaCutoff, m.ior, m.hasSpecular ? 1 : 0, m.specularColor[0], m.specularColor[1], m.specularColor[2], m.specularStrength, m.clearcoat, m.clearcoatRoughness, m.sheenColor[0], m.sheenColor[1], m.sheenColor[2], m.sheenRoughness, m.anisotropy, m.anisotropyRotation, m.iridescence, m.iridescenceIor, m.iridescenceThicknessMin, m.iridescenceThicknessMax, m.transmission, m.thickness, m.attenuationColor[0], m.attenuationColor[1], m.attenuationColor[2], m.attenuationDistance, m.dispersion, EscapeName(m.emissiveTex).c_str(), EscapeName(m.specularTex).c_str(), EscapeName(m.specularColorTex).c_str(), EscapeName(m.clearcoatTex).c_str(), EscapeName(m.clearcoatRoughnessTex).c_str(), EscapeName(m.clearcoatNormalTex).c_str(), EscapeName(m.sheenColorTex).c_str(), EscapeName(m.sheenRoughnessTex).c_str(), EscapeName(m.anisotropyTex).c_str(), EscapeName(m.iridescenceTex).c_str(), EscapeName(m.iridescenceThicknessTex).c_str(), EscapeName(m.transmissionTex).c_str(), EscapeName(m.thicknessTex).c_str());
       std::fprintf(fp, "MATERIALXF %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d\n", m.xforms[0].offsetU, m.xforms[0].offsetV, m.xforms[0].scaleU, m.xforms[0].scaleV, m.xforms[0].rotation, m.xforms[0].uvSet, m.xforms[1].offsetU, m.xforms[1].offsetV, m.xforms[1].scaleU, m.xforms[1].scaleV, m.xforms[1].rotation, m.xforms[1].uvSet, m.xforms[2].offsetU, m.xforms[2].offsetV, m.xforms[2].scaleU, m.xforms[2].scaleV, m.xforms[2].rotation, m.xforms[2].uvSet, m.xforms[3].offsetU, m.xforms[3].offsetV, m.xforms[3].scaleU, m.xforms[3].scaleV, m.xforms[3].rotation, m.xforms[3].uvSet, m.xforms[4].offsetU, m.xforms[4].offsetV, m.xforms[4].scaleU, m.xforms[4].scaleV, m.xforms[4].rotation, m.xforms[4].uvSet);
+      std::fprintf(fp, "MATERIALLINK %d\n", m.linkMask);
       if (e->variantIndex >= 0) {
         std::fprintf(fp, "VARIANT %d\n", e->variantIndex);
       }
@@ -296,14 +297,14 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
         }
         MakeDefaultLight(current->light);
         current->light.type = static_cast<int>(b[0]);
-        if (current->light.type < 0 || current->light.type > 2) {
+        if (current->light.type < 0 || current->light.type > 3) {
           current->light.type = 0;
         }
         current->light.color[0] = b[1];
         current->light.color[1] = b[2];
         current->light.color[2] = b[3];
         current->light.intensity = b[4];
-        if (current->light.type == static_cast<int>(LightType::Point) || current->light.type == static_cast<int>(LightType::Spot)) {
+        if (current->light.type == static_cast<int>(LightType::Point) || current->light.type == static_cast<int>(LightType::Spot) || current->light.type == static_cast<int>(LightType::Rect)) {
           float r[1] = { 10.0f };
           if (!ParseFloats(s, pos, r, 1)) {
             failed = true;
@@ -347,6 +348,27 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
               current->light.cascades = 4;
             }
             current->light.lambda = cl[1];
+          }
+        }
+        {
+          const char* tail = s.c_str() + (pos <= s.size() ? pos : s.size());
+          const char* lk = std::strstr(tail, "LINK");
+          if (lk != nullptr) {
+            int lm = 255;
+            int ly = 1;
+            if (std::sscanf(lk, "LINK %d %d", &lm, &ly) == 2) {
+              current->light.linkMask = lm;
+              current->light.layer = ly;
+            }
+          }
+          const char* ar = std::strstr(tail, "AREA");
+          if (ar != nullptr) {
+            float aw = 2.0f;
+            float ah = 1.0f;
+            if (std::sscanf(ar, "AREA %f %f", &aw, &ah) == 2) {
+              current->light.areaW = aw;
+              current->light.areaH = ah;
+            }
           }
         }
         current->hasLight = true;
@@ -473,6 +495,20 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
           current->material.xforms[si].scaleV = mv[si * 6 + 3];
           current->material.xforms[si].rotation = mv[si * 6 + 4];
           current->material.xforms[si].uvSet = static_cast<int>(mv[si * 6 + 5]);
+        }
+        continue;
+      }
+      if (field == "MATERIALLINK") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        long lv = 255;
+        if (ParseInt(s, pos, lv)) {
+          if (lv < 0) {
+            lv = 0;
+          }
+          if (lv > 255) {
+            lv = 255;
+          }
+          current->material.linkMask = static_cast<int>(lv);
         }
         continue;
       }

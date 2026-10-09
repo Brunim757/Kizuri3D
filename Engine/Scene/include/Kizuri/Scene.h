@@ -22,7 +22,8 @@ struct Transform {
 enum class LightType {
   Point = 0,
   Spot = 1,
-  Directional = 2
+  Directional = 2,
+  Rect = 3
 };
 struct LightData {
   int type;
@@ -37,6 +38,10 @@ struct LightData {
   float softness;
   int cascades;
   float lambda;
+  float areaW;
+  float areaH;
+  int linkMask;
+  int layer;
 };
 struct UvXformData {
   float offsetU = 0.0f;
@@ -94,6 +99,7 @@ struct MaterialData {
   float attenuationColor[3] = { 1.0f, 1.0f, 1.0f };
   float attenuationDistance = 0.0f;
   float dispersion = 0.0f;
+  int linkMask = 255;
 };
 struct DecalData {
   float size[3];

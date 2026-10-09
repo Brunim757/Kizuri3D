@@ -1767,6 +1767,22 @@ bool TestSsrTemporal() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
+bool TestHdrBackground() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  bool ok = !renderer.HdrBackgroundOn();
+  renderer.SetHdrBackground(true);
+  ok = ok && renderer.HdrBackgroundOn();
+  renderer.SetHdrBackground(false);
+  ok = ok && !renderer.HdrBackgroundOn();
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
 bool TestIblBake() {
   Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
   if (rhi == nullptr) {
@@ -6737,6 +6753,7 @@ int main() {
   failures += Check("EVSM", TestEVSM());
   failures += Check("GTAO", TestGTAO());
   failures += Check("SsrTemporal", TestSsrTemporal());
+  failures += Check("HdrBackground", TestHdrBackground());
   failures += Check("IblBake", TestIblBake());
   failures += Check("TaaHistory", TestTaaHistory());
   failures += Check("AutoExposure", TestAutoExposure());

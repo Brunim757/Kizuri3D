@@ -28,6 +28,10 @@ void MakeDefaultLight(LightData& l) {
   l.softness = 0.3f;
   l.cascades = 3;
   l.lambda = 0.5f;
+  l.areaW = 2.0f;
+  l.areaH = 1.0f;
+  l.linkMask = 255;
+  l.layer = 1;
 }
 void MakeDefaultMaterial(MaterialData& m) {
   m.albedo[0] = 1.0f;

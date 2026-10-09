@@ -103,6 +103,7 @@ void MaterialDataFromMesh(const MeshMaterialData& mm, MaterialData& m) {
   m.dispersion = mm.dispersion;
 }
 void FillDeferredFromEntity(AssetDatabase& assets, const MaterialData& m, DeferredMaterial& partMat) {
+  partMat.linkGroup = static_cast<uint32_t>(m.linkMask < 0 ? 0 : (m.linkMask > 255 ? 255 : m.linkMask));
   partMat.albedo[0] = m.albedo[0];
   partMat.albedo[1] = m.albedo[1];
   partMat.albedo[2] = m.albedo[2];
@@ -421,6 +422,8 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
       pl.radius = e->light.radius;
       pl.castShadow = e->light.castShadow;
       pl.effectiveSize = e->light.softness * e->light.lightSize;
+      pl.linkMask = static_cast<uint32_t>(e->light.linkMask);
+      pl.layer = static_cast<uint32_t>(e->light.layer);
       renderer.AddPointLight(pl);
     } else if (e->light.type == static_cast<int>(LightType::Spot)) {
       RenderSpotLight sl;
@@ -438,6 +441,8 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
       sl.castShadow = e->light.castShadow;
       sl.effectiveSize = e->light.softness * e->light.lightSize;
       sl.shadowSize = e->light.shadowSize;
+      sl.linkMask = static_cast<uint32_t>(e->light.linkMask);
+      sl.layer = static_cast<uint32_t>(e->light.layer);
       renderer.AddSpotLight(sl);
     } else if (e->light.type == static_cast<int>(LightType::Directional)) {
       RenderDirectionalLight dl;
@@ -451,7 +456,25 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
       dl.shadowSize = e->light.shadowSize;
       dl.cascades = e->light.cascades;
       dl.lambda = e->light.lambda;
+      dl.linkMask = static_cast<uint32_t>(e->light.linkMask);
+      dl.layer = static_cast<uint32_t>(e->light.layer);
       renderer.AddDirectionalLight(dl);
+    } else if (e->light.type == static_cast<int>(LightType::Rect)) {
+      RenderRectLight rl;
+      rl.pos[0] = e->transform.position[0];
+      rl.pos[1] = e->transform.position[1];
+      rl.pos[2] = e->transform.position[2];
+      EntityForward(e->transform, rl.normal);
+      rl.color[0] = e->light.color[0];
+      rl.color[1] = e->light.color[1];
+      rl.color[2] = e->light.color[2];
+      rl.intensity = e->light.intensity;
+      rl.halfW = e->light.areaW * 0.5f;
+      rl.halfH = e->light.areaH * 0.5f;
+      rl.range = e->light.radius;
+      rl.linkMask = static_cast<uint32_t>(e->light.linkMask);
+      rl.layer = static_cast<uint32_t>(e->light.layer);
+      renderer.AddRectLight(rl);
     }
   }
   DeferredMaterial grayMat;
@@ -1198,6 +1221,9 @@ void EditorApp::DrawLightGizmo() {
     } else if (e->light.type == static_cast<int>(LightType::Directional)) {
       LightArrowPoints(pos, dir, 3.0f, pts);
       segs = LightArrowSegs;
+    } else if (e->light.type == static_cast<int>(LightType::Rect)) {
+      LightRectPoints(pos, dir, e->light.areaW * 0.5f, e->light.areaH * 0.5f, pts);
+      segs = LightRectSegs;
     } else {
       continue;
     }
@@ -1368,7 +1394,11 @@ void EditorApp::DrawSettings() {
           Kizuri::RHITexture sky = 0;
           std::string skyLabel;
           bool doLoad = true;
-          if (sm >= 1 && static_cast<size_t>(sm) <= embCount) {
+          if (sm == 0) {
+            renderer.SetHdrBackground(false);
+            viewSkyPreset = sm;
+            doLoad = false;
+          } else if (sm >= 1 && static_cast<size_t>(sm) <= embCount) {
             const Kizuri::EmbeddedSkyEntry& se = Kizuri::EmbeddedSkyAt(static_cast<size_t>(sm - 1));
             sky = assets.ImportHdrSkyFromMemory(se.data, se.size);
             skyLabel = se.name;
@@ -1620,12 +1650,18 @@ void EditorApp::DrawInspector() {
     }
     LightData light = e->light;
     int lightMode = light.type;
-    if (lightMode < 0 || lightMode > 2) {
+    if (lightMode < 0 || lightMode > 3) {
       lightMode = 0;
     }
     bool lightChanged = false;
-    if (ImGui::Combo("Type", &lightMode, "Point\0Spot\0Directional\0")) {
+    if (ImGui::Combo("Type", &lightMode, "Point\0Spot\0Directional\0Rect\0")) {
       light.type = lightMode;
+      lightChanged = true;
+    }
+    if (ImGui::SliderInt("Link Mask", &light.linkMask, 0, 255)) {
+      lightChanged = true;
+    }
+    if (ImGui::SliderInt("Layer", &light.layer, 0, 31)) {
       lightChanged = true;
     }
     if (ImGui::ColorEdit3("Color", light.color)) {
@@ -1634,8 +1670,16 @@ void EditorApp::DrawInspector() {
     if (ImGui::DragFloat("Intensity", &light.intensity, 0.05f, 0.0f, 20.0f)) {
       lightChanged = true;
     }
-    if (light.type == static_cast<int>(LightType::Point) || light.type == static_cast<int>(LightType::Spot)) {
+    if (light.type == static_cast<int>(LightType::Point) || light.type == static_cast<int>(LightType::Spot) || light.type == static_cast<int>(LightType::Rect)) {
       if (ImGui::DragFloat("Radius", &light.radius, 0.1f, 0.5f, 100.0f)) {
+        lightChanged = true;
+      }
+    }
+    if (light.type == static_cast<int>(LightType::Rect)) {
+      if (ImGui::DragFloat("Area W", &light.areaW, 0.05f, 0.1f, 50.0f)) {
+        lightChanged = true;
+      }
+      if (ImGui::DragFloat("Area H", &light.areaH, 0.05f, 0.1f, 50.0f)) {
         lightChanged = true;
       }
     }
@@ -2312,6 +2356,9 @@ bool EditorApp::DrawMaterialScalars(MaterialData& mat) {
       if (ImGui::DragFloat("Dispersion", &mat.dispersion, 0.005f, 0.0f, 1.0f)) {
         matChanged = true;
       }
+    }
+    if (ImGui::SliderInt("Link Mask", &mat.linkMask, 0, 255)) {
+      matChanged = true;
     }
   return matChanged;
 }

@@ -75,7 +75,7 @@ struct MatExtConstants {
   float xfA[5][4];
   float xfB[5][4];
 };
-void FillMatConstants(const DeferredMaterial& use, float lodFade, MatConstants& mc, MatExtConstants& mec, unsigned char* tablePx, uint32_t& rows, uint32_t& outRow) {
+void FillMatConstants(const DeferredMaterial& use, float lodFade, MatConstants& mc, MatExtConstants& mec, unsigned char* tablePx, unsigned char* linkTablePx, uint32_t& rows, uint32_t& outRow) {
   mc.albedo[0] = use.albedo[0];
   mc.albedo[1] = use.albedo[1];
   mc.albedo[2] = use.albedo[2];
@@ -126,6 +126,13 @@ void FillMatConstants(const DeferredMaterial& use, float lodFade, MatConstants& 
     px[2] = static_cast<unsigned char>((disp > 1.0f ? 1.0f : disp) * 255.0f + 0.5f);
     float ior = (use.ior - 1.0f) / 3.0f;
     px[3] = static_cast<unsigned char>((ior < 0.0f ? 0.0f : (ior > 1.0f ? 1.0f : ior)) * 255.0f + 0.5f);
+    if (linkTablePx != nullptr) {
+      unsigned char* lx = linkTablePx + static_cast<size_t>(row) * 4;
+      lx[0] = static_cast<unsigned char>(use.linkGroup & 0xFFu);
+      lx[1] = 0;
+      lx[2] = 0;
+      lx[3] = 255;
+    }
   }
   outRow = row;
   mc.extE[3] = static_cast<float>(row);
@@ -208,6 +215,12 @@ DeferredRenderer::DeferredRenderer()
   , matExtCB(0)
   , matTable(0)
   , matTableRows(0)
+  , attenMode(0)
+  , physScale(1.0f)
+  , camLightMask(0xFFFFFFFFu)
+  , spotCookie(0)
+  , spotCookieOn(false)
+  , linkTable(0)
   , neutralBlack(0)
   , neutralAniso(0)
   , frustumValid(false)
@@ -354,6 +367,7 @@ DeferredRenderer::DeferredRenderer()
   , brdfLut(0)
   , irrCube(0)
   , envCube(0)
+  , hdrSkyOn(false)
   , captureTarget(0)
   , captureMode(false)
   , envIntensity(1.0f)
@@ -790,6 +804,19 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (matTable == 0) {
     return false;
   }
+  linkTable = rhi->CreateTexture2D(256, 1, 1, RHITextureFormat::RGBA8_UNORM);
+  if (linkTable == 0) {
+    return false;
+  }
+  for (size_t li = 0; li < 256; ++li) {
+    linkPx[li * 4] = 255;
+    linkPx[li * 4 + 1] = 0;
+    linkPx[li * 4 + 2] = 0;
+    linkPx[li * 4 + 3] = 255;
+  }
+  if (!rhi->UpdateTextureMip(linkTable, 0, 256, 1, 256 * 4, linkPx, sizeof(linkPx))) {
+    return false;
+  }
   std::memset(matTablePx, 0, sizeof(matTablePx));
   matTablePx[0] = 0;
   matTablePx[1] = 38;
@@ -941,6 +968,10 @@ void DeferredRenderer::Shutdown() {
   if (matTable != 0) {
     rhi->DestroyTexture(matTable);
     matTable = 0;
+  }
+  if (linkTable != 0) {
+    rhi->DestroyTexture(linkTable);
+    linkTable = 0;
   }
   geoSampler = 0;
   if (shadowAtlas != 0) {
@@ -1155,24 +1186,56 @@ void DeferredRenderer::ClearLights() {
   pointLights.clear();
   spotLights.clear();
   dirLights.clear();
+  rectLights.clear();
+}
+static size_t LightTotal(const std::vector<RenderPointLight>& p, const std::vector<RenderSpotLight>& s, const std::vector<RenderDirectionalLight>& d, const std::vector<RenderRectLight>& r) {
+  return p.size() + s.size() + d.size() + r.size();
 }
 void DeferredRenderer::AddPointLight(const RenderPointLight& l) {
-  if (pointLights.size() + spotLights.size() + dirLights.size() >= 16) {
+  if (LightTotal(pointLights, spotLights, dirLights, rectLights) >= 16) {
     return;
   }
   pointLights.push_back(l);
 }
 void DeferredRenderer::AddSpotLight(const RenderSpotLight& l) {
-  if (pointLights.size() + spotLights.size() + dirLights.size() >= 16) {
+  if (LightTotal(pointLights, spotLights, dirLights, rectLights) >= 16) {
     return;
   }
   spotLights.push_back(l);
 }
 void DeferredRenderer::AddDirectionalLight(const RenderDirectionalLight& l) {
-  if (pointLights.size() + spotLights.size() + dirLights.size() >= 16) {
+  if (LightTotal(pointLights, spotLights, dirLights, rectLights) >= 16) {
     return;
   }
   dirLights.push_back(l);
+}
+void DeferredRenderer::AddRectLight(const RenderRectLight& l) {
+  if (LightTotal(pointLights, spotLights, dirLights, rectLights) >= 16) {
+    return;
+  }
+  rectLights.push_back(l);
+}
+void DeferredRenderer::SetAttenuationMode(int mode) {
+  attenMode = mode < 0 ? 0 : (mode > 2 ? 2 : mode);
+}
+void DeferredRenderer::SetPhysicalScale(float scale) {
+  physScale = scale < 0.01f ? 0.01f : (scale > 100.0f ? 100.0f : scale);
+}
+void DeferredRenderer::SetCameraLightMask(uint32_t mask) {
+  camLightMask = mask;
+}
+void DeferredRenderer::SetSpotCookie(RHITexture tex) {
+  spotCookie = tex;
+}
+void DeferredRenderer::SetSpotCookieOn(bool on) {
+  spotCookieOn = on;
+}
+void DeferredRenderer::SetMaterialLinkGroup(uint32_t matId, uint32_t mask) {
+  if (matId >= 256) {
+    return;
+  }
+  linkPx[matId * 4] = static_cast<unsigned char>(mask & 0xFFu);
+  linkPx[matId * 4 + 3] = 255;
 }
 void DeferredRenderer::SetMainCamera(const MainCameraSetup& setup) {
   mainCam = setup;
@@ -1433,6 +1496,7 @@ bool DeferredRenderer::BeginEnvCapture(int size) {
   std::memcpy(savedPrevProj, prevProj, sizeof(savedPrevProj));
   envCube = rhi->CreateEnvCube(size);
   captureCube = envCube;
+  hdrSkyOn = false;
   return envCube != 0;
 }
 bool DeferredRenderer::BeginProbeCapture(RHITexture cube) {
@@ -1463,8 +1527,15 @@ bool DeferredRenderer::UseHdrSky(RHITexture cube) {
   }
   envCube = cube;
   captureCube = cube;
+  hdrSkyOn = true;
   hasCasterHash = false;
   return true;
+}
+void DeferredRenderer::SetHdrBackground(bool on) {
+  hdrSkyOn = on;
+}
+bool DeferredRenderer::HdrBackgroundOn() const {
+  return hdrSkyOn;
 }
 bool DeferredRenderer::BakeIrradiance() {
   if (rhi == nullptr || irrPS == 0 || envCube == 0) {
@@ -1502,6 +1573,7 @@ bool DeferredRenderer::BakeIrradiance() {
     rhi->DrawFullscreenTriangle();
     rhi->SetPixelTexture2D(0, 0);
   }
+  rhi->GenerateCubeMips(irrCube);
   return true;
 }
 void DeferredRenderer::EndEnvFace(const float camPos[3]) {
@@ -2703,7 +2775,7 @@ void DeferredRenderer::SetGeoMaterial(const DeferredMaterial& use, float lodFade
   MatConstants mc;
   MatExtConstants mec;
   uint32_t matRow = 0;
-  FillMatConstants(use, lodFade < 0.0f ? 0.0f : (lodFade > 1.0f ? 1.0f : lodFade), mc, mec, matTablePx, matTableRows, matRow);
+  FillMatConstants(use, lodFade < 0.0f ? 0.0f : (lodFade > 1.0f ? 1.0f : lodFade), mc, mec, matTablePx, linkPx, matTableRows, matRow);
   (void)matRow;
   rhi->UpdateConstantBuffer(matCB, &mc, sizeof(mc));
   rhi->UpdateConstantBuffer(matExtCB, &mec, sizeof(mec));
@@ -3090,7 +3162,7 @@ void DeferredRenderer::RenderForwardPass(const float camPos[3]) {
     MatConstants mc;
     MatExtConstants mec;
     uint32_t matRow = 0;
-    FillMatConstants(d.mat, 0.0f, mc, mec, matTablePx, matTableRows, matRow);
+    FillMatConstants(d.mat, 0.0f, mc, mec, matTablePx, linkPx, matTableRows, matRow);
     (void)matRow;
     rhi->UpdateConstantBuffer(matCB, &mc, sizeof(mc));
     rhi->UpdateConstantBuffer(matExtCB, &mec, sizeof(mec));
@@ -3404,18 +3476,18 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   lc.lightDir[1] = useFallback ? light.direction[1] : 0.0f;
   lc.lightDir[2] = useFallback ? light.direction[2] : 0.0f;
   lc.lightDir[3] = 0.0f;
-  lc.lightColor[0] = useFallback ? light.color[0] * light.intensity : 0.0f;
-  lc.lightColor[1] = useFallback ? light.color[1] * light.intensity : 0.0f;
-  lc.lightColor[2] = useFallback ? light.color[2] * light.intensity : 0.0f;
+  lc.lightColor[0] = useFallback ? light.color[0] * light.intensity * physScale : 0.0f;
+  lc.lightColor[1] = useFallback ? light.color[1] * light.intensity * physScale : 0.0f;
+  lc.lightColor[2] = useFallback ? light.color[2] * light.intensity * physScale : 0.0f;
   lc.lightColor[3] = 1.0f;
-  size_t total = pointLights.size() + spotLights.size() + dirLights.size();
+  size_t total = pointLights.size() + spotLights.size() + dirLights.size() + rectLights.size();
   if (total > 16) {
     total = 16;
   }
   lc.counts[0] = static_cast<float>(total);
-  lc.counts[1] = 0.0f;
+  lc.counts[1] = static_cast<float>(attenMode);
   lc.counts[2] = 0.0f;
-  lc.counts[3] = 0.0f;
+  lc.counts[3] = (spotCookieOn && spotCookie != 0) ? 1.0f : 0.0f;
   lc.camFwd[0] = mainCam.camFwd[0];
   lc.camFwd[1] = mainCam.camFwd[1];
   lc.camFwd[2] = mainCam.camFwd[2];
@@ -3423,6 +3495,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   size_t li = 0;
   for (size_t i = 0; i < pointLights.size() && li < 16; ++i) {
     const RenderPointLight& pl = pointLights[i];
+    bool layerLit = (pl.layer & camLightMask) != 0;
     lc.lightA[li][0] = pl.pos[0];
     lc.lightA[li][1] = pl.pos[1];
     lc.lightA[li][2] = pl.pos[2];
@@ -3431,18 +3504,19 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     lc.lightB[li][1] = 0.0f;
     lc.lightB[li][2] = 0.0f;
     lc.lightB[li][3] = pl.radius;
-    lc.lightC[li][0] = pl.color[0] * pl.intensity;
-    lc.lightC[li][1] = pl.color[1] * pl.intensity;
-    lc.lightC[li][2] = pl.color[2] * pl.intensity;
+    lc.lightC[li][0] = layerLit ? pl.color[0] * pl.intensity * physScale : 0.0f;
+    lc.lightC[li][1] = layerLit ? pl.color[1] * pl.intensity * physScale : 0.0f;
+    lc.lightC[li][2] = layerLit ? pl.color[2] * pl.intensity * physScale : 0.0f;
     lc.lightC[li][3] = 0.0f;
     lc.lightD[li][0] = 0.0f;
     lc.lightD[li][1] = 0.0f;
-    lc.lightD[li][2] = 0.0f;
+    lc.lightD[li][2] = static_cast<float>(pl.linkMask & 0xFFu);
     lc.lightD[li][3] = 0.0f;
     ++li;
   }
   for (size_t i = 0; i < spotLights.size() && li < 16; ++i) {
     const RenderSpotLight& sl = spotLights[i];
+    bool layerLit = (sl.layer & camLightMask) != 0;
     float angle = sl.angle;
     if (angle < 1.0f) {
       angle = 1.0f;
@@ -3458,9 +3532,9 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     lc.lightB[li][1] = sl.dir[1];
     lc.lightB[li][2] = sl.dir[2];
     lc.lightB[li][3] = sl.radius;
-    lc.lightC[li][0] = sl.color[0] * sl.intensity;
-    lc.lightC[li][1] = sl.color[1] * sl.intensity;
-    lc.lightC[li][2] = sl.color[2] * sl.intensity;
+    lc.lightC[li][0] = layerLit ? sl.color[0] * sl.intensity * physScale : 0.0f;
+    lc.lightC[li][1] = layerLit ? sl.color[1] * sl.intensity * physScale : 0.0f;
+    lc.lightC[li][2] = layerLit ? sl.color[2] * sl.intensity * physScale : 0.0f;
     lc.lightC[li][3] = cosf(angle * 0.5f * 0.01745329252f);
     float fw = sl.falloff;
     if (fw < 0.01f) {
@@ -3471,12 +3545,13 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     }
     lc.lightD[li][0] = fw;
     lc.lightD[li][1] = 0.0f;
-    lc.lightD[li][2] = 0.0f;
+    lc.lightD[li][2] = static_cast<float>(sl.linkMask & 0xFFu);
     lc.lightD[li][3] = 0.0f;
     ++li;
   }
   for (size_t i = 0; i < dirLights.size() && li < 16; ++i) {
     const RenderDirectionalLight& dl = dirLights[i];
+    bool layerLit = (dl.layer & camLightMask) != 0;
     lc.lightA[li][0] = dl.dir[0];
     lc.lightA[li][1] = dl.dir[1];
     lc.lightA[li][2] = dl.dir[2];
@@ -3485,13 +3560,34 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     lc.lightB[li][1] = 0.0f;
     lc.lightB[li][2] = 0.0f;
     lc.lightB[li][3] = 0.0f;
-    lc.lightC[li][0] = dl.color[0] * dl.intensity;
-    lc.lightC[li][1] = dl.color[1] * dl.intensity;
-    lc.lightC[li][2] = dl.color[2] * dl.intensity;
+    lc.lightC[li][0] = layerLit ? dl.color[0] * dl.intensity * physScale : 0.0f;
+    lc.lightC[li][1] = layerLit ? dl.color[1] * dl.intensity * physScale : 0.0f;
+    lc.lightC[li][2] = layerLit ? dl.color[2] * dl.intensity * physScale : 0.0f;
     lc.lightC[li][3] = 0.0f;
     lc.lightD[li][0] = 0.0f;
     lc.lightD[li][1] = 0.0f;
-    lc.lightD[li][2] = 0.0f;
+    lc.lightD[li][2] = static_cast<float>(dl.linkMask & 0xFFu);
+    lc.lightD[li][3] = 0.0f;
+    ++li;
+  }
+  for (size_t i = 0; i < rectLights.size() && li < 16; ++i) {
+    const RenderRectLight& rl = rectLights[i];
+    bool layerLit = (rl.layer & camLightMask) != 0;
+    lc.lightA[li][0] = rl.pos[0];
+    lc.lightA[li][1] = rl.pos[1];
+    lc.lightA[li][2] = rl.pos[2];
+    lc.lightA[li][3] = 3.0f;
+    lc.lightB[li][0] = rl.normal[0];
+    lc.lightB[li][1] = rl.normal[1];
+    lc.lightB[li][2] = rl.normal[2];
+    lc.lightB[li][3] = rl.range;
+    lc.lightC[li][0] = layerLit ? rl.color[0] * rl.intensity * physScale : 0.0f;
+    lc.lightC[li][1] = layerLit ? rl.color[1] * rl.intensity * physScale : 0.0f;
+    lc.lightC[li][2] = layerLit ? rl.color[2] * rl.intensity * physScale : 0.0f;
+    lc.lightC[li][3] = rl.halfW;
+    lc.lightD[li][0] = rl.halfH;
+    lc.lightD[li][1] = 0.0f;
+    lc.lightD[li][2] = static_cast<float>(rl.linkMask & 0xFFu);
     lc.lightD[li][3] = 0.0f;
     ++li;
   }
@@ -3595,7 +3691,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   lc.fogColor[2] = fogColor[2];
   lc.fogColor[3] = 0.0f;
   lc.iblInfo[0] = irrCube != 0 ? 1.0f : 0.0f;
-  lc.iblInfo[1] = 0.0f;
+  lc.iblInfo[1] = hdrSkyOn && envCube != 0 ? 1.0f : 0.0f;
   lc.iblInfo[2] = 0.0f;
   lc.iblInfo[3] = 0.0f;
   lc.shadowCtl[0] = static_cast<float>(shadowFilter);

@@ -64,6 +64,7 @@ struct DeferredMaterial {
   float attenuationColor[3] = { 1.0f, 1.0f, 1.0f };
   float attenuationDistance = 0.0f;
   float dispersion = 0.0f;
+  uint32_t linkGroup = 0xFF;
 };
 struct DeferredLight {
   float direction[3];
@@ -77,6 +78,8 @@ struct RenderPointLight {
   float radius;
   bool castShadow;
   float effectiveSize;
+  uint32_t linkMask = 0xFF;
+  uint32_t layer = 1;
 };
 struct RenderSpotLight {
   float pos[3];
@@ -89,6 +92,8 @@ struct RenderSpotLight {
   bool castShadow;
   float effectiveSize;
   int shadowSize;
+  uint32_t linkMask = 0xFF;
+  uint32_t layer = 1;
 };
 struct RenderDirectionalLight {
   float dir[3];
@@ -99,6 +104,19 @@ struct RenderDirectionalLight {
   int shadowSize;
   int cascades;
   float lambda;
+  uint32_t linkMask = 0xFF;
+  uint32_t layer = 1;
+};
+struct RenderRectLight {
+  float pos[3];
+  float normal[3];
+  float color[3];
+  float intensity;
+  float halfW = 1.0f;
+  float halfH = 0.5f;
+  float range = 10.0f;
+  uint32_t linkMask = 0xFF;
+  uint32_t layer = 1;
 };
 struct MainCameraSetup {
   float camPos[3];
@@ -185,6 +203,13 @@ public:
   void AddPointLight(const RenderPointLight& light);
   void AddSpotLight(const RenderSpotLight& light);
   void AddDirectionalLight(const RenderDirectionalLight& light);
+  void AddRectLight(const RenderRectLight& light);
+  void SetAttenuationMode(int mode);
+  void SetPhysicalScale(float scale);
+  void SetCameraLightMask(uint32_t mask);
+  void SetSpotCookie(RHITexture tex);
+  void SetSpotCookieOn(bool on);
+  void SetMaterialLinkGroup(uint32_t matId, uint32_t mask);
   void SetMainCamera(const MainCameraSetup& setup);
   void SetShadowDebug(bool debug);
   void SetGrade(float exposure, bool aces);
@@ -226,6 +251,8 @@ public:
   void GenerateEnvMips();
   bool BakeIrradiance();
   bool UseHdrSky(RHITexture cube);
+  void SetHdrBackground(bool on);
+  bool HdrBackgroundOn() const;
   void SetEnvIntensity(float intensity);
   void SetEnvProbes(int count, const RHITexture* cubes, const float (*boxMin)[4], const float (*boxMax)[4]);
   void DrawObject(const float world[16]);
@@ -539,6 +566,7 @@ public:
   RHIRenderTarget brdfLut;
   RHITexture irrCube;
   RHITexture envCube;
+  bool hdrSkyOn;
   RHIRenderTarget captureTarget;
   bool captureMode;
   float envIntensity;
@@ -581,6 +609,14 @@ public:
   std::vector<RenderPointLight> pointLights;
   std::vector<RenderSpotLight> spotLights;
   std::vector<RenderDirectionalLight> dirLights;
+  std::vector<RenderRectLight> rectLights;
+  int attenMode;
+  float physScale;
+  uint32_t camLightMask;
+  RHITexture spotCookie;
+  bool spotCookieOn;
+  RHITexture linkTable;
+  unsigned char linkPx[256 * 4];
   bool CreateTargets();
   void DestroyTargets();
   void RenderShadowMaps();
