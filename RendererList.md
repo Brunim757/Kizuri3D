@@ -83,7 +83,7 @@ Futuro
 - [ ] Rectangular area lights
 - [ ] Light attenuation avançada
 - [ ] Physically based light units
-- [ ] Temperature / Kelvin lights
+- [x] Temperature / Kelvin lights
 - [ ] Light layers
 - [ ] Light cookies
 - [ ] Light linking
@@ -185,7 +185,7 @@ Sem Ray Tracing
 
 - [x] HDR pipeline
 - [x] Exposure
-- [ ] Auto Exposure
+- [x] Auto Exposure
 - [ ] Histogram exposure
 - [x] Tone Mapping
 - [x] ACES
@@ -194,12 +194,12 @@ Sem Ray Tracing
 - [x] Bloom
 - [ ] Lens dirt
 - [x] Vignette
-- [ ] Color grading
-- [ ] LUT color grading
-- [ ] Contrast
-- [ ] Saturation
-- [ ] Temperature
-- [ ] Tint
+- [x] Color grading
+- [x] LUT color grading
+- [x] Contrast
+- [x] Saturation
+- [x] Temperature
+- [x] Tint
 - [x] Chromatic aberration
 - [x] Film grain
 - [x] Sharpening
