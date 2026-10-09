@@ -362,10 +362,13 @@ float SampleTileVSM(float3 wpos, float3 nrm, row_major float4x4 vp, float tile, 
 }
 float SampleTileShadow(float3 wpos, float3 nrm, row_major float4x4 vp, float tile, float tileK, float nearZ, float farZ, float uvScale, float perspTanHalf, float effSize)
 {
+    float lit = 1.0;
     if (ShadowCtl.x > 1.5) {
-        return SampleTileVSM(wpos, nrm, vp, tile, tileK, nearZ, farZ, uvScale, perspTanHalf, ShadowCtl.x > 2.5);
+        lit = SampleTileVSM(wpos, nrm, vp, tile, tileK, nearZ, farZ, uvScale, perspTanHalf, ShadowCtl.x > 2.5);
+    } else {
+        lit = SampleTilePCSS(wpos, nrm, vp, tile, tileK, nearZ, farZ, uvScale, perspTanHalf, effSize);
     }
-    return SampleTilePCSS(wpos, nrm, vp, tile, tileK, nearZ, farZ, uvScale, perspTanHalf, effSize);
+    return lit;
 }
 float CascadeShadowSingle(float3 wpos, float3 nrm)
 {
