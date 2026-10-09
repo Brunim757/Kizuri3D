@@ -407,7 +407,7 @@ float SamplePointPCSS(float3 wpos, float3 nrm, float effSize)
     }
     if (effSize <= 0.0001) {
         float z0 = PointCube.SampleLevel(ShadowSampler, dir, 0).r;
-        return (dist - bias < LinearizeCube(z0, nearZ, farZ)) ? 1.0 : 0.0);
+        return (dist - bias < LinearizeCube(z0, nearZ, farZ)) ? 1.0 : 0.0;
     }
     float searchAng = min((effSize * 0.5) / max(dist, 1e-4), 0.05);
     float bsum = 0.0;
