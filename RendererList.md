@@ -98,14 +98,14 @@ Futuro
 
 - [x] Shadow maps
 - [x] Cascaded Shadow Maps
-- [ ] PCF
+- [x] PCF
 - [x] PCSS
 - [ ] VSM
 - [ ] EVSM
 - [x] Contact shadows
 - [x] Soft shadows
-- [ ] Shadow bias automático
-- [ ] Normal bias
+- [x] Shadow bias automático
+- [x] Normal bias
 - [x] Shadow atlas
 - [x] Shadow caching
 - [x] Shadow resolution dinâmica
