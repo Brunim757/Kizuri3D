@@ -4,6 +4,9 @@ cbuffer TaaCB : register(b0)
     float4 CamPos;
     float4 CamFwd;
     float4 TaaMisc;
+    float4 CamRight;
+    float4 CamUp;
+    float4 TanWH;
 };
 Texture2D CurrentTX : register(t0);
 Texture2D HistoryTX : register(t1);
@@ -39,7 +42,9 @@ float4 main(PSIn pin) : SV_Target
     float cdepth = dot(wpos - CamPos.xyz, CamFwd.xyz);
     float3 reprojP = wpos;
     if (isSky > 0.5) {
-        reprojP = CamPos.xyz + CamFwd.xyz * 10000.0;
+        float2 sndc = float2(pin.uv.x * 2.0 - 1.0, 1.0 - pin.uv.y * 2.0);
+        float3 sray = CamFwd.xyz + CamRight.xyz * (sndc.x * TanWH.x) + CamUp.xyz * (sndc.y * TanWH.y);
+        reprojP = CamPos.xyz + normalize(sray) * 10000.0;
         cdepth = 10000.0;
     }
     float4 pp = mul(float4(reprojP, 1.0), PrevVP);
@@ -61,16 +66,24 @@ float4 main(PSIn pin) : SV_Target
     if (abs(cdepth - hdepth) > dth) {
         useHist = 0.0;
     }
-    float3 mn = curr;
-    float3 mx = curr;
+    float3 m1 = curr;
+    float3 m2 = curr * curr;
     float2 px = TaaMisc.zw;
     for (int oy = -1; oy <= 1; ++oy) {
         for (int ox = -1; ox <= 1; ++ox) {
+            if (ox == 0 && oy == 0) {
+                continue;
+            }
             float3 s = CurrentTX.SampleLevel(LinearSampler, pin.uv + float2(float(ox) * px.x, float(oy) * px.y), 0).rgb;
-            mn = min(mn, s);
-            mx = max(mx, s);
+            m1 += s;
+            m2 += s * s;
         }
     }
+    float3 mean = m1 / 9.0;
+    float3 varc = max(m2 / 9.0 - mean * mean, 0.0);
+    float3 sigma = sqrt(varc);
+    float3 mn = mean - 1.25 * sigma;
+    float3 mx = mean + 1.25 * sigma;
     float3 clipped = ClipAABB(hist, mn, mx);
     float b = lerp(1.0, blend, useHist);
     float3 outc = lerp(curr, clipped, 1.0 - b);

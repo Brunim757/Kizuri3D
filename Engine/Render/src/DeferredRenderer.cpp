@@ -699,7 +699,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
     return false;
   }
   RecreateMomentsTargets();
-  float taaInit[28] = { 0.0f };
+  float taaInit[40] = { 0.0f };
   taaCB = rhi->CreateConstantBuffer(sizeof(taaInit), &taaInit);
   if (taaCB == 0) {
     return false;
@@ -4104,7 +4104,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
           taaVP[cc * 4 + rr] = s;
         }
       }
-      float tc[28];
+      float tc[40];
       std::memcpy(tc, taaVP, sizeof(taaVP));
       tc[16] = camPos[0];
       tc[17] = camPos[1];
@@ -4118,6 +4118,24 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       tc[25] = 0.1f;
       tc[26] = w > 0 ? 1.0f / static_cast<float>(w) : 0.0f;
       tc[27] = h > 0 ? 1.0f / static_cast<float>(h) : 0.0f;
+      tc[28] = mainCam.camRight[0];
+      tc[29] = mainCam.camRight[1];
+      tc[30] = mainCam.camRight[2];
+      tc[31] = 0.0f;
+      tc[32] = mainCam.camUp[0];
+      tc[33] = mainCam.camUp[1];
+      tc[34] = mainCam.camUp[2];
+      tc[35] = 0.0f;
+      float tanH = 1.0f;
+      float tanW = 1.0f;
+      if (mainCam.fovY > 0.01f && mainCam.fovY < 3.1f && mainCam.aspect > 0.01f) {
+        tanH = std::tan(mainCam.fovY * 0.5f);
+        tanW = tanH * mainCam.aspect;
+      }
+      tc[36] = tanW;
+      tc[37] = tanH;
+      tc[38] = 0.0f;
+      tc[39] = 0.0f;
       rhi->UpdateConstantBuffer(taaCB, &tc, sizeof(tc));
       rhi->SetPixelConstantBuffer(0, taaCB);
       rhi->SetPixelSampler(0, sampler);

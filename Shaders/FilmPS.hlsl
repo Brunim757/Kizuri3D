@@ -63,7 +63,8 @@ float4 main(PSIn pin) : SV_Target
         }
         float2 vel = (cuv - puv) * Toggles.z;
         float vl = length(vel);
-        if (vl > 1e-5 && vl < 0.05) {
+        float minVel = (px.x + px.y) * 0.75;
+        if (vl > minVel && vl < 0.05) {
             float3 macc = col;
             for (int j = 1; j < 6; ++j) {
                 macc += FrameTX.SampleLevel(LinearSampler, pin.uv - vel * (float) j / 5.0, 0).rgb;
