@@ -149,6 +149,8 @@ struct ForwardDrawItem {
   uint32_t start;
   uint32_t count;
   DeferredMaterial mat;
+  uint32_t lightCount;
+  uint32_t lightIndex[16];
 };
 struct GeoBatchItem {
   float world[16];
@@ -173,6 +175,8 @@ struct RenderStats {
   uint32_t culledDraws = 0;
   uint32_t occludedDraws = 0;
   uint32_t instancedDraws = 0;
+  uint32_t clusterMax = 0;
+  float clusterAvg = 0.0f;
   bool shadowCached = false;
   double msSubmit = 0.0;
   double msShadow = 0.0;
@@ -215,6 +219,13 @@ public:
   void SetDebugView(int mode);
   int GetDebugView() const;
   void SetFallbackLight(bool on);
+  void SetClustered(bool on);
+  void SetGpuCulling(bool on);
+  void SetForwardPlus(bool on);
+  bool ClusterReady() const;
+  bool GpuCullingActive() const;
+  uint32_t ClusterMaxLights() const;
+  float ClusterAvgLights() const;
   void TakeShaderErrors(std::vector<std::string>& out);
   void SetGrade(float exposure, bool aces);
   void SetTaa(bool on);
@@ -574,6 +585,23 @@ public:
   RHIPixelShader uvPS;
   RHIRenderTarget uvA;
   bool fallbackOn;
+  bool clusterOn;
+  bool gpuCullOn;
+  bool clusterReady;
+  RHITexture clusterTex;
+  unsigned char clusterPx[16 * 9 * 4];
+  uint16_t clusterGrid[16 * 9];
+  RHIComputeShader lightGridCS;
+  RHIConstBuffer cullCB;
+  RHIStructBuffer gridBuf;
+  bool computeAvailable;
+  bool gpuCullParity;
+  bool forwardPlus;
+  uint32_t clusterMax;
+  float clusterAvg;
+  uint32_t clusterLightCount;
+  void UpdateLightClusters(const float camPos[3]);
+  void AssignForwardLights();
   std::vector<std::string> shaderErrors;
   void RunDebugPass(const float camPos[3]);
   void RunOverdrawPass();

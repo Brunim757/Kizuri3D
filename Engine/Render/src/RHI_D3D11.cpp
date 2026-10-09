@@ -7,6 +7,7 @@
 #include <dxgi.h>
 #include <d3dcompiler.h>
 #include <wrl/client.h>
+#include <cstring>
 #include <unordered_map>
 #include <vector>
 #include <list>
@@ -1028,6 +1029,142 @@ public:
       annotation->EndEvent();
     }
   }
+  RHIComputeShader CreateComputeShaderFromFile(const char* path, const char* entry) override {
+    ComPtr<ID3DBlob> blob;
+    if (!CompileShader(path, entry != nullptr ? entry : "main", "cs_5_0", blob)) {
+      return 0;
+    }
+    ComPtr<ID3D11ComputeShader> cs;
+    if (FAILED(device->CreateComputeShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, cs.GetAddressOf()))) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    csMap[id] = cs;
+    return id;
+  }
+  RHIStructBuffer CreateStructBuffer(uint32_t count, uint32_t stride, const void* initData) override {
+    if (count == 0 || stride == 0) {
+      return 0;
+    }
+    D3D11_BUFFER_DESC bd;
+    bd.ByteWidth = count * stride;
+    bd.Usage = D3D11_USAGE_DEFAULT;
+    bd.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+    bd.CPUAccessFlags = 0;
+    bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+    bd.StructureByteStride = stride;
+    D3D11_SUBRESOURCE_DATA init;
+    D3D11_SUBRESOURCE_DATA* initPtr = nullptr;
+    if (initData != nullptr) {
+      init.pSysMem = initData;
+      init.SysMemPitch = 0;
+      init.SysMemSlicePitch = 0;
+      initPtr = &init;
+    }
+    ComPtr<ID3D11Buffer> buf;
+    if (FAILED(device->CreateBuffer(&bd, initPtr, buf.GetAddressOf()))) {
+      return 0;
+    }
+    D3D11_SHADER_RESOURCE_VIEW_DESC svd;
+    svd.Format = DXGI_FORMAT_UNKNOWN;
+    svd.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
+    svd.BufferEx.FirstElement = 0;
+    svd.BufferEx.NumElements = count;
+    svd.BufferEx.Flags = 0;
+    ComPtr<ID3D11ShaderResourceView> srv;
+    if (FAILED(device->CreateShaderResourceView(buf.Get(), &svd, srv.GetAddressOf()))) {
+      return 0;
+    }
+    D3D11_UNORDERED_ACCESS_VIEW_DESC uvd;
+    uvd.Format = DXGI_FORMAT_UNKNOWN;
+    uvd.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+    uvd.Buffer.FirstElement = 0;
+    uvd.Buffer.NumElements = count;
+    uvd.Buffer.Flags = 0;
+    ComPtr<ID3D11UnorderedAccessView> uav;
+    if (FAILED(device->CreateUnorderedAccessView(buf.Get(), &uvd, uav.GetAddressOf()))) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    StructBuf sb;
+    sb.buf = buf;
+    sb.srv = srv;
+    sb.uav = uav;
+    sb.count = count;
+    sb.stride = stride;
+    structBufs[id] = sb;
+    return id;
+  }
+  void DestroyStructBuffer(RHIStructBuffer buf) override {
+    structBufs.erase(buf);
+  }
+  void SetComputeShader(RHIComputeShader cs) override {
+    auto it = csMap.find(cs);
+    context->CSSetShader(it == csMap.end() ? nullptr : it->second.Get(), nullptr, 0);
+  }
+  void SetComputeConstantBuffer(uint32_t slot, RHIConstBuffer cb) override {
+    auto it = cbuffers.find(cb);
+    ID3D11Buffer* b = (it == cbuffers.end()) ? nullptr : it->second.Get();
+    context->CSSetConstantBuffers(slot, 1, &b);
+  }
+  void SetComputeSRV(uint32_t slot, RHIStructBuffer buf) override {
+    auto it = structBufs.find(buf);
+    ID3D11ShaderResourceView* v = (it == structBufs.end()) ? nullptr : it->second.srv.Get();
+    context->CSSetShaderResources(slot, 1, &v);
+  }
+  void SetComputeUAV(uint32_t slot, RHIStructBuffer buf) override {
+    auto it = structBufs.find(buf);
+    ID3D11UnorderedAccessView* v = (it == structBufs.end()) ? nullptr : it->second.uav.Get();
+    UINT initial = 0;
+    context->CSSetUnorderedAccessViews(slot, 1, &v, &initial);
+  }
+  void Dispatch(uint32_t x, uint32_t y, uint32_t z) override {
+    if (x == 0 || y == 0 || z == 0) {
+      return;
+    }
+    if (x > 65535) {
+      x = 65535;
+    }
+    if (y > 65535) {
+      y = 65535;
+    }
+    if (z > 64) {
+      z = 64;
+    }
+    context->Dispatch(x, y, z);
+  }
+  bool ReadStructBuffer(RHIStructBuffer buf, void* dst, size_t bytes) override {
+    if (dst == nullptr || bytes == 0) {
+      return false;
+    }
+    auto it = structBufs.find(buf);
+    if (it == structBufs.end()) {
+      return false;
+    }
+    size_t total = static_cast<size_t>(it->second.count) * it->second.stride;
+    if (bytes > total) {
+      bytes = total;
+    }
+    D3D11_BUFFER_DESC sd;
+    sd.ByteWidth = static_cast<UINT>(total);
+    sd.Usage = D3D11_USAGE_STAGING;
+    sd.BindFlags = 0;
+    sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    sd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+    sd.StructureByteStride = it->second.stride;
+    ComPtr<ID3D11Buffer> staging;
+    if (FAILED(device->CreateBuffer(&sd, nullptr, staging.GetAddressOf()))) {
+      return false;
+    }
+    context->CopyResource(staging.Get(), it->second.buf.Get());
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    if (FAILED(context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
+      return false;
+    }
+    std::memcpy(dst, mapped.pData, bytes);
+    context->Unmap(staging.Get(), 0);
+    return true;
+  }
   void SetPixelTexture(uint32_t slot, RHIRenderTarget rt) override {
     if (rt == 0) {
       ID3D11ShaderResourceView* nullSrv = nullptr;
@@ -1684,6 +1821,15 @@ private:
   std::unordered_map<uint64_t, ComPtr<ID3D11VertexShader>> vsMap;
   std::unordered_map<uint64_t, ComPtr<ID3DBlob>> vsBlobs;
   std::unordered_map<uint64_t, ComPtr<ID3D11PixelShader>> psMap;
+  std::unordered_map<uint64_t, ComPtr<ID3D11ComputeShader>> csMap;
+  struct StructBuf {
+    ComPtr<ID3D11Buffer> buf;
+    ComPtr<ID3D11ShaderResourceView> srv;
+    ComPtr<ID3D11UnorderedAccessView> uav;
+    uint32_t count = 0;
+    uint32_t stride = 0;
+  };
+  std::unordered_map<uint64_t, StructBuf> structBufs;
   std::unordered_map<uint64_t, ComPtr<ID3D11InputLayout>> layouts;
   std::unordered_map<uint64_t, TargetRes> targets;
   std::list<TargetRes> pool;

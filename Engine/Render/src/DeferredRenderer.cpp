@@ -375,6 +375,19 @@ DeferredRenderer::DeferredRenderer()
   , uvPS(0)
   , uvA(0)
   , fallbackOn(true)
+  , clusterOn(true)
+  , gpuCullOn(false)
+  , clusterReady(false)
+  , clusterTex(0)
+  , lightGridCS(0)
+  , cullCB(0)
+  , gridBuf(0)
+  , computeAvailable(false)
+  , gpuCullParity(false)
+  , forwardPlus(true)
+  , clusterMax(0)
+  , clusterAvg(0.0f)
+  , clusterLightCount(0)
   , godRan(false)
   , taaA(0)
   , taaB(0)
@@ -527,6 +540,12 @@ DeferredRenderer::DeferredRenderer()
     savedLastProj[i] = (i % 5 == 0) ? 1.0f : 0.0f;
     savedPrevView[i] = (i % 5 == 0) ? 1.0f : 0.0f;
     savedPrevProj[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+  }
+  for (int i = 0; i < 144; ++i) {
+    clusterGrid[i] = 0;
+  }
+  for (int i = 0; i < 576; ++i) {
+    clusterPx[i] = 0;
   }
 }
 DeferredRenderer::~DeferredRenderer() {
@@ -766,6 +785,17 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (debugCB == 0) {
     return false;
   }
+  std::string gridCSPath = dir + "/LightGridCS.hlsl";
+  lightGridCS = rhi->CreateComputeShaderFromFile(gridCSPath.c_str(), "main");
+  float cullInit[84] = { 0.0f };
+  cullCB = rhi->CreateConstantBuffer(sizeof(cullInit), &cullInit);
+  gridBuf = rhi->CreateStructBuffer(144, 4, nullptr);
+  clusterTex = rhi->CreateTexture2D(16, 9, 1, RHITextureFormat::RGBA8_UNORM);
+  computeAvailable = lightGridCS != 0 && cullCB != 0 && gridBuf != 0 && clusterTex != 0;
+  if (clusterTex != 0) {
+    unsigned char blackPx[16 * 9 * 4] = { 0 };
+    rhi->UpdateTextureMip(clusterTex, 0, 16, 9, 16 * 4, blackPx, sizeof(blackPx));
+  }
   forwardPS = LoadPixelShader(forwardPath.c_str());
   if (forwardPS == 0) {
     return false;
@@ -832,7 +862,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (fxaaCB == 0) {
     return false;
   }
-  float fwdInit[4] = { 1.0f, 1.0f, 0.0f, 0.0f };
+  float fwdInit[24] = { 1.0f, 1.0f, 0.0f, 0.0f };
   forwardCB = rhi->CreateConstantBuffer(sizeof(fwdInit), &fwdInit);
   if (forwardCB == 0) {
     return false;
@@ -1043,6 +1073,10 @@ void DeferredRenderer::Shutdown() {
     rhi->DestroyTexture(linkTable);
     linkTable = 0;
   }
+  if (clusterTex != 0) {
+    rhi->DestroyTexture(clusterTex);
+    clusterTex = 0;
+  }
   geoSampler = 0;
   if (shadowAtlas != 0) {
     rhi->DestroyRenderTarget(shadowAtlas);
@@ -1151,6 +1185,16 @@ void DeferredRenderer::Shutdown() {
     rhi->DestroyConstantBuffer(debugCB);
     debugCB = 0;
   }
+  if (cullCB != 0) {
+    rhi->DestroyConstantBuffer(cullCB);
+    cullCB = 0;
+  }
+  if (gridBuf != 0) {
+    rhi->DestroyStructBuffer(gridBuf);
+    gridBuf = 0;
+  }
+  computeAvailable = false;
+  clusterReady = false;
   if (lutTex != 0) {
     rhi->DestroyTexture3D(lutTex);
     lutTex = 0;
@@ -1369,6 +1413,400 @@ int DeferredRenderer::GetDebugView() const {
 }
 void DeferredRenderer::SetFallbackLight(bool on) {
   fallbackOn = on;
+}
+void DeferredRenderer::SetClustered(bool on) {
+  clusterOn = on;
+  if (!on) {
+    clusterReady = false;
+  }
+}
+void DeferredRenderer::SetGpuCulling(bool on) {
+  gpuCullOn = on && computeAvailable;
+  if (!gpuCullOn) {
+    gpuCullParity = false;
+  }
+}
+void DeferredRenderer::SetForwardPlus(bool on) {
+  forwardPlus = on;
+}
+bool DeferredRenderer::ClusterReady() const {
+  return clusterReady && clusterTex != 0;
+}
+bool DeferredRenderer::GpuCullingActive() const {
+  return gpuCullOn && computeAvailable && gridBuf != 0;
+}
+uint32_t DeferredRenderer::ClusterMaxLights() const {
+  return clusterMax;
+}
+float DeferredRenderer::ClusterAvgLights() const {
+  return clusterAvg;
+}
+static bool InvertVP(const float m[16], float invOut[16]) {
+  float a[16];
+  float inv[16];
+  for (int i = 0; i < 16; ++i) {
+    a[i] = m[i];
+    inv[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+  }
+  for (int col = 0; col < 4; ++col) {
+    int piv = col;
+    float best = 0.0f;
+    for (int row = col; row < 4; ++row) {
+      float v = a[row * 4 + col] < 0.0f ? -a[row * 4 + col] : a[row * 4 + col];
+      if (v > best) {
+        best = v;
+        piv = row;
+      }
+    }
+    if (best < 1e-9f) {
+      return false;
+    }
+    if (piv != col) {
+      for (int k = 0; k < 4; ++k) {
+        float t = a[col * 4 + k];
+        a[col * 4 + k] = a[piv * 4 + k];
+        a[piv * 4 + k] = t;
+        t = inv[col * 4 + k];
+        inv[col * 4 + k] = inv[piv * 4 + k];
+        inv[piv * 4 + k] = t;
+      }
+    }
+    float div = a[col * 4 + col];
+    for (int k = 0; k < 4; ++k) {
+      a[col * 4 + k] /= div;
+      inv[col * 4 + k] /= div;
+    }
+    for (int row = 0; row < 4; ++row) {
+      if (row == col) {
+        continue;
+      }
+      float f = a[row * 4 + col];
+      if (f != 0.0f) {
+        for (int k = 0; k < 4; ++k) {
+          a[row * 4 + k] -= f * a[col * 4 + k];
+          inv[row * 4 + k] -= f * inv[col * 4 + k];
+        }
+      }
+    }
+  }
+  for (int i = 0; i < 16; ++i) {
+    invOut[i] = inv[i];
+  }
+  return true;
+}
+static void UnprojectTile(const float invVP[16], float nx0, float ny0, float nx1, float ny1, float outNear[4][3], float outFar[4][3]) {
+  float xs[2] = { nx0, nx1 };
+  float ys[2] = { ny0, ny1 };
+  for (int iy = 0; iy < 2; ++iy) {
+    for (int ix = 0; ix < 2; ++ix) {
+      float v[4] = { xs[ix], ys[iy], 0.0f, 1.0f };
+      float w0 = v[0] * invVP[0] + v[1] * invVP[4] + v[2] * invVP[8] + v[3] * invVP[12];
+      float w1 = v[0] * invVP[1] + v[1] * invVP[5] + v[2] * invVP[9] + v[3] * invVP[13];
+      float w2 = v[0] * invVP[2] + v[1] * invVP[6] + v[2] * invVP[10] + v[3] * invVP[14];
+      float w3 = v[0] * invVP[3] + v[1] * invVP[7] + v[2] * invVP[11] + v[3] * invVP[15];
+      float iw = w3 != 0.0f ? 1.0f / w3 : 1.0f;
+      outNear[iy * 2 + ix][0] = w0 * iw;
+      outNear[iy * 2 + ix][1] = w1 * iw;
+      outNear[iy * 2 + ix][2] = w2 * iw;
+      float f[4] = { xs[ix], ys[iy], 1.0f, 1.0f };
+      float q0 = f[0] * invVP[0] + f[1] * invVP[4] + f[2] * invVP[8] + f[3] * invVP[12];
+      float q1 = f[0] * invVP[1] + f[1] * invVP[5] + f[2] * invVP[9] + f[3] * invVP[13];
+      float q2 = f[0] * invVP[2] + f[1] * invVP[6] + f[2] * invVP[10] + f[3] * invVP[14];
+      float q3 = f[0] * invVP[3] + f[1] * invVP[7] + f[2] * invVP[11] + f[3] * invVP[15];
+      float jq = q3 != 0.0f ? 1.0f / q3 : 1.0f;
+      outFar[iy * 2 + ix][0] = q0 * jq;
+      outFar[iy * 2 + ix][1] = q1 * jq;
+      outFar[iy * 2 + ix][2] = q2 * jq;
+    }
+  }
+}
+static void PlaneFromPoints(const float a[3], const float b[3], const float c[3], const float inside[3], float out[4]) {
+  float ab[3] = { b[0] - a[0], b[1] - a[1], b[2] - a[2] };
+  float ac[3] = { c[0] - a[0], c[1] - a[1], c[2] - a[2] };
+  float n[3] = { ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0] };
+  float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+  if (len < 1e-9f) {
+    out[0] = 0.0f;
+    out[1] = 0.0f;
+    out[2] = 0.0f;
+    out[3] = 1e9f;
+    return;
+  }
+  n[0] /= len;
+  n[1] /= len;
+  n[2] /= len;
+  float d = -(n[0] * a[0] + n[1] * a[1] + n[2] * a[2]);
+  if (n[0] * inside[0] + n[1] * inside[1] + n[2] * inside[2] + d < 0.0f) {
+    n[0] = -n[0];
+    n[1] = -n[1];
+    n[2] = -n[2];
+    d = -d;
+  }
+  out[0] = n[0];
+  out[1] = n[1];
+  out[2] = n[2];
+  out[3] = d;
+}
+static bool SphereInTile(const float planes[6][4], const float c[3], float radius) {
+  for (int p = 0; p < 6; ++p) {
+    if (planes[p][0] * c[0] + planes[p][1] * c[1] + planes[p][2] * c[2] + planes[p][3] < -radius) {
+      return false;
+    }
+  }
+  return true;
+}
+static void BuildTileGrid(const float invVP[16], const float cam[3], const float centers[16][3], const float radii[16], uint32_t nPoint, uint32_t nSpot, uint32_t nDir, uint32_t nRect, uint16_t outGrid[144]) {
+  for (int ty = 0; ty < 9; ++ty) {
+    for (int tx = 0; tx < 16; ++tx) {
+      float nx0 = static_cast<float>(tx) / 16.0f * 2.0f - 1.0f;
+      float nx1 = static_cast<float>(tx + 1) / 16.0f * 2.0f - 1.0f;
+      float ny1 = 1.0f - static_cast<float>(ty) / 9.0f * 2.0f;
+      float ny0 = 1.0f - static_cast<float>(ty + 1) / 9.0f * 2.0f;
+      float tn[4][3];
+      float tf[4][3];
+      UnprojectTile(invVP, nx0, ny0, nx1, ny1, tn, tf);
+      float cc[3] = {
+        (tn[0][0] + tn[3][0] + tf[0][0] + tf[3][0]) * 0.25f,
+        (tn[0][1] + tn[3][1] + tf[0][1] + tf[3][1]) * 0.25f,
+        (tn[0][2] + tn[3][2] + tf[0][2] + tf[3][2]) * 0.25f
+      };
+      float planes[6][4];
+      PlaneFromPoints(cam, tn[0], tn[1], cc, planes[0]);
+      PlaneFromPoints(cam, tn[1], tn[3], cc, planes[1]);
+      PlaneFromPoints(cam, tn[3], tn[2], cc, planes[2]);
+      PlaneFromPoints(cam, tn[2], tn[0], cc, planes[3]);
+      PlaneFromPoints(tn[0], tn[1], tn[3], cc, planes[4]);
+      PlaneFromPoints(tf[3], tf[1], tf[0], cc, planes[5]);
+      uint16_t mask = 0;
+      uint32_t li = 0;
+      for (uint32_t k = 0; k < nPoint && li < 16; ++k, ++li) {
+        if (SphereInTile(planes, centers[li], radii[li])) {
+          mask |= static_cast<uint16_t>(1u << li);
+        }
+      }
+      for (uint32_t k = 0; k < nSpot && li < 16; ++k, ++li) {
+        if (SphereInTile(planes, centers[li], radii[li])) {
+          mask |= static_cast<uint16_t>(1u << li);
+        }
+      }
+      for (uint32_t k = 0; k < nDir && li < 16; ++k, ++li) {
+        mask |= static_cast<uint16_t>(1u << li);
+      }
+      for (uint32_t k = 0; k < nRect && li < 16; ++k, ++li) {
+        if (SphereInTile(planes, centers[li], radii[li])) {
+          mask |= static_cast<uint16_t>(1u << li);
+        }
+      }
+      outGrid[ty * 16 + tx] = mask;
+    }
+  }
+}
+void DeferredRenderer::UpdateLightClusters(const float camPos[3]) {
+  clusterReady = false;
+  clusterMax = 0;
+  clusterAvg = 0.0f;
+  if (!clusterOn || rhi == nullptr || clusterTex == 0) {
+    return;
+  }
+  float vp[16];
+  MulViewProj(lastViewU, lastProjU, vp);
+  float invVP[16];
+  if (!InvertVP(vp, invVP)) {
+    return;
+  }
+  float centers[16][3];
+  float radii[16];
+  uint32_t lightCount = 0;
+  for (size_t i = 0; i < pointLights.size() && lightCount < 16; ++i, ++lightCount) {
+    centers[lightCount][0] = pointLights[i].pos[0];
+    centers[lightCount][1] = pointLights[i].pos[1];
+    centers[lightCount][2] = pointLights[i].pos[2];
+    radii[lightCount] = pointLights[i].radius > 0.0f ? pointLights[i].radius : 1.0f;
+  }
+  for (size_t i = 0; i < spotLights.size() && lightCount < 16; ++i, ++lightCount) {
+    centers[lightCount][0] = spotLights[i].pos[0];
+    centers[lightCount][1] = spotLights[i].pos[1];
+    centers[lightCount][2] = spotLights[i].pos[2];
+    radii[lightCount] = spotLights[i].radius > 0.0f ? spotLights[i].radius : 1.0f;
+  }
+  for (size_t i = 0; i < dirLights.size() && lightCount < 16; ++i, ++lightCount) {
+    centers[lightCount][0] = camPos != nullptr ? camPos[0] : 0.0f;
+    centers[lightCount][1] = camPos != nullptr ? camPos[1] : 0.0f;
+    centers[lightCount][2] = camPos != nullptr ? camPos[2] : 0.0f;
+    radii[lightCount] = 1e9f;
+  }
+  for (size_t i = 0; i < rectLights.size() && lightCount < 16; ++i, ++lightCount) {
+    centers[lightCount][0] = rectLights[i].pos[0];
+    centers[lightCount][1] = rectLights[i].pos[1];
+    centers[lightCount][2] = rectLights[i].pos[2];
+    radii[lightCount] = rectLights[i].range > 0.0f ? rectLights[i].range : 1.0f;
+  }
+  clusterLightCount = lightCount;
+  uint32_t nPoint = static_cast<uint32_t>(pointLights.size() > 16 ? 16 : pointLights.size());
+  uint32_t nSpot = static_cast<uint32_t>(spotLights.size());
+  if (nPoint + nSpot > 16) {
+    nSpot = 16 - nPoint;
+  }
+  uint32_t nDir = static_cast<uint32_t>(dirLights.size());
+  if (nPoint + nSpot + nDir > 16) {
+    nDir = 16 - nPoint - nSpot;
+  }
+  uint32_t nRect = static_cast<uint32_t>(rectLights.size());
+  if (nPoint + nSpot + nDir + nRect > 16) {
+    nRect = 16 - nPoint - nSpot - nDir;
+  }
+  float cam[3] = { camPos != nullptr ? camPos[0] : 0.0f, camPos != nullptr ? camPos[1] : 0.0f, camPos != nullptr ? camPos[2] : 0.0f };
+  uint16_t cpuGrid[144] = { 0 };
+  BuildTileGrid(invVP, cam, centers, radii, nPoint, nSpot, nDir, nRect, cpuGrid);
+  for (int t = 0; t < 144; ++t) {
+    clusterGrid[t] = cpuGrid[t];
+  }
+  float cullSpheres[16][4];
+  for (uint32_t i = 0; i < 16; ++i) {
+    if (i < lightCount) {
+      cullSpheres[i][0] = centers[i][0];
+      cullSpheres[i][1] = centers[i][1];
+      cullSpheres[i][2] = centers[i][2];
+      cullSpheres[i][3] = radii[i];
+    } else {
+      cullSpheres[i][0] = 0.0f;
+      cullSpheres[i][1] = 0.0f;
+      cullSpheres[i][2] = 0.0f;
+      cullSpheres[i][3] = -1.0f;
+    }
+  }
+  uint32_t total = 0;
+  uint32_t mx = 0;
+  if (GpuCullingActive()) {
+    float cullCBData[84] = { 0.0f };
+    for (uint32_t i = 0; i < 16; ++i) {
+      cullCBData[i * 4 + 0] = cullSpheres[i][0];
+      cullCBData[i * 4 + 1] = cullSpheres[i][1];
+      cullCBData[i * 4 + 2] = cullSpheres[i][2];
+      cullCBData[i * 4 + 3] = cullSpheres[i][3];
+    }
+    for (int i = 0; i < 16; ++i) {
+      cullCBData[64 + i] = vp[i];
+    }
+    cullCBData[80] = static_cast<float>(lightCount);
+    cullCBData[81] = 16.0f;
+    cullCBData[82] = 9.0f;
+    cullCBData[83] = 0.0f;
+    rhi->UpdateConstantBuffer(cullCB, &cullCBData, sizeof(cullCBData));
+    rhi->SetComputeConstantBuffer(0, cullCB);
+    rhi->SetComputeUAV(0, gridBuf);
+    rhi->SetComputeShader(lightGridCS);
+    rhi->Dispatch(1, 1, 1);
+    rhi->SetComputeUAV(0, 0);
+    rhi->SetComputeShader(0);
+    uint32_t gpuGrid[144] = { 0 };
+    gpuCullParity = false;
+    if (rhi->ReadStructBuffer(gridBuf, gpuGrid, sizeof(gpuGrid))) {
+      bool parity = true;
+      for (int t = 0; t < 144; ++t) {
+        if ((gpuGrid[t] & 0xFFFFu) != cpuGrid[t]) {
+          parity = false;
+          break;
+        }
+      }
+      gpuCullParity = parity;
+      if (parity) {
+        for (int t = 0; t < 144; ++t) {
+          clusterGrid[t] = static_cast<uint16_t>(gpuGrid[t] & 0xFFFFu);
+        }
+      }
+    }
+  }
+  for (int t = 0; t < 144; ++t) {
+    uint16_t m = clusterGrid[t];
+    uint32_t n = 0;
+    while (m != 0) {
+      n += m & 1u;
+      m >>= 1;
+    }
+    total += n;
+    if (n > mx) {
+      mx = n;
+    }
+    clusterPx[t * 4 + 0] = static_cast<unsigned char>(clusterGrid[t] & 0xFFu);
+    clusterPx[t * 4 + 1] = static_cast<unsigned char>((clusterGrid[t] >> 8) & 0xFFu);
+    clusterPx[t * 4 + 2] = 0;
+    clusterPx[t * 4 + 3] = 255;
+  }
+  clusterMax = mx;
+  clusterAvg = static_cast<float>(total) / 144.0f;
+  stats.clusterMax = mx;
+  stats.clusterAvg = clusterAvg;
+  rhi->UpdateTextureMip(clusterTex, 0, 16, 9, 16 * 4, clusterPx, sizeof(clusterPx));
+  clusterReady = true;
+}
+void DeferredRenderer::AssignForwardLights() {
+  for (size_t oi = 0; oi < forwardDraws.size(); ++oi) {
+    ForwardDrawItem& d = forwardDraws[oi];
+    d.lightCount = 0;
+    for (int k = 0; k < 16; ++k) {
+      d.lightIndex[k] = static_cast<uint32_t>(k);
+    }
+    if (!forwardPlus) {
+      size_t total = pointLights.size() + spotLights.size() + dirLights.size() + rectLights.size();
+      d.lightCount = total > 16 ? 16 : static_cast<uint32_t>(total);
+      continue;
+    }
+    float cx = d.world[12];
+    float cy = d.world[13];
+    float cz = d.world[14];
+    uint32_t li = 0;
+    uint32_t out = 0;
+    for (size_t i = 0; i < pointLights.size() && li < 16; ++i, ++li) {
+      const RenderPointLight& pl = pointLights[i];
+      if ((pl.layer & camLightMask) == 0 || (d.mat.linkGroup & pl.linkMask) == 0) {
+        continue;
+      }
+      float dx = pl.pos[0] - cx;
+      float dy = pl.pos[1] - cy;
+      float dz = pl.pos[2] - cz;
+      float rr = pl.radius * 1.25f;
+      if (dx * dx + dy * dy + dz * dz < rr * rr && out < 16) {
+        d.lightIndex[out++] = li;
+      }
+    }
+    for (size_t i = 0; i < spotLights.size() && li < 16; ++i, ++li) {
+      const RenderSpotLight& sl = spotLights[i];
+      if ((sl.layer & camLightMask) == 0 || (d.mat.linkGroup & sl.linkMask) == 0) {
+        continue;
+      }
+      float dx = sl.pos[0] - cx;
+      float dy = sl.pos[1] - cy;
+      float dz = sl.pos[2] - cz;
+      float rr = sl.radius * 1.25f;
+      if (dx * dx + dy * dy + dz * dz < rr * rr && out < 16) {
+        d.lightIndex[out++] = li;
+      }
+    }
+    for (size_t i = 0; i < dirLights.size() && li < 16; ++i, ++li) {
+      const RenderDirectionalLight& dl = dirLights[i];
+      if ((dl.layer & camLightMask) == 0 || (d.mat.linkGroup & dl.linkMask) == 0) {
+        continue;
+      }
+      if (out < 16) {
+        d.lightIndex[out++] = li;
+      }
+    }
+    for (size_t i = 0; i < rectLights.size() && li < 16; ++i, ++li) {
+      const RenderRectLight& rl = rectLights[i];
+      if ((rl.layer & camLightMask) == 0 || (d.mat.linkGroup & rl.linkMask) == 0) {
+        continue;
+      }
+      float dx = rl.pos[0] - cx;
+      float dy = rl.pos[1] - cy;
+      float dz = rl.pos[2] - cz;
+      float rr = rl.range * 1.25f;
+      if (dx * dx + dy * dy + dz * dz < rr * rr && out < 16) {
+        d.lightIndex[out++] = li;
+      }
+    }
+    d.lightCount = out;
+  }
 }
 void DeferredRenderer::SetGrade(float e, bool aces) {
   exposure = e;
@@ -3478,8 +3916,8 @@ void DeferredRenderer::RenderForwardPass(const float camPos[3]) {
   rhi->SetPixelShader(forwardPS);
   rhi->SetVertexConstantBuffer(0, geoCB);
   rhi->SetPixelConstantBuffer(0, lightCB);
-  float fwdScreen[4] = { static_cast<float>(w), static_cast<float>(h), 0.0f, 0.0f };
-  rhi->UpdateConstantBuffer(forwardCB, &fwdScreen, sizeof(fwdScreen));
+  AssignForwardLights();
+  float fwdBase[8] = { static_cast<float>(w), static_cast<float>(h), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
   rhi->SetPixelConstantBuffer(0, lightCB);
   rhi->SetPixelConstantBuffer(3, forwardCB);
   rhi->SetPixelTexture(16, transSrc);
@@ -3501,6 +3939,20 @@ void DeferredRenderer::RenderForwardPass(const float camPos[3]) {
     rhi->UpdateConstantBuffer(matExtCB, &mec, sizeof(mec));
     rhi->SetPixelConstantBuffer(1, matCB);
     rhi->SetPixelConstantBuffer(2, matExtCB);
+    float fwdC[24];
+    fwdC[0] = fwdBase[0];
+    fwdC[1] = fwdBase[1];
+    fwdC[2] = 0.0f;
+    fwdC[3] = 0.0f;
+    fwdC[4] = static_cast<float>(d.lightCount > 16 ? 16 : d.lightCount);
+    fwdC[5] = 0.0f;
+    fwdC[6] = 0.0f;
+    fwdC[7] = 0.0f;
+    for (int fi = 0; fi < 16; ++fi) {
+      fwdC[8 + fi] = static_cast<float>(d.lightIndex[fi]);
+    }
+    rhi->UpdateConstantBuffer(forwardCB, &fwdC, sizeof(fwdC));
+    rhi->SetPixelConstantBuffer(3, forwardCB);
     RHITexture alb = (d.mat.texFlags & 1u) != 0 && d.mat.albedoTex != 0 ? d.mat.albedoTex : neutralAlbedo;
     RHITexture nrm = (d.mat.texFlags & 2u) != 0 && d.mat.normalTex != 0 ? d.mat.normalTex : neutralNormal;
     RHITexture orm = (d.mat.texFlags & 4u) != 0 && d.mat.ormTex != 0 ? d.mat.ormTex : neutralOrm;
@@ -3799,6 +4251,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture2D(19, irrCube);
   rhi->SetPixelTexture(20, brdfLut);
   rhi->SetPixelSampler(0, sampler);
+  UpdateLightClusters(camPos);
   LightConstants lc;
   lc.camPos[0] = camPos[0];
   lc.camPos[1] = camPos[1];
@@ -4032,7 +4485,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   lc.fogColor[3] = 0.0f;
   lc.iblInfo[0] = irrCube != 0 ? 1.0f : 0.0f;
   lc.iblInfo[1] = hdrSkyOn && envCube != 0 ? 1.0f : 0.0f;
-  lc.iblInfo[2] = 0.0f;
+  lc.iblInfo[2] = ClusterReady() ? 1.0f : 0.0f;
   lc.iblInfo[3] = 0.0f;
   lc.shadowCtl[0] = static_cast<float>(shadowFilter);
   lc.shadowCtl[1] = shadowNormalBias;
@@ -4077,6 +4530,9 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   if (BentReady()) {
     rhi->SetPixelTexture(22, bentA);
   }
+  if (ClusterReady()) {
+    rhi->SetPixelTexture2D(25, clusterTex);
+  }
   if (ssaoValid) {
     rhi->SetPixelTexture(6, ssaoA);
   }
@@ -4118,6 +4574,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture(22, 0);
   rhi->SetPixelTexture2D(23, 0);
   rhi->SetPixelTexture2D(24, 0);
+  rhi->SetPixelTexture2D(25, 0);
   rhi->SetPixelTexture2D(18, 0);
   rhi->SetPixelTexture2D(19, 0);
   rhi->SetPixelTexture(20, 0);

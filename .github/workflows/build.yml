@@ -37,7 +37,7 @@ jobs:
           if (-not $fxc) { throw "fxc not found" }
           $failed = $false
           Get-ChildItem "Shaders/*.hlsl" -Exclude "Fsr*" | ForEach-Object {
-            $profile = if ($_.Name -match "VS\.hlsl$") { "vs_5_0" } else { "ps_5_0" }
+            $profile = if ($_.Name -match "VS\.hlsl$") { "vs_5_0" } elseif ($_.Name -match "CS\.hlsl$") { "cs_5_0" } else { "ps_5_0" }
             & "$fxc" /nologo /T $profile /E main /I Shaders $_.FullName /Fo NUL
             if ($LASTEXITCODE -ne 0) { Write-Host "::error::$($_.Name) failed to compile"; $failed = $true }
           }

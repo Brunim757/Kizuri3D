@@ -67,6 +67,7 @@ Texture2D MomentsTX : register(t21);
 Texture2D BentTX : register(t22);
 Texture2D CookieTX : register(t23);
 Texture2D LinkTX : register(t24);
+Texture2D ClusterTX : register(t25);
 SamplerState ShadowSampler : register(s1);
 static const float2 Poisson16[16] = {
     float2(-0.9428, -0.3997),
@@ -670,6 +671,14 @@ float4 main(PSIn pin) : SV_Target
     }
     for (int i = 0; i < count; ++i) {
         float kind = LightA[i].w;
+        if (IblInfo.z > 0.5) {
+            int2 ctile = int2(min(pin.uv.x * 16.0, 15.0), min(pin.uv.y * 9.0, 8.0));
+            float2 gm = ClusterTX.Load(int3(ctile, 0)).rg * 255.0;
+            uint cmask = (uint)(gm.x + 0.5) | ((uint)(gm.y + 0.5) << 8);
+            if ((cmask & (1u << (uint)i)) == 0u) {
+                continue;
+            }
+        }
         uint linkM = (uint)(LinkTX.Load(int3((int)matID, 0, 0)).r * 255.0 + 0.5);
         if ((linkM & (uint)LightD[i].z) == 0u) {
             continue;

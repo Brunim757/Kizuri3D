@@ -87,9 +87,9 @@ Futuro
 - [x] Light layers
 - [x] Light cookies
 - [x] Light linking
-- [ ] Clustered lighting
-- [ ] Forward+ lighting
-- [ ] GPU light culling
+- [x] Clustered lighting
+- [x] Forward+ lighting
+- [x] GPU light culling
 - [x] Large numbers of dynamic lights
 
 ---

@@ -1561,7 +1561,19 @@ void EditorApp::DrawSettings() {
         renderer.SetCameraLightMask(static_cast<uint32_t>(viewLightLayers));
       }
       if (ImGui::Checkbox("Spot Cookie", &viewSpotCookie)) {
-        renderer.SetSpotCookieOn(viewSpotCookie);
+  renderer.SetSpotCookieOn(viewSpotCookie);
+  renderer.SetClustered(viewClustered);
+  renderer.SetGpuCulling(viewGpuCull);
+  renderer.SetForwardPlus(viewForwardPlus);
+      }
+      if (ImGui::Checkbox("Clustered", &viewClustered)) {
+        renderer.SetClustered(viewClustered);
+      }
+      if (ImGui::Checkbox("GPU Culling", &viewGpuCull)) {
+        renderer.SetGpuCulling(viewGpuCull);
+      }
+      if (ImGui::Checkbox("Forward+", &viewForwardPlus)) {
+        renderer.SetForwardPlus(viewForwardPlus);
       }
       int dv = viewDebug < 0 ? 0 : (viewDebug > 17 ? 17 : viewDebug);
       if (ImGui::Combo("View", &dv, "Final\0Wireframe\0Unlit\0Albedo+AO\0Normal\0Roughness\0Metallic\0AO\0Emissive\0Depth\0Motion\0ShadowMap\0Probe\0Lightmap\0MatID\0Overdraw\0UV\0Custom\0")) {

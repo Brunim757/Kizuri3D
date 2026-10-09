@@ -347,6 +347,52 @@ public:
   }
   void EndEvent() override {
   }
+  RHIComputeShader CreateComputeShaderFromFile(const char* path, const char* entry) override {
+    (void)path;
+    (void)entry;
+    uint64_t id = nextId++;
+    shaders[id] = 1;
+    return id;
+  }
+  RHIStructBuffer CreateStructBuffer(uint32_t count, uint32_t stride, const void* initData) override {
+    (void)count;
+    (void)stride;
+    (void)initData;
+    uint64_t id = nextId++;
+    shaders[id] = 1;
+    return id;
+  }
+  void DestroyStructBuffer(RHIStructBuffer buf) override {
+    (void)buf;
+  }
+  void SetComputeShader(RHIComputeShader cs) override {
+    (void)cs;
+  }
+  void SetComputeConstantBuffer(uint32_t slot, RHIConstBuffer cb) override {
+    (void)slot;
+    (void)cb;
+  }
+  void SetComputeSRV(uint32_t slot, RHIStructBuffer buf) override {
+    (void)slot;
+    (void)buf;
+  }
+  void SetComputeUAV(uint32_t slot, RHIStructBuffer buf) override {
+    (void)slot;
+    (void)buf;
+  }
+  void Dispatch(uint32_t x, uint32_t y, uint32_t z) override {
+    (void)x;
+    (void)y;
+    (void)z;
+  }
+  bool ReadStructBuffer(RHIStructBuffer buf, void* dst, size_t bytes) override {
+    (void)buf;
+    if (dst == nullptr || bytes == 0) {
+      return false;
+    }
+    std::memset(dst, 0, bytes);
+    return true;
+  }
   void SetPixelTexture2D(uint32_t slot, RHITexture tex) override {
     (void)slot;
     (void)tex;

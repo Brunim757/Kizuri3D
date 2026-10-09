@@ -54,6 +54,8 @@ cbuffer MatExt : register(b2)
 cbuffer ScreenCB : register(b3)
 {
     float4 ScreenWH;
+    float4 FwdCount;
+    float4 FwdIdx[4];
 };
 Texture2D AlbedoTex : register(t0);
 Texture2D NormalTex : register(t1);
@@ -200,7 +202,16 @@ float4 main(PSIn pin) : SV_Target
     if (count > 16) {
         count = 16;
     }
-    for (int i = 0; i < count; ++i) {
+    int fcount = clamp((int)FwdCount.x, 0, 16);
+    if (fcount == 0) {
+        fcount = count;
+    }
+    [loop]
+    for (int k = 0; k < fcount; ++k) {
+        int i = clamp((int)FwdIdx[k >> 2][k & 3], 0, 15);
+        if (i >= count) {
+            continue;
+        }
         float kind = LightA[i].w;
         if (kind > 1.5) {
             float3 Ld = normalize(-LightA[i].xyz);

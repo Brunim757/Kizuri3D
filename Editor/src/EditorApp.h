@@ -76,6 +76,9 @@ struct EditorApp {
   int viewLightLayers;
   bool viewSpotCookie;
   std::string viewCookieGuid;
+  bool viewClustered;
+  bool viewGpuCull;
+  bool viewForwardPlus;
   float viewNormalBias;
   bool viewAutoBias;
   bool viewSsao;
