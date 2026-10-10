@@ -74,6 +74,8 @@ struct DeferredMaterial {
   float layerMetallic = 0.0f;
   float layerHeight = 0.5f;
   bool layerHeightBlend = false;
+  float sssColor[3] = { 0.85f, 0.35f, 0.25f };
+  float sssIntensity = 0.0f;
 };
 struct DeferredLight {
   float direction[3];
@@ -249,8 +251,7 @@ public:
   uint32_t ClusterMaxLights() const;
   float ClusterAvgLights() const;
   bool DdgiReady() const;
-  void SetDdgi(bool on, float weight);
-  void SetProbeAutoRefresh(bool on);
+  void SetDdgi(bool on, float weight);  void SetProbeAutoRefresh(bool on);
   bool ProbeRefreshNeeded() const;
   void MarkProbesRefreshed();
   void ClearFogVolumes();
@@ -304,6 +305,9 @@ public:
   void SetHdrBackground(bool on);
   bool HdrBackgroundOn() const;
   void SetEnvIntensity(float intensity);
+  void SetAmbientProbe(float r, float g, float b);
+  void SetSssRadius(float radius);
+  float SssRadius() const { return sssRadius; }
   void SetEnvProbes(int count, const RHITexture* cubes, const float (*boxMin)[4], const float (*boxMax)[4]);
   void DrawObject(const float world[16]);
   void DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat, float lodFade = 0.0f, const float* aabbMin = nullptr, const float* aabbMax = nullptr);
@@ -351,7 +355,7 @@ public:
   RHIConstBuffer matExtCB;
   RHIConstBuffer spotCookieCB;
   RHITexture matTable;
-  unsigned char matTablePx[256 * 4];
+  unsigned char matTablePx[256 * 2 * 4];
   uint32_t matTableRows;
   RHITexture neutralBlack;
   RHITexture neutralAniso;
@@ -659,6 +663,7 @@ public:
   uint64_t lightSig;
   RHITexture3D ddgiTex;
   RHIConstBuffer ddgiCB;
+  RHIConstBuffer ambientCB;
   RHIConstBuffer fogVolCB;
   float fogVolMin[4][4];
   float fogVolMax[4][4];
@@ -696,6 +701,8 @@ public:
   RHIRenderTarget captureTarget;
   bool captureMode;
   float envIntensity;
+  float ambientProbe[3];
+  float sssRadius;
   RHITexture captureCube;
   RHITexture probeCubes[4];
   float probeBoxMin[4][4];

@@ -161,6 +161,10 @@ void FillDeferredFromEntity(AssetDatabase& assets, const MaterialData& m, Deferr
   partMat.layerMetallic = m.layerMetallic;
   partMat.layerHeight = m.layerHeight;
   partMat.layerHeightBlend = m.layerHeightBlend;
+  partMat.sssColor[0] = m.sssColor[0];
+  partMat.sssColor[1] = m.sssColor[1];
+  partMat.sssColor[2] = m.sssColor[2];
+  partMat.sssIntensity = m.sssIntensity;
   uint32_t flags = 0;
   flags |= ResolveMaterialSlot(assets, m.albedoTex, 1u, partMat.albedoTex);
   flags |= ResolveMaterialSlot(assets, m.normalTex, 2u, partMat.normalTex);
@@ -1605,10 +1609,18 @@ void EditorApp::DrawSettings() {
       }
       ImGui::SliderFloat("Env Intensity", &viewEnv, 0.0f, 4.0f);
       if (ImGui::Checkbox("DDGI Volume", &viewDdgi)) {
-        renderer.SetDdgi(viewDdgi, viewDdgiWeight);
+  renderer.SetDdgi(viewDdgi, viewDdgiWeight);
+  renderer.SetAmbientProbe(viewAmbient[0], viewAmbient[1], viewAmbient[2]);
       }
       if (viewDdgi && ImGui::SliderFloat("DDGI Weight", &viewDdgiWeight, 0.0f, 2.0f)) {
         renderer.SetDdgi(true, viewDdgiWeight);
+      }
+      if (ImGui::ColorEdit3("Ambient Probe", viewAmbient)) {
+  renderer.SetAmbientProbe(viewAmbient[0], viewAmbient[1], viewAmbient[2]);
+  renderer.SetSssRadius(viewSssRadius);
+      }
+      if (ImGui::SliderFloat("SSS Radius", &viewSssRadius, 0.0f, 8.0f)) {
+        renderer.SetSssRadius(viewSssRadius);
       }
       if (ImGui::Button("Bake Environment")) {
         BakeEnvironment();
@@ -2728,6 +2740,14 @@ bool EditorApp::DrawMaterialScalars(MaterialData& mat) {
         matChanged = true;
       }
       if (mat.layerHeightBlend && ImGui::SliderFloat("Layer Height", &mat.layerHeight, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+    }
+    if (ImGui::CollapsingHeader("Subsurface Scattering")) {
+      if (ImGui::ColorEdit3("SSS Color", mat.sssColor)) {
+        matChanged = true;
+      }
+      if (ImGui::SliderFloat("SSS Intensity", &mat.sssIntensity, 0.0f, 1.0f)) {
         matChanged = true;
       }
     }

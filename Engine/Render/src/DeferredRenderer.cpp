@@ -76,6 +76,7 @@ struct MatExtConstants {
   float extJ[4];
   float xfA[5][4];
   float xfB[5][4];
+  float sss[4];
 };
 void FillMatConstants(const DeferredMaterial& use, float lodFade, MatConstants& mc, MatExtConstants& mec, unsigned char* tablePx, unsigned char* linkTablePx, uint32_t& rows, uint32_t& outRow) {
   mc.albedo[0] = use.albedo[0];
@@ -128,6 +129,15 @@ void FillMatConstants(const DeferredMaterial& use, float lodFade, MatConstants& 
     px[2] = static_cast<unsigned char>((disp > 1.0f ? 1.0f : disp) * 255.0f + 0.5f);
     float ior = (use.ior - 1.0f) / 3.0f;
     px[3] = static_cast<unsigned char>((ior < 0.0f ? 0.0f : (ior > 1.0f ? 1.0f : ior)) * 255.0f + 0.5f);
+    unsigned char* sx = tablePx + static_cast<size_t>(256 + row) * 4;
+    float sc0 = use.sssColor[0] < 0.0f ? 0.0f : (use.sssColor[0] > 1.0f ? 1.0f : use.sssColor[0]);
+    float sc1 = use.sssColor[1] < 0.0f ? 0.0f : (use.sssColor[1] > 1.0f ? 1.0f : use.sssColor[1]);
+    float sc2 = use.sssColor[2] < 0.0f ? 0.0f : (use.sssColor[2] > 1.0f ? 1.0f : use.sssColor[2]);
+    float si = use.sssIntensity < 0.0f ? 0.0f : (use.sssIntensity > 1.0f ? 1.0f : use.sssIntensity);
+    sx[0] = static_cast<unsigned char>(sc0 * 255.0f + 0.5f);
+    sx[1] = static_cast<unsigned char>(sc1 * 255.0f + 0.5f);
+    sx[2] = static_cast<unsigned char>(sc2 * 255.0f + 0.5f);
+    sx[3] = static_cast<unsigned char>(si * 255.0f + 0.5f);
     if (linkTablePx != nullptr) {
       unsigned char* lx = linkTablePx + static_cast<size_t>(row) * 4;
       lx[0] = static_cast<unsigned char>(use.linkGroup & 0xFFu);
@@ -178,6 +188,10 @@ void FillMatConstants(const DeferredMaterial& use, float lodFade, MatConstants& 
   mec.extJ[1] = use.layerAlbedo[1];
   mec.extJ[2] = use.layerAlbedo[2];
   mec.extJ[3] = use.layerHeight;
+  mec.sss[0] = use.sssColor[0];
+  mec.sss[1] = use.sssColor[1];
+  mec.sss[2] = use.sssColor[2];
+  mec.sss[3] = use.sssIntensity;
   for (int s = 0; s < 5; ++s) {
     mec.xfA[s][0] = use.xforms[s].offsetU;
     mec.xfA[s][1] = use.xforms[s].offsetV;
@@ -421,6 +435,7 @@ DeferredRenderer::DeferredRenderer()
   , lightSig(0)
   , ddgiTex(0)
   , ddgiCB(0)
+  , ambientCB(0)
   , fogVolCB(0)
   , fogVolCount(0)
   , godRan(false)
@@ -442,6 +457,8 @@ DeferredRenderer::DeferredRenderer()
   , captureTarget(0)
   , captureMode(false)
   , envIntensity(1.0f)
+  , ambientProbe{ 0.0f, 0.0f, 0.0f }
+  , sssRadius(1.0f)
   , captureCube(0)
   , probeCount(0)
   , dofOn(false)
@@ -860,6 +877,11 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   ddgiCB = rhi->CreateConstantBuffer(sizeof(ddgiInit), &ddgiInit);
   float fogVolInit[48] = { 0.0f };
   fogVolCB = rhi->CreateConstantBuffer(sizeof(fogVolInit), &fogVolInit);
+  float ambientInit[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+  ambientCB = rhi->CreateConstantBuffer(sizeof(ambientInit), &ambientInit);
+  if (ambientCB == 0) {
+    return false;
+  }
   if (fogVolCB == 0) {
     return false;
   }
@@ -981,7 +1003,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
     return false;
   }
   GenerateDirtTexture();
-  matTable = rhi->CreateTexture2D(256, 1, 1, RHITextureFormat::RGBA8_UNORM);
+  matTable = rhi->CreateTexture2D(256, 2, 1, RHITextureFormat::RGBA8_UNORM);
   if (matTable == 0) {
     return false;
   }
@@ -1003,8 +1025,12 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   matTablePx[1] = 38;
   matTablePx[2] = 0;
   matTablePx[3] = 43;
+  matTablePx[256 * 4 + 0] = 217;
+  matTablePx[256 * 4 + 1] = 89;
+  matTablePx[256 * 4 + 2] = 64;
+  matTablePx[256 * 4 + 3] = 0;
   matTableRows = 1;
-  if (!rhi->UpdateTextureMip(matTable, 0, 256, 1, 256 * 4, matTablePx, sizeof(matTablePx))) {
+  if (!rhi->UpdateTextureMip(matTable, 0, 256, 2, 256 * 4, matTablePx, sizeof(matTablePx))) {
     return false;
   }
   float decalBox[8 * 14] = {
@@ -1289,6 +1315,10 @@ void DeferredRenderer::Shutdown() {
   if (fogVolCB != 0) {
     rhi->DestroyConstantBuffer(fogVolCB);
     fogVolCB = 0;
+  }
+  if (ambientCB != 0) {
+    rhi->DestroyConstantBuffer(ambientCB);
+    ambientCB = 0;
   }
   if (ddgiTex != 0) {
     rhi->DestroyTexture3D(ddgiTex);
@@ -2484,6 +2514,14 @@ void DeferredRenderer::SetEnvIntensity(float intensity) {
   if (envIntensity > 4.0f) {
     envIntensity = 4.0f;
   }
+}
+void DeferredRenderer::SetAmbientProbe(float r, float g, float b) {
+  ambientProbe[0] = r < 0.0f ? 0.0f : r;
+  ambientProbe[1] = g < 0.0f ? 0.0f : g;
+  ambientProbe[2] = b < 0.0f ? 0.0f : b;
+}
+void DeferredRenderer::SetSssRadius(float radius) {
+  sssRadius = radius < 0.0f ? 0.0f : (radius > 8.0f ? 8.0f : radius);
 }
 void DeferredRenderer::SetEnvProbes(int count, const RHITexture* cubes, const float (*boxMin)[4], const float (*boxMax)[4]) {
   probeCount = 0;
@@ -4461,6 +4499,11 @@ void DeferredRenderer::RenderForwardPass(const float camPos[3]) {
   rhi->SetPixelTexture(16, transSrc);
   rhi->SetPixelTexture2D(17, envCube);
   rhi->SetPixelSampler(0, sampler);
+  if (ambientCB != 0) {
+    float ambF[4] = { ambientProbe[0], ambientProbe[1], ambientProbe[2], sssRadius };
+    rhi->UpdateConstantBuffer(ambientCB, &ambF, sizeof(ambF));
+    rhi->SetPixelConstantBuffer(7, ambientCB);
+  }
   for (size_t oi = 0; oi < order.size(); ++oi) {
     const ForwardDrawItem& d = forwardDraws[order[oi]];
     GeoConstants gc;
@@ -4790,7 +4833,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture(15, gEmissive);
   rhi->SetPixelTexture(16, gF0);
   rhi->SetPixelTexture(17, gExtA);
-  rhi->UpdateTextureMip(matTable, 0, 256, 1, 256 * 4, matTablePx, sizeof(matTablePx));
+  rhi->UpdateTextureMip(matTable, 0, 256, 2, 256 * 4, matTablePx, sizeof(matTablePx));
   rhi->SetPixelTexture2D(18, matTable);
   rhi->SetPixelTexture2D(19, irrCube);
   rhi->SetPixelTexture(20, brdfLut);
@@ -5092,6 +5135,11 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   if (DdgiReady()) {
     rhi->SetPixelTexture3D(26, ddgiTex);
     rhi->SetPixelConstantBuffer(5, ddgiCB);
+  }
+  if (ambientCB != 0) {
+    float amb[4] = { ambientProbe[0], ambientProbe[1], ambientProbe[2], sssRadius };
+    rhi->UpdateConstantBuffer(ambientCB, &amb, sizeof(amb));
+    rhi->SetPixelConstantBuffer(7, ambientCB);
   }
   if (fogVolCB != 0) {
     float fv[48];

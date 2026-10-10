@@ -52,12 +52,17 @@ cbuffer MatExt : register(b2)
     float4 ExtJ;
     float4 XfA[5];
     float4 XfB[5];
+    float4 SssPrm;
 };
 cbuffer ScreenCB : register(b3)
 {
     float4 ScreenWH;
     float4 FwdCount;
     float4 FwdIdx[4];
+};
+cbuffer AmbientCB : register(b7)
+{
+    float4 AmbientProbe;
 };
 Texture2D AlbedoTex : register(t0);
 Texture2D NormalTex : register(t1);
@@ -155,6 +160,15 @@ float3 ShadeFwd(float3 N, float3 V, float3 L, float3 lightColor, float3 albedo, 
     wrapLi *= wrapLi;
     return (kd * albedo / 3.14159265 * wrapLi + spec * cosLi) * lightColor;
 }
+float3 ShadeSssFwd(float3 N, float3 L, float3 lightColor, float3 albedo, float3 tint, float amt, float wrap)
+{
+    if (amt < 0.001) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    float w = saturate((dot(N, L) + wrap) / max(1.0 + wrap, 1e-3));
+    float prof = w * w * (3.0 - 2.0 * w);
+    return albedo * tint * (lightColor * (prof * amt));
+}
 float4 main(PSIn pin) : SV_Target
 {
     uint flags = (uint) Params.z;
@@ -218,7 +232,9 @@ float4 main(PSIn pin) : SV_Target
     }
     float3 V = normalize(CamPos.xyz - pin.wpos);
     float3 Lsun = normalize(-LightDir.xyz);
+    float sssWrapF = clamp(AmbientProbe.a * 0.5, 0.0, 2.0);
     float3 col = ShadeFwd(n, V, Lsun, LightColor.rgb, alb, rough, metal, F0);
+    col += ShadeSssFwd(n, Lsun, LightColor.rgb, alb, SssPrm.rgb, SssPrm.a, sssWrapF);
     int count = (int) Counts.x;
     if (count > 16) {
         count = 16;
@@ -237,6 +253,7 @@ float4 main(PSIn pin) : SV_Target
         if (kind > 1.5) {
             float3 Ld = normalize(-LightA[i].xyz);
             col += ShadeFwd(n, V, Ld, LightC[i].rgb, alb, rough, metal, F0);
+            col += ShadeSssFwd(n, Ld, LightC[i].rgb, alb, SssPrm.rgb, SssPrm.a, sssWrapF);
         } else {
             float3 toLight = LightA[i].xyz - pin.wpos;
             float dist = length(toLight);
@@ -249,6 +266,7 @@ float4 main(PSIn pin) : SV_Target
                 spot = smoothstep(LightC[i].a, LightC[i].a + LightD[i].x, cosT);
             }
             col += ShadeFwd(n, V, L, LightC[i].rgb, alb, rough, metal, F0) * att * spot;
+            col += ShadeSssFwd(n, L, LightC[i].rgb, alb, SssPrm.rgb, SssPrm.a, sssWrapF) * att * spot;
         }
     }
     float sint2 = max(SkySun.w, 1e-3);

@@ -57,6 +57,10 @@ cbuffer FogVolCB : register(b6)
     float4 FogVolMax[4];
     float4 FogVolCol[4];
 };
+cbuffer AmbientCB : register(b7)
+{
+    float4 AmbientProbe;
+};
 Texture2D SSAOTX : register(t6);
 Texture2D SsrTX : register(t7);
 Texture2D ContactTX : register(t8);
@@ -236,6 +240,15 @@ float3 ShadeOne(float3 N, float3 V, float3 L, float3 lightColor, float3 albedo, 
     float3 sssCol = albedo * trans;
     float3 base = (diff * wrapLi + spec * cosLi + sssCol) * (1.0 - ccF) + sheenAcc * (1.0 - ccF);
     return base * lightColor + ccSpec * lb.cc * lightColor * cosLi;
+}
+float3 ShadeSss(float3 N, float3 L, float3 lightColor, float3 albedo, float3 tint, float amt, float wrap)
+{
+    if (amt < 0.001) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    float w = saturate((dot(N, L) + wrap) / max(1.0 + wrap, 1e-3));
+    float prof = w * w * (3.0 - 2.0 * w);
+    return albedo * tint * (lightColor * (prof * amt));
 }
 float BlockerSearch2D(float2 uv, float recvDist, float nearZ, float farZ, float searchUV)
 {
@@ -670,6 +683,10 @@ float4 main(PSIn pin) : SV_Target
         matID = 255u;
     }
     float4 matInfo = MatTable.Load(int3((int) matID, 0, 0));
+    float4 sssInfo = MatTable.Load(int3((int) matID, 1, 0));
+    float3 sssTint = sssInfo.rgb;
+    float sssAmt = sssInfo.a;
+    float sssWrap = clamp(AmbientProbe.a * 0.5, 0.0, 2.0);
     float unlitF = matInfo.r;
     float4 f0Full = F0TX.Sample(LinearSampler, pin.uv);
     float3 specF0 = f0Full.rgb;
@@ -692,6 +709,7 @@ float4 main(PSIn pin) : SV_Target
     float3 amb = float3(0.0, 0.0, 0.0);
     if (unlitF < 0.5) {
     col = ShadeOne(N, V, Lsun, LightColor.rgb, albedo, roughness, metallic, specF0, lb);
+    col += ShadeSss(N, Lsun, LightColor.rgb, albedo, sssTint, sssAmt, sssWrap);
     int count = (int)Counts.x;
     if (count > 16) {
         count = 16;
@@ -726,6 +744,7 @@ float4 main(PSIn pin) : SV_Target
             float rrange = max(LightB[i].w, 1e-3);
             float ratt = ApplyAttenuation(rdist, rrange) * saturate(dot(-Lr, Rn) * 0.5 + 0.5);
             col += ShadeOne(N, V, Lr, LightC[i].rgb, albedo, roughness, metallic, specF0, lb) * ratt;
+            col += ShadeSss(N, Lr, LightC[i].rgb, albedo, sssTint, sssAmt, sssWrap) * ratt;
         } else if (kind > 1.5) {
             float3 Ld = normalize(-LightA[i].xyz);
             float dirShadow = 1.0;
@@ -739,6 +758,7 @@ float4 main(PSIn pin) : SV_Target
                 }
             }
             col += ShadeOne(N, V, Ld, LightC[i].rgb, albedo, roughness, metallic, specF0, lb) * dirShadow;
+            col += ShadeSss(N, Ld, LightC[i].rgb, albedo, sssTint, sssAmt, sssWrap) * dirShadow;
         } else {
             float3 toLight = LightA[i].xyz - wpos;
             float dist = length(toLight);
@@ -776,6 +796,7 @@ float4 main(PSIn pin) : SV_Target
                 }
             }
             col += ShadeOne(N, V, L, LightC[i].rgb, albedo, roughness, metallic, specF0, lb) * att * spot * lightShadow * cookie;
+            col += ShadeSss(N, L, LightC[i].rgb, albedo, sssTint, sssAmt, sssWrap) * att * spot * lightShadow * cookie;
         }
     }
     float ao = 1.0;
@@ -795,6 +816,7 @@ float4 main(PSIn pin) : SV_Target
         difEnv = IrradianceTX.SampleLevel(LinearSampler, Nb, 0).rgb * GradeInfo.z / 3.14159265359;
     }
     amb = albedo * difEnv * ao;
+    amb += albedo * AmbientProbe.rgb * ao;
     if (DdgiMin.w > 0.5 && DdgiMax.w > 0.5) {
         float3 dsize = max(DdgiMax.xyz - DdgiMin.xyz, 1e-4);
         float3 duv = (wpos - DdgiMin.xyz) / dsize;

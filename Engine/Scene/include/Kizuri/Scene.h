@@ -110,6 +110,8 @@ struct MaterialData {
   float layerMetallic = 0.0f;
   float layerHeight = 0.5f;
   bool layerHeightBlend = false;
+  float sssColor[3] = { 0.85f, 0.35f, 0.25f };
+  float sssIntensity = 0.0f;
 };
 struct DecalData {
   float size[3];

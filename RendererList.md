@@ -297,7 +297,7 @@ Sem Ray Tracing
 - [ ] Anisotropic hair
 - [ ] Eye shader
 - [ ] Cornea
-- [ ] Subsurface materials
+- [x] Subsurface materials
 - [x] Cloth/fabric shading
 
 ---

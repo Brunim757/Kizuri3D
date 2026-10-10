@@ -86,6 +86,8 @@ struct EditorApp {
   bool viewDdgi;
   float viewDdgiWeight;
   bool viewProbeRefresh;
+  float viewAmbient[3];
+  float viewSssRadius;
   int viewLmFormat;
   float viewLmDenoise;
   float viewNormalBias;

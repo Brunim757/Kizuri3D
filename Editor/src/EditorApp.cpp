@@ -72,6 +72,8 @@ EditorApp::EditorApp()
   , viewDdgi(true)
   , viewDdgiWeight(0.35f)
   , viewProbeRefresh(true)
+  , viewAmbient{ 0.0f, 0.0f, 0.0f }
+  , viewSssRadius(1.0f)
   , viewLmFormat(2)
   , viewLmDenoise(0.0f)
   , viewNormalBias(1.0f)
