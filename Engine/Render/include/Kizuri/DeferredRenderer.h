@@ -272,6 +272,7 @@ public:
   bool SetLutPreset(int preset);
   void SetBloom(float strength);
   void SetLensDirt(float amount);
+  void GenerateDirtTexture();
   void SetFsr(float scale, float sharpness);
   void SetSsao(bool on, float intensity, float radius);
   void SetAoMode(int mode);
