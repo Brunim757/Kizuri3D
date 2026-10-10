@@ -948,6 +948,157 @@ bool TestMatDetailIO() {
   }
   return ok && found;
 }
+bool TestBCFormats() {
+  unsigned char px[4 * 4 * 4];
+  for (int i = 0; i < 16; ++i) {
+    px[i * 4 + 0] = static_cast<unsigned char>(i * 16);
+    px[i * 4 + 1] = static_cast<unsigned char>(255 - i * 8);
+    px[i * 4 + 2] = 128;
+    px[i * 4 + 3] = 255;
+  }
+  Kizuri::TextureAssetData bc7;
+  bool ok = Kizuri::CompressTexturePixelsEx(px, 4, 4, "", bc7, "test", Kizuri::TexKind::Color, "", 0, Kizuri::TexFormat::Bc7);
+  ok = ok && bc7.format == Kizuri::TexFormat::Bc7 && !bc7.mips.empty();
+  Kizuri::TextureAssetData bc6;
+  ok = ok && Kizuri::CompressTexturePixelsEx(px, 4, 4, "", bc6, "test", Kizuri::TexKind::Color, "", 0, Kizuri::TexFormat::Bc6H);
+  ok = ok && bc6.format == Kizuri::TexFormat::Bc6H && !bc6.mips.empty();
+  Kizuri::TextureAssetData bc4;
+  ok = ok && Kizuri::CompressTexturePixelsEx(px, 4, 4, "", bc4, "height", Kizuri::TexKind::Color, "", 0, Kizuri::TexFormat::Bc4);
+  ok = ok && bc4.format == Kizuri::TexFormat::Bc4 && !bc4.mips.empty();
+  std::vector<unsigned char> enc;
+  ok = ok && Kizuri::EncodeTextureMemory(bc7, enc) && !enc.empty();
+  Kizuri::TextureAssetData dec;
+  ok = ok && Kizuri::DecodeTextureMemory(enc.data(), enc.size(), dec);
+  ok = ok && dec.format == Kizuri::TexFormat::Bc7 && dec.width == 4 && dec.height == 4;
+  return ok;
+}
+bool TestProbeBlending() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  Kizuri::RHITexture cube = rhi->CreateEnvCube(32);
+  if (tvb == 0 || tib == 0 || cube == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  Kizuri::RHITexture cubes[4] = { cube, cube, cube, cube };
+  float bmin[4][4] = { { -5, -5, -5, 1 }, { -2, -2, -2, 0 }, { 0, 0, 0, 0 }, { 0, 0, 0, 0 } };
+  float bmax[4][4] = { { 5, 5, 5, 0 }, { 2, 2, 2, 0 }, { 0, 0, 0, 0 }, { 0, 0, 0, 0 } };
+  renderer.SetEnvProbes(2, cubes, bmin, bmax);
+  renderer.SetProbeAutoRefresh(true);
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 5 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin2[3] = { -1, -1, -1 };
+  float bmax2[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin2, bmax2);
+  renderer.EndObjectsToTexture(cam);
+  bool ok = renderer.GetStats().lightingDraws == 1;
+  Kizuri::RenderPointLight pl;
+  pl.pos[0] = 0.0f;
+  pl.pos[1] = 2.0f;
+  pl.pos[2] = 2.0f;
+  pl.color[0] = 1.0f;
+  pl.color[1] = 1.0f;
+  pl.color[2] = 1.0f;
+  pl.intensity = 1.0f;
+  pl.radius = 10.0f;
+  pl.castShadow = false;
+  pl.effectiveSize = 0.3f;
+  renderer.AddPointLight(pl);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin2, bmax2);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && renderer.ProbeRefreshNeeded();
+  renderer.MarkProbesRefreshed();
+  ok = ok && !renderer.ProbeRefreshNeeded();
+  renderer.SetProbeAutoRefresh(false);
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  rhi->DestroyTexture(cube);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestDdgi() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  Kizuri::RenderPointLight pl;
+  pl.pos[0] = 0.0f;
+  pl.pos[1] = 3.0f;
+  pl.pos[2] = 0.0f;
+  pl.color[0] = 1.0f;
+  pl.color[1] = 0.5f;
+  pl.color[2] = 0.25f;
+  pl.intensity = 5.0f;
+  pl.radius = 12.0f;
+  pl.castShadow = false;
+  pl.effectiveSize = 0.3f;
+  renderer.AddPointLight(pl);
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 5 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  renderer.SetDdgi(true, 0.35f);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  bool ok = renderer.DdgiReady() && renderer.GetStats().lightingDraws == 1;
+  renderer.SetDdgi(false, 0.0f);
+  ok = ok && !renderer.DdgiReady();
+  renderer.SetDdgi(true, 5.0f);
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestLightmapDenoise() {
+  const int res = 8;
+  std::vector<float> px(static_cast<size_t>(res) * res * 3, 0.1f);
+  px[(4 * res + 4) * 3 + 0] = 10.0f;
+  px[(4 * res + 4) * 3 + 1] = 10.0f;
+  px[(4 * res + 4) * 3 + 2] = 10.0f;
+  Kizuri::DenoiseLightmap(px.data(), res, 0.0f);
+  bool ok = px[(4 * res + 4) * 3] == 10.0f;
+  Kizuri::DenoiseLightmap(px.data(), res, 2.0f);
+  float center = px[(4 * res + 4) * 3];
+  float neigh = px[(4 * res + 5) * 3];
+  ok = ok && center < 10.0f && center > 1.0f && neigh > 0.1f;
+  Kizuri::DenoiseLightmap(nullptr, res, 1.0f);
+  Kizuri::LightmapBakeOptions opts;
+  ok = ok && opts.resolution == 128 && opts.denoise == 0.0f && opts.format == Kizuri::TexFormat::Bc7;
+  return ok;
+}
 bool TestRHINull() {
   Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
   if (rhi == nullptr) {
@@ -7675,6 +7826,10 @@ int main() {
   failures += Check("Tessellation", TestTessellation());
   failures += Check("MatInstances", TestMatInstances());
   failures += Check("MatDetailIO", TestMatDetailIO());
+  failures += Check("BCFormats", TestBCFormats());
+  failures += Check("ProbeBlending", TestProbeBlending());
+  failures += Check("Ddgi", TestDdgi());
+  failures += Check("LightmapDenoise", TestLightmapDenoise());
   failures += Check("RHI-Null", TestRHINull());
   failures += Check("FrustumCull", TestFrustumCull());
   failures += Check("FrustumCullNull", TestFrustumCullNull());

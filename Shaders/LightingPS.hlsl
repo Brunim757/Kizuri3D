@@ -46,6 +46,11 @@ cbuffer SpotCookieCB : register(b4)
 {
     row_major float4x4 SpotCookieVP[16];
 };
+cbuffer DdgiCB : register(b5)
+{
+    float4 DdgiMin;
+    float4 DdgiMax;
+};
 Texture2D SSAOTX : register(t6);
 Texture2D SsrTX : register(t7);
 Texture2D ContactTX : register(t8);
@@ -68,6 +73,7 @@ Texture2D BentTX : register(t22);
 Texture2D CookieTX : register(t23);
 Texture2D LinkTX : register(t24);
 Texture2D ClusterTX : register(t25);
+Texture3D DdgiTX : register(t26);
 SamplerState ShadowSampler : register(s1);
 static const float2 Poisson16[16] = {
     float2(-0.9428, -0.3997),
@@ -768,11 +774,22 @@ float4 main(PSIn pin) : SV_Target
         difEnv = IrradianceTX.SampleLevel(LinearSampler, Nb, 0).rgb * GradeInfo.z / 3.14159265359;
     }
     amb = albedo * difEnv * ao;
+    if (DdgiMin.w > 0.5 && DdgiMax.w > 0.5) {
+        float3 dsize = max(DdgiMax.xyz - DdgiMin.xyz, 1e-4);
+        float3 duv = (wpos - DdgiMin.xyz) / dsize;
+        if (duv.x >= 0.0 && duv.x <= 1.0 && duv.y >= 0.0 && duv.y <= 1.0 && duv.z >= 0.0 && duv.z <= 1.0) {
+            float3 gif = DdgiTX.Sample(LinearSampler, duv).rgb;
+            amb += albedo * gif * DdgiMin.w * ao;
+        }
+    }
     float3 R = reflect(-V, N);
     float3 skyEnv = SkyGradient(R, normalize(SkySun.xyz), SkyColor.rgb, sint2);
     float3 cubeEnv = EnvTX.SampleLevel(LinearSampler, R, clamp(roughness, 0.0, 1.0) * 6.0).rgb * GradeInfo.z;
     float3 env = lerp(skyEnv, cubeEnv, clamp(GradeInfo.w, 0.0, 1.0));
     float envInt = GradeInfo.z;
+    float3 probeAcc = float3(0.0, 0.0, 0.0);
+    float probeWsum = 0.0;
+    [loop]
     for (int pi = 0; pi < 4; ++pi) {
         if (ProbeBoxMin[pi].w <= 0.0) {
             continue;
@@ -788,6 +805,12 @@ float4 main(PSIn pin) : SV_Target
         float3 h = ((R.z > 0.0 ? bmax.z : bmin.z) - wpos.z) / max(abs(R.z), 1e-4);
         float tbox = min(min(f.x, g.y), h.z);
         float3 pdir = wpos + R * tbox - center;
+        float3 psize = max(bmax - bmin, 1e-4);
+        float3 edge = min(wpos - bmin, bmax - wpos) / max(psize * 0.1, 1e-4);
+        float fall = saturate(min(min(edge.x, edge.y), edge.z));
+        fall *= fall * (3.0 - 2.0 * fall);
+        float vol = psize.x * psize.y * psize.z;
+        float pw = ProbeBoxMin[pi].w * (0.15 + 0.85 * fall) / (1.0 + vol * 0.0005);
         float3 prefl = float3(0.0, 0.0, 0.0);
         if (pi == 0) {
             prefl = ProbeCube0.SampleLevel(LinearSampler, pdir, clamp(roughness, 0.0, 1.0) * 6.0).rgb;
@@ -798,8 +821,11 @@ float4 main(PSIn pin) : SV_Target
         } else {
             prefl = ProbeCube3.SampleLevel(LinearSampler, pdir, clamp(roughness, 0.0, 1.0) * 6.0).rgb;
         }
-        env = prefl * envInt * ProbeBoxMin[pi].w;
-        break;
+        probeAcc += prefl * pw;
+        probeWsum += pw;
+    }
+    if (probeWsum > 1e-6) {
+        env = probeAcc / probeWsum * envInt;
     }
     float4 ssr = SsrTX.Sample(LinearSampler, pin.uv);
     float3 specAmb = lerp(env, ssr.rgb, clamp(ssr.a, 0.0, 1.0));

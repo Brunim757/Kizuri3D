@@ -82,6 +82,11 @@ struct EditorApp {
   bool viewTess;
   float viewTessFactor;
   float viewTessDisp;
+  bool viewDdgi;
+  float viewDdgiWeight;
+  bool viewProbeRefresh;
+  int viewLmFormat;
+  float viewLmDenoise;
   float viewNormalBias;
   bool viewAutoBias;
   bool viewSsao;

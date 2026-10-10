@@ -423,6 +423,29 @@ void EditorApp::RenderScene() {
       ++nprobe;
     }
     renderer.SetEnvProbes(nprobe, cubes, bmin, bmax);
+    if (renderer.ProbeRefreshNeeded()) {
+      EntityId best = EntityId::Invalid();
+      float bestD = 0.0f;
+      std::vector<EntityId> allIds = scene.All();
+      for (size_t i = 0; i < allIds.size(); ++i) {
+        const Entity* pe = scene.Get(allIds[i]);
+        if (pe == nullptr || !pe->hasProbe) {
+          continue;
+        }
+        float dx = pe->transform.position[0] - cpos[0];
+        float dy = pe->transform.position[1] - cpos[1];
+        float dz = pe->transform.position[2] - cpos[2];
+        float dd = dx * dx + dy * dy + dz * dz;
+        if (!best.IsValid() || dd < bestD) {
+          best = allIds[i];
+          bestD = dd;
+        }
+      }
+      if (best.IsValid()) {
+        BakeProbeEntity(best);
+      }
+      renderer.MarkProbesRefreshed();
+    }
     for (auto it = envProbeCubes.begin(); it != envProbeCubes.end();) {
       if (!scene.Has(it->first)) {
         if (it->second != 0) {
@@ -840,7 +863,11 @@ void EditorApp::BakeLightmap(EntityId id) {
   std::string path;
   std::string guid;
   std::string err;
-  if (!BakeLightmapFor(scene, assets, id, 128, path, guid, err)) {
+  Kizuri::LightmapBakeOptions options;
+  options.resolution = 128;
+  options.format = viewLmFormat == 0 ? Kizuri::TexFormat::Bc1 : (viewLmFormat == 1 ? Kizuri::TexFormat::Bc3 : Kizuri::TexFormat::Bc7);
+  options.denoise = viewLmDenoise;
+  if (!BakeLightmapForEx(scene, assets, id, options, path, guid, err)) {
     Announce(LogLevel::Error, std::string("Lightmap bake failed: ") + err);
     return;
   }
@@ -1509,8 +1536,10 @@ void EditorApp::DrawSettings() {
         renderer.SetShadowFilter(viewShadowFilter);
         renderer.SetVsmQuality(viewVsmQuality);
         renderer.SetShadowRange(viewShadowRange);
-        renderer.SetTaa(viewTaa);
-        renderer.SetTaaSharpening(viewTaaSharp);
+  renderer.SetTaa(viewTaa);
+  renderer.SetTaaSharpening(viewTaaSharp);
+  renderer.SetDdgi(viewDdgi, viewDdgiWeight);
+  renderer.SetProbeAutoRefresh(viewProbeRefresh);
         renderer.SetSsrTemporal(viewSsrTemporal, viewSsrTemporalBlend);
         renderer.SetDynamicResolution(viewDynRes, viewDynTarget, 0.5f, 1.0f);
         renderer.SetOcclusionCulling(viewOcc);
@@ -1536,11 +1565,20 @@ void EditorApp::DrawSettings() {
         renderer.SetTaaSharpening(viewTaaSharp);
       }
       ImGui::SliderFloat("Env Intensity", &viewEnv, 0.0f, 4.0f);
+      if (ImGui::Checkbox("DDGI Volume", &viewDdgi)) {
+        renderer.SetDdgi(viewDdgi, viewDdgiWeight);
+      }
+      if (viewDdgi && ImGui::SliderFloat("DDGI Weight", &viewDdgiWeight, 0.0f, 2.0f)) {
+        renderer.SetDdgi(true, viewDdgiWeight);
+      }
       if (ImGui::Button("Bake Environment")) {
         BakeEnvironment();
       }
       if (ImGui::Button("Bake Probes")) {
         BakeProbes();
+      }
+      if (ImGui::Checkbox("Probe Auto Refresh", &viewProbeRefresh)) {
+        renderer.SetProbeAutoRefresh(viewProbeRefresh);
       }
       ImGui::EndTabItem();
     }
@@ -2116,6 +2154,10 @@ void EditorApp::DrawInspector() {
     }
     if (ImGui::Button("Bake Lightmap")) {
       BakeLightmap(e->id);
+    }
+    if (ImGui::Combo("LM Format", &viewLmFormat, "BC1\0BC3\0BC7\0")) {
+    }
+    if (ImGui::SliderFloat("LM Denoise", &viewLmDenoise, 0.0f, 3.0f)) {
     }
   }
   if (e->hasProbe) {

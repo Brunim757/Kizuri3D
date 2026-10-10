@@ -1,6 +1,8 @@
 #include "Kizuri/Assets/LightmapBaker.h"
+#include "Kizuri/Assets/TextureImporter.h"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 namespace Kizuri {
 namespace {
@@ -390,6 +392,62 @@ void ShadeDirect(const Bvh& bvh, const std::vector<BakeLight>& lights, const flo
 }
 }
 bool BakeLightmapFor(Scene& scene, AssetDatabase& assets, EntityId target, int resolution, std::string& texPathOut, std::string& texGuidOut, std::string& errorOut) {
+  LightmapBakeOptions options;
+  options.resolution = resolution;
+  options.format = TexFormat::Bc1;
+  options.denoise = 0.0f;
+  return BakeLightmapForEx(scene, assets, target, options, texPathOut, texGuidOut, errorOut);
+}
+void DenoiseLightmap(float* rgb, int res, float strength) {
+  if (rgb == nullptr || res <= 0 || strength <= 0.0f) {
+    return;
+  }
+  int radius = static_cast<int>(strength) + 1;
+  if (radius < 1) {
+    radius = 1;
+  }
+  if (radius > 4) {
+    radius = 4;
+  }
+  std::vector<float> tmp(static_cast<size_t>(res) * res * 3);
+  for (int pass = 0; pass < 2; ++pass) {
+    for (int y = 0; y < res; ++y) {
+      for (int x = 0; x < res; ++x) {
+        float acc[3] = { 0.0f, 0.0f, 0.0f };
+        float wsum = 0.0f;
+        for (int k = -radius; k <= radius; ++k) {
+          int sx = pass == 0 ? x + k : x;
+          int sy = pass == 0 ? y : y + k;
+          if (sx < 0) {
+            sx = 0;
+          }
+          if (sx >= res) {
+            sx = res - 1;
+          }
+          if (sy < 0) {
+            sy = 0;
+          }
+          if (sy >= res) {
+            sy = res - 1;
+          }
+          float wgt = 1.0f / (1.0f + static_cast<float>(k < 0 ? -k : k));
+          size_t si = (static_cast<size_t>(sy) * res + sx) * 3;
+          acc[0] += rgb[si + 0] * wgt;
+          acc[1] += rgb[si + 1] * wgt;
+          acc[2] += rgb[si + 2] * wgt;
+          wsum += wgt;
+        }
+        size_t di = (static_cast<size_t>(y) * res + x) * 3;
+        tmp[di + 0] = acc[0] / wsum;
+        tmp[di + 1] = acc[1] / wsum;
+        tmp[di + 2] = acc[2] / wsum;
+      }
+    }
+    std::memcpy(rgb, tmp.data(), tmp.size() * sizeof(float));
+  }
+}
+bool BakeLightmapForEx(Scene& scene, AssetDatabase& assets, EntityId target, const LightmapBakeOptions& options, std::string& texPathOut, std::string& texGuidOut, std::string& errorOut) {
+  int resolution = options.resolution;
   texPathOut.clear();
   texGuidOut.clear();
   errorOut.clear();
@@ -606,6 +664,7 @@ bool BakeLightmapFor(Scene& scene, AssetDatabase& assets, EntityId target, int r
     }
   }
   std::vector<unsigned char> rgba(npix * 4);
+  DenoiseLightmap(total.data(), res, options.denoise);
   for (size_t px = 0; px < npix; ++px) {
     for (int c = 0; c < 3; ++c) {
       float v = total[px * 3 + c];
@@ -635,7 +694,13 @@ bool BakeLightmapFor(Scene& scene, AssetDatabase& assets, EntityId target, int r
     return false;
   }
   TextureAssetData lmtex;
-  if (!CompressTexturePixels(rgba.data(), res, res, "", lmtex, "lightmap", TexKind::Orm, "", 0)) {
+  bool compressOk = false;
+  if (options.format == TexFormat::Bc7 || options.format == TexFormat::Bc6H || options.format == TexFormat::Bc4) {
+    compressOk = CompressTexturePixelsEx(rgba.data(), res, res, "", lmtex, "lightmap", TexKind::Orm, "", 0, options.format);
+  } else {
+    compressOk = CompressTexturePixels(rgba.data(), res, res, "", lmtex, "lightmap", TexKind::Orm, "", 0);
+  }
+  if (!compressOk) {
     errorOut = "Lightmap compress failed";
     return false;
   }

@@ -47,6 +47,18 @@ DXGI_FORMAT ToTextureFormat(RHITextureFormat f) {
   if (f == RHITextureFormat::BC5_UNORM) {
     return DXGI_FORMAT_BC5_UNORM;
   }
+  if (f == RHITextureFormat::BC4_UNORM) {
+    return DXGI_FORMAT_BC4_UNORM;
+  }
+  if (f == RHITextureFormat::BC6H_UF16) {
+    return DXGI_FORMAT_BC6H_UF16;
+  }
+  if (f == RHITextureFormat::BC7_UNORM) {
+    return DXGI_FORMAT_BC7_UNORM;
+  }
+  if (f == RHITextureFormat::BC7_UNORM_SRGB) {
+    return DXGI_FORMAT_BC7_UNORM_SRGB;
+  }
   return DXGI_FORMAT_R8G8B8A8_UNORM;
 }
 bool CheckTextureMipParams(int tw, int th, int tmips, RHITextureFormat tfmt, int mip, int mw, int mh, uint32_t rowPitch, size_t bytes) {
@@ -77,7 +89,7 @@ bool CheckTextureMipParams(int tw, int th, int tmips, RHITextureFormat tfmt, int
     expect = static_cast<size_t>(rowPitch) * static_cast<size_t>(mh);
   } else {
     size_t blockBytes = 16;
-    if (tfmt == RHITextureFormat::BC1_UNORM || tfmt == RHITextureFormat::BC1_UNORM_SRGB) {
+    if (tfmt == RHITextureFormat::BC1_UNORM || tfmt == RHITextureFormat::BC1_UNORM_SRGB || tfmt == RHITextureFormat::BC4_UNORM) {
       blockBytes = 8;
     }
     size_t blocksX = (static_cast<size_t>(mw) + 3) / 4;

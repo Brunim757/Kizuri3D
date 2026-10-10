@@ -195,6 +195,89 @@ bool CompressTexturePixels(const unsigned char* rgba, int w, int h, const std::s
   }
   return true;
 }
+bool CompressTexturePixelsEx(const unsigned char* rgba, int w, int h, const std::string& keepGuid, TextureAssetData& out, const std::string& nameHint, TexKind kind, const std::string& sourcePath, uint64_t sourceHash, TexFormat forceFormat) {
+  out = TextureAssetData();
+  if (rgba == nullptr || w <= 0 || h <= 0) {
+    return false;
+  }
+  if (forceFormat != TexFormat::Bc4 && forceFormat != TexFormat::Bc6H && forceFormat != TexFormat::Bc7) {
+    return CompressTexturePixels(rgba, w, h, keepGuid, out, nameHint, kind, sourcePath, sourceHash);
+  }
+  bool normal = kind == TexKind::Normal;
+  bool linearData = forceFormat == TexFormat::Bc6H || forceFormat == TexFormat::Bc4;
+  bool srgb = !normal && !linearData;
+  std::vector<unsigned char> prep;
+  const unsigned char* srcPx = rgba;
+  if (forceFormat == TexFormat::Bc4) {
+    prep.resize(static_cast<size_t>(w) * h * 4);
+    for (int i = 0; i < w * h; ++i) {
+      unsigned char lum = rgba[i * 4];
+      prep[i * 4 + 0] = lum;
+      prep[i * 4 + 1] = lum;
+      prep[i * 4 + 2] = lum;
+      prep[i * 4 + 3] = 255;
+    }
+    srcPx = prep.data();
+  }
+  DirectX::ScratchImage src;
+  if (FAILED(src.Initialize2D(DXGI_FORMAT_R8G8B8A8_UNORM, w, h, 1, 1))) {
+    return false;
+  }
+  std::memcpy(src.GetPixels(), srcPx, static_cast<size_t>(w) * static_cast<size_t>(h) * 4);
+  DirectX::ScratchImage mipChain;
+  DirectX::TEX_FILTER_FLAGS filter = static_cast<DirectX::TEX_FILTER_FLAGS>(DirectX::TEX_FILTER_DEFAULT | DirectX::TEX_FILTER_FORCE_NON_WIC);
+  if (srgb) {
+    filter = static_cast<DirectX::TEX_FILTER_FLAGS>(filter | DirectX::TEX_FILTER_SRGB);
+  }
+  if (FAILED(DirectX::GenerateMipMaps(src.GetImages(), src.GetImageCount(), src.GetMetadata(), filter, 0, mipChain))) {
+    return false;
+  }
+  DXGI_FORMAT destFormat = DXGI_FORMAT_BC7_UNORM;
+  TexFormat outFormat = TexFormat::Bc7;
+  if (forceFormat == TexFormat::Bc4) {
+    destFormat = DXGI_FORMAT_BC4_UNORM;
+    outFormat = TexFormat::Bc4;
+  } else if (forceFormat == TexFormat::Bc6H) {
+    destFormat = DXGI_FORMAT_BC6H_UF16;
+    outFormat = TexFormat::Bc6H;
+  } else if (srgb) {
+    destFormat = DXGI_FORMAT_BC7_UNORM_SRGB;
+  }
+  DirectX::ScratchImage compressed;
+  if (FAILED(DirectX::Compress(mipChain.GetImages(), mipChain.GetImageCount(), mipChain.GetMetadata(), destFormat, DirectX::TEX_COMPRESS_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, compressed))) {
+    return false;
+  }
+  out.guid = keepGuid.empty() ? GenerateGuidString() : keepGuid;
+  out.width = static_cast<uint32_t>(w);
+  out.height = static_cast<uint32_t>(h);
+  out.format = outFormat;
+  out.srgb = srgb && forceFormat == TexFormat::Bc7;
+  for (size_t i = 0; i < compressed.GetImageCount(); ++i) {
+    const DirectX::Image* img = compressed.GetImages() + i;
+    TextureMipData mip;
+    mip.width = static_cast<uint32_t>(img->width);
+    mip.height = static_cast<uint32_t>(img->height);
+    mip.rowPitch = static_cast<uint32_t>(img->rowPitch);
+    mip.data.assign(img->pixels, img->pixels + img->slicePitch);
+    out.mips.push_back(mip);
+  }
+  if (out.mips.empty()) {
+    out = TextureAssetData();
+    return false;
+  }
+  out.hasSource = !sourcePath.empty();
+  out.sourcePath = sourcePath;
+  out.sourceHash = sourceHash;
+  out.sourceTimestamp = 0;
+  if (out.hasSource) {
+    std::error_code ec;
+    std::filesystem::file_time_type mtime = std::filesystem::last_write_time(sourcePath, ec);
+    if (!ec) {
+      out.sourceTimestamp = static_cast<int64_t>(mtime.time_since_epoch().count());
+    }
+  }
+  return true;
+}
 bool ImportTextureFile(const std::string& path, const std::string& keepGuid, TextureAssetData& out) {
   out = TextureAssetData();
   if (path.empty()) {

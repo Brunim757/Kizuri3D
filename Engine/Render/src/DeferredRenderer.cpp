@@ -405,6 +405,14 @@ DeferredRenderer::DeferredRenderer()
   , clusterMax(0)
   , clusterAvg(0.0f)
   , clusterLightCount(0)
+  , ddgiOn(true)
+  , ddgiWeight(0.35f)
+  , ddgiReady(false)
+  , probeAutoRefresh(false)
+  , probeRefreshNeeded(false)
+  , lightSig(0)
+  , ddgiTex(0)
+  , ddgiCB(0)
   , godRan(false)
   , taaA(0)
   , taaB(0)
@@ -826,6 +834,18 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   gridBuf = rhi->CreateStructBuffer(144, 4, nullptr);
   clusterTex = rhi->CreateTexture2D(16, 9, 1, RHITextureFormat::RGBA8_UNORM);
   computeAvailable = lightGridCS != 0 && cullCB != 0 && gridBuf != 0 && clusterTex != 0;
+  ddgiTex = rhi->CreateTexture3D(8, 4, 8, RHITextureFormat::RGBA16F);
+  float ddgiInit[8] = { -20.0f, -20.0f, -20.0f, 0.35f, 20.0f, 20.0f, 20.0f, 1.0f };
+  ddgiCB = rhi->CreateConstantBuffer(sizeof(ddgiInit), &ddgiInit);
+  if (ddgiCB == 0) {
+    return false;
+  }
+  ddgiMin[0] = -20.0f;
+  ddgiMin[1] = -20.0f;
+  ddgiMin[2] = -20.0f;
+  ddgiMax[0] = 20.0f;
+  ddgiMax[1] = 20.0f;
+  ddgiMax[2] = 20.0f;
   if (clusterTex != 0) {
     unsigned char blackPx[16 * 9 * 4] = { 0 };
     rhi->UpdateTextureMip(clusterTex, 0, 16, 9, 16 * 4, blackPx, sizeof(blackPx));
@@ -1227,6 +1247,15 @@ void DeferredRenderer::Shutdown() {
     rhi->DestroyConstantBuffer(cullCB);
     cullCB = 0;
   }
+  if (ddgiCB != 0) {
+    rhi->DestroyConstantBuffer(ddgiCB);
+    ddgiCB = 0;
+  }
+  if (ddgiTex != 0) {
+    rhi->DestroyTexture3D(ddgiTex);
+    ddgiTex = 0;
+  }
+  ddgiReady = false;
   if (gridBuf != 0) {
     rhi->DestroyStructBuffer(gridBuf);
     gridBuf = 0;
@@ -1572,6 +1601,152 @@ void DeferredRenderer::SetGpuCulling(bool on) {
 }
 void DeferredRenderer::SetForwardPlus(bool on) {
   forwardPlus = on;
+}
+void DeferredRenderer::SetDdgi(bool on, float weight) {
+  ddgiOn = on;
+  ddgiWeight = weight < 0.0f ? 0.0f : (weight > 2.0f ? 2.0f : weight);
+  if (!on) {
+    ddgiReady = false;
+  }
+}
+void DeferredRenderer::SetProbeAutoRefresh(bool on) {
+  probeAutoRefresh = on;
+}
+bool DeferredRenderer::ProbeRefreshNeeded() const {
+  return probeAutoRefresh && probeRefreshNeeded;
+}
+void DeferredRenderer::MarkProbesRefreshed() {
+  probeRefreshNeeded = false;
+}
+bool DeferredRenderer::DdgiReady() const {
+  return ddgiReady && ddgiTex != 0;
+}
+static uint16_t FloatToHalfLocal(float f) {
+  uint32_t bits = 0;
+  std::memcpy(&bits, &f, sizeof(bits));
+  uint32_t sign = (bits >> 16) & 0x8000u;
+  int32_t exp = static_cast<int32_t>((bits >> 23) & 0xFFu) - 112;
+  uint32_t mant = bits & 0x7FFFFFu;
+  if (exp <= 0) {
+    return static_cast<uint16_t>(sign);
+  }
+  if (exp >= 31) {
+    return static_cast<uint16_t>(sign | 0x7BFFu);
+  }
+  return static_cast<uint16_t>(sign | (static_cast<uint32_t>(exp) << 10) | (mant >> 13));
+}
+void DeferredRenderer::UpdateDdgiGrid() {
+  ddgiReady = false;
+  if (!ddgiOn || rhi == nullptr || ddgiTex == 0 || ddgiCB == 0) {
+    return;
+  }
+  float bmin[3] = { -20.0f, -20.0f, -20.0f };
+  float bmax[3] = { 20.0f, 20.0f, 20.0f };
+  if (meshHasBounds) {
+    bmin[0] = meshMin[0];
+    bmin[1] = meshMin[1];
+    bmin[2] = meshMin[2];
+    bmax[0] = meshMax[0];
+    bmax[1] = meshMax[1];
+    bmax[2] = meshMax[2];
+  }
+  float pad[3] = {
+    (bmax[0] - bmin[0]) * 0.1f + 1.0f,
+    (bmax[1] - bmin[1]) * 0.1f + 1.0f,
+    (bmax[2] - bmin[2]) * 0.1f + 1.0f
+  };
+  for (int i = 0; i < 3; ++i) {
+    ddgiMin[i] = bmin[i] - pad[i];
+    ddgiMax[i] = bmax[i] + pad[i];
+    if (ddgiMax[i] - ddgiMin[i] < 1.0f) {
+      ddgiMax[i] = ddgiMin[i] + 1.0f;
+    }
+  }
+  struct DdgiLight {
+    float pos[3];
+    float color[3];
+    float range;
+  };
+  DdgiLight lights[16];
+  uint32_t lightCount = 0;
+  for (size_t i = 0; i < pointLights.size() && lightCount < 16; ++i, ++lightCount) {
+    lights[lightCount].pos[0] = pointLights[i].pos[0];
+    lights[lightCount].pos[1] = pointLights[i].pos[1];
+    lights[lightCount].pos[2] = pointLights[i].pos[2];
+    lights[lightCount].color[0] = pointLights[i].color[0] * pointLights[i].intensity * physScale;
+    lights[lightCount].color[1] = pointLights[i].color[1] * pointLights[i].intensity * physScale;
+    lights[lightCount].color[2] = pointLights[i].color[2] * pointLights[i].intensity * physScale;
+    lights[lightCount].range = pointLights[i].radius;
+  }
+  for (size_t i = 0; i < spotLights.size() && lightCount < 16; ++i, ++lightCount) {
+    lights[lightCount].pos[0] = spotLights[i].pos[0];
+    lights[lightCount].pos[1] = spotLights[i].pos[1];
+    lights[lightCount].pos[2] = spotLights[i].pos[2];
+    lights[lightCount].color[0] = spotLights[i].color[0] * spotLights[i].intensity * physScale;
+    lights[lightCount].color[1] = spotLights[i].color[1] * spotLights[i].intensity * physScale;
+    lights[lightCount].color[2] = spotLights[i].color[2] * spotLights[i].intensity * physScale;
+    lights[lightCount].range = spotLights[i].radius;
+  }
+  for (size_t i = 0; i < dirLights.size() && lightCount < 16; ++i, ++lightCount) {
+    lights[lightCount].pos[0] = ddgiMin[0];
+    lights[lightCount].pos[1] = ddgiMax[1];
+    lights[lightCount].pos[2] = ddgiMin[2];
+    lights[lightCount].color[0] = dirLights[i].color[0] * dirLights[i].intensity * physScale;
+    lights[lightCount].color[1] = dirLights[i].color[1] * dirLights[i].intensity * physScale;
+    lights[lightCount].color[2] = dirLights[i].color[2] * dirLights[i].intensity * physScale;
+    lights[lightCount].range = 1e9f;
+  }
+  for (size_t i = 0; i < rectLights.size() && lightCount < 16; ++i, ++lightCount) {
+    lights[lightCount].pos[0] = rectLights[i].pos[0];
+    lights[lightCount].pos[1] = rectLights[i].pos[1];
+    lights[lightCount].pos[2] = rectLights[i].pos[2];
+    lights[lightCount].color[0] = rectLights[i].color[0] * rectLights[i].intensity * physScale;
+    lights[lightCount].color[1] = rectLights[i].color[1] * rectLights[i].intensity * physScale;
+    lights[lightCount].color[2] = rectLights[i].color[2] * rectLights[i].intensity * physScale;
+    lights[lightCount].range = rectLights[i].range;
+  }
+  uint16_t voxels[8 * 4 * 8 * 4];
+  for (int z = 0; z < 8; ++z) {
+    for (int y = 0; y < 4; ++y) {
+      for (int x = 0; x < 8; ++x) {
+        float px = ddgiMin[0] + (ddgiMax[0] - ddgiMin[0]) * (static_cast<float>(x) + 0.5f) / 8.0f;
+        float py = ddgiMin[1] + (ddgiMax[1] - ddgiMin[1]) * (static_cast<float>(y) + 0.5f) / 4.0f;
+        float pz = ddgiMin[2] + (ddgiMax[2] - ddgiMin[2]) * (static_cast<float>(z) + 0.5f) / 8.0f;
+        float acc[3] = { 0.0f, 0.0f, 0.0f };
+        for (uint32_t li = 0; li < lightCount; ++li) {
+          float dx = lights[li].pos[0] - px;
+          float dy = lights[li].pos[1] - py;
+          float dz = lights[li].pos[2] - pz;
+          float distSq = dx * dx + dy * dy + dz * dz;
+          float range = lights[li].range > 0.001f ? lights[li].range : 1.0f;
+          float att = 0.0f;
+          if (range > 1e8f) {
+            att = 0.15f;
+          } else {
+            float q = distSq / (range * range);
+            if (q < 1.0f) {
+              att = (1.0f - q) * (1.0f - q);
+            }
+          }
+          acc[0] += lights[li].color[0] * att;
+          acc[1] += lights[li].color[1] * att;
+          acc[2] += lights[li].color[2] * att;
+        }
+        size_t vi = (static_cast<size_t>(z) * 4 + y) * 8 + x;
+        voxels[vi * 4 + 0] = FloatToHalfLocal(acc[0] / 3.14159265f);
+        voxels[vi * 4 + 1] = FloatToHalfLocal(acc[1] / 3.14159265f);
+        voxels[vi * 4 + 2] = FloatToHalfLocal(acc[2] / 3.14159265f);
+        voxels[vi * 4 + 3] = FloatToHalfLocal(1.0f);
+      }
+    }
+  }
+  uint32_t rowPitch = 8 * 8;
+  uint32_t slicePitch = rowPitch * 4;
+  if (rhi->UpdateTexture3D(ddgiTex, 8, 4, 8, rowPitch, slicePitch, voxels, sizeof(voxels))) {
+    float dc[8] = { ddgiMin[0], ddgiMin[1], ddgiMin[2], ddgiWeight, ddgiMax[0], ddgiMax[1], ddgiMax[2], 1.0f };
+    rhi->UpdateConstantBuffer(ddgiCB, &dc, sizeof(dc));
+    ddgiReady = true;
+  }
 }
 bool DeferredRenderer::ClusterReady() const {
   return clusterReady && clusterTex != 0;
@@ -4486,6 +4661,18 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture(20, brdfLut);
   rhi->SetPixelSampler(0, sampler);
   UpdateLightClusters(camPos);
+  UpdateDdgiGrid();
+  uint64_t sig = static_cast<uint64_t>(pointLights.size()) * 1000003ull + static_cast<uint64_t>(spotLights.size()) * 1000033ull + static_cast<uint64_t>(dirLights.size()) * 1000213ull + static_cast<uint64_t>(rectLights.size()) * 1000249ull;
+  if (!pointLights.empty()) {
+    sig ^= static_cast<uint64_t>(pointLights[0].intensity * 1000.0f + 0.5f) * 100000007ull;
+  }
+  if (!dirLights.empty()) {
+    sig ^= static_cast<uint64_t>(dirLights[0].intensity * 1000.0f + 0.5f) * 100000037ull;
+  }
+  if (sig != lightSig) {
+    lightSig = sig;
+    probeRefreshNeeded = true;
+  }
   LightConstants lc;
   lc.camPos[0] = camPos[0];
   lc.camPos[1] = camPos[1];
@@ -4767,6 +4954,10 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   if (ClusterReady()) {
     rhi->SetPixelTexture2D(25, clusterTex);
   }
+  if (DdgiReady()) {
+    rhi->SetPixelTexture3D(26, ddgiTex);
+    rhi->SetPixelConstantBuffer(5, ddgiCB);
+  }
   if (ssaoValid) {
     rhi->SetPixelTexture(6, ssaoA);
   }
@@ -4809,6 +5000,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture2D(23, 0);
   rhi->SetPixelTexture2D(24, 0);
   rhi->SetPixelTexture2D(25, 0);
+  rhi->SetPixelTexture3D(26, 0);
   rhi->SetPixelTexture2D(18, 0);
   rhi->SetPixelTexture2D(19, 0);
   rhi->SetPixelTexture(20, 0);

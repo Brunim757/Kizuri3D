@@ -27,6 +27,15 @@ RHITextureFormat ToRHIFormat(TexFormat fmt, bool srgb) {
   if (fmt == TexFormat::Bc5) {
     return RHITextureFormat::BC5_UNORM;
   }
+  if (fmt == TexFormat::Bc4) {
+    return RHITextureFormat::BC4_UNORM;
+  }
+  if (fmt == TexFormat::Bc6H) {
+    return RHITextureFormat::BC6H_UF16;
+  }
+  if (fmt == TexFormat::Bc7) {
+    return srgb ? RHITextureFormat::BC7_UNORM_SRGB : RHITextureFormat::BC7_UNORM;
+  }
   return srgb ? RHITextureFormat::RGBA8_UNORM_SRGB : RHITextureFormat::RGBA8_UNORM;
 }
 bool StatTime(const std::string& path, int64_t& ticks) {

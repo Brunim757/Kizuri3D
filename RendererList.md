@@ -65,12 +65,12 @@ Futuro
 - [x] Image-based diffuse lighting
 - [x] Image-based specular lighting
 - [x] Reflection probes
-- [ ] Reflection probe blending
-- [ ] Reflection probe volumes
+- [x] Reflection probe blending
+- [x] Reflection probe volumes
 - [x] Box-projected reflection probes
-- [ ] Probe prioritization
+- [x] Probe prioritization
 - [x] Probe baking
-- [ ] Probe streaming
+- [x] Probe streaming
 
 ---
 
@@ -135,13 +135,13 @@ Sem Ray Tracing
 
 - [x] SSGI
 - [x] Light probes
-- [ ] Irradiance volumes
-- [ ] Probe grids
-- [ ] Probe blending
+- [x] Irradiance volumes
+- [x] Probe grids
+- [x] Probe blending
 - [x] Baked global illumination
 - [x] Lightmap system
-- [ ] Lightmap denoising
-- [ ] Lightmap compression
+- [x] Lightmap denoising
+- [x] Lightmap compression
 - [x] Mixed lighting
 - [x] Dynamic/baked lighting combination
 - [ ] Ambient probe
@@ -259,10 +259,10 @@ Sem Ray Tracing
 - [x] Texture compression
 - [x] BC1
 - [x] BC3
-- [ ] BC4
+- [x] BC4
 - [x] BC5
-- [ ] BC6H
-- [ ] BC7
+- [x] BC6H
+- [x] BC7
 - [x] HDR textures
 - [ ] Texture arrays
 - [ ] Texture atlases
@@ -428,10 +428,10 @@ Sem Ray Tracing
 
 - [ ] Advanced temporal reconstruction
 - [ ] Advanced volumetric reconstruction
-- [ ] Advanced GI sem Ray Tracing
-- [ ] Probe-based dynamic GI
-- [ ] Irradiance fields
-- [ ] DDGI-like techniques compatíveis com o renderer
+- [x] Advanced GI sem Ray Tracing
+- [x] Probe-based dynamic GI
+- [x] Irradiance fields
+- [x] DDGI-like techniques compatíveis com o renderer
 - [ ] Advanced virtual texturing
 - [ ] GPU scene management
 - [ ] GPU occlusion culling
