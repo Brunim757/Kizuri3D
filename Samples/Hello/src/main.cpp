@@ -722,6 +722,232 @@ bool TestGpuCulling() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
+bool TestLayeredDetail() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  Kizuri::RHITexture detA = rhi->CreateTexture2D(4, 4, 1, Kizuri::RHITextureFormat::RGBA8_UNORM);
+  Kizuri::RHITexture detN = rhi->CreateTexture2D(4, 4, 1, Kizuri::RHITextureFormat::RGBA8_UNORM);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 5 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  tmat.detailAlbedoTex = detA;
+  tmat.detailNormalTex = detN;
+  tmat.detailTiling = 8.0f;
+  tmat.layerWeight = 0.5f;
+  tmat.layerAlbedo[0] = 0.4f;
+  tmat.layerAlbedo[1] = 0.3f;
+  tmat.layerAlbedo[2] = 0.2f;
+  tmat.layerRoughness = 0.9f;
+  tmat.layerHeightBlend = true;
+  tmat.texFlags = 1048576u | 2097152u | 4194304u | 8388608u;
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  bool ok = renderer.GetStats().lightingDraws == 1;
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  if (detA != 0) {
+    rhi->DestroyTexture(detA);
+  }
+  if (detN != 0) {
+    rhi->DestroyTexture(detN);
+  }
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestDecalMaterials() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  Kizuri::RHITexture dtex = rhi->CreateTexture2D(4, 4, 1, Kizuri::RHITextureFormat::RGBA8_UNORM);
+  if (tvb == 0 || tib == 0 || dtex == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 5 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  float dworld[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,2,1 };
+  float dinv[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,-2,1 };
+  float dsize[3] = { 1.0f, 1.0f, 1.0f };
+  renderer.DrawDecal(dworld, dinv, dsize, 1.0f, dtex, 7, 0.4f, 0.1f);
+  renderer.DrawDecal(dworld, dinv, dsize, 1.0f, dtex, 1, 0.5f, 0.0f);
+  renderer.DrawDecal(dworld, dinv, dsize, 1.0f, dtex, 0, 0.5f, 0.0f);
+  renderer.EndObjectsToTexture(cam);
+  bool ok = renderer.GetStats().decalDraws == 2;
+  ok = ok && renderer.GetStats().lightingDraws == 1;
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  rhi->DestroyTexture(dtex);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestTessellation() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 5 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  renderer.SetTessellation(true, 4.0f, 0.15f);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  bool ok = renderer.GetStats().lightingDraws == 1;
+  renderer.SetTessellation(true, 100.0f, -5.0f);
+  renderer.SetTessellation(false, 4.0f, 0.15f);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  ok = ok && renderer.GetStats().lightingDraws == 1;
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestMatInstances() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  Kizuri::DeferredMaterial base;
+  base.albedo[0] = 0.2f;
+  base.albedo[1] = 0.4f;
+  base.albedo[2] = 0.6f;
+  base.roughness = 0.5f;
+  base.metallic = 0.0f;
+  uint32_t id = renderer.CreateMaterialInstance(base);
+  bool ok = renderer.GetInstanceMaterial(id) != nullptr;
+  ok = ok && renderer.SetInstanceRoughness(id, 0.9f);
+  ok = ok && renderer.SetInstanceAlbedo(id, 1.0f, 0.0f, 0.0f);
+  ok = ok && renderer.SetInstanceMetallic(id, 0.5f);
+  ok = ok && renderer.SetInstanceEmissive(id, 0.0f, 1.0f, 0.0f, 2.0f);
+  Kizuri::DeferredMaterial grown;
+  grown.albedo[0] = 0.9f;
+  grown.albedo[1] = 0.9f;
+  grown.albedo[2] = 0.9f;
+  grown.roughness = 0.1f;
+  grown.metallic = 0.9f;
+  ok = ok && renderer.SetInstanceBase(id, grown);
+  const Kizuri::DeferredMaterial* cur = renderer.GetInstanceMaterial(id);
+  ok = ok && cur != nullptr;
+  ok = ok && cur->albedo[0] == 1.0f && cur->roughness == 0.9f && cur->metallic == 0.5f;
+  ok = ok && cur->emissive[1] == 1.0f && cur->emissiveStrength == 2.0f;
+  ok = ok && !renderer.SetInstanceRoughness(9999, 0.1f) && renderer.GetInstanceMaterial(9999) == nullptr;
+  ok = ok && renderer.DestroyInstance(id) && renderer.GetInstanceMaterial(id) == nullptr;
+  ok = ok && !renderer.DestroyInstance(id);
+  uint32_t id2 = renderer.CreateMaterialInstance(base);
+  ok = ok && id2 == id;
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestMatDetailIO() {
+  Kizuri::Scene scene;
+  Kizuri::EntityId eid = scene.CreateEntity("DetailMat");
+  if (!eid.IsValid()) {
+    return false;
+  }
+  Kizuri::Entity* e = scene.Get(eid);
+  if (e == nullptr) {
+    return false;
+  }
+  e->hasMaterial = true;
+  e->material.detailAlbedoTex = "guid-detail-a";
+  e->material.detailNormalTex = "guid-detail-n";
+  e->material.detailTiling = 12.0f;
+  e->material.layerWeight = 0.7f;
+  e->material.layerAlbedo[0] = 0.1f;
+  e->material.layerAlbedo[1] = 0.2f;
+  e->material.layerAlbedo[2] = 0.3f;
+  e->material.layerRoughness = 0.4f;
+  e->material.layerMetallic = 0.6f;
+  e->material.layerHeight = 0.8f;
+  e->material.layerHeightBlend = true;
+  const char* tmp = "kizuri_test_matdetail_tmp.kzscene";
+  if (!Kizuri::SaveSceneToFile(scene, tmp)) {
+    return false;
+  }
+  Kizuri::Scene back;
+  bool ok = Kizuri::LoadSceneFromFile(back, tmp, nullptr);
+  std::remove(tmp);
+  if (!ok) {
+    return false;
+  }
+  bool found = false;
+  std::vector<Kizuri::EntityId> all = back.All();
+  for (size_t i = 0; i < all.size(); ++i) {
+    const Kizuri::Entity* be = back.Get(all[i]);
+    if (be != nullptr && be->hasMaterial && be->material.detailAlbedoTex == "guid-detail-a") {
+      found = true;
+      ok = ok && be->material.detailNormalTex == "guid-detail-n";
+      ok = ok && be->material.detailTiling == 12.0f;
+      ok = ok && be->material.layerWeight == 0.7f;
+      ok = ok && be->material.layerAlbedo[2] == 0.3f;
+      ok = ok && be->material.layerRoughness == 0.4f;
+      ok = ok && be->material.layerMetallic == 0.6f;
+      ok = ok && be->material.layerHeight == 0.8f;
+      ok = ok && be->material.layerHeightBlend;
+    }
+  }
+  return ok && found;
+}
 bool TestRHINull() {
   Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
   if (rhi == nullptr) {
@@ -7444,6 +7670,11 @@ int main() {
   failures += Check("Clustered", TestClustered());
   failures += Check("ForwardPlus", TestForwardPlus());
   failures += Check("GpuCulling", TestGpuCulling());
+  failures += Check("LayeredDetail", TestLayeredDetail());
+  failures += Check("DecalMaterials", TestDecalMaterials());
+  failures += Check("Tessellation", TestTessellation());
+  failures += Check("MatInstances", TestMatInstances());
+  failures += Check("MatDetailIO", TestMatDetailIO());
   failures += Check("RHI-Null", TestRHINull());
   failures += Check("FrustumCull", TestFrustumCull());
   failures += Check("FrustumCullNull", TestFrustumCullNull());

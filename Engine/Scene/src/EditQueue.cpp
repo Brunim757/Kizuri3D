@@ -117,7 +117,7 @@ bool MaterialEqual(const MaterialData& a, const MaterialData& b) {
   return true;
 }
 bool DecalEqual(const DecalData& a, const DecalData& b) {
-  return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.life == b.life && a.texGuid == b.texGuid;
+  return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.life == b.life && a.texGuid == b.texGuid && a.matMask == b.matMask && a.matRough == b.matRough && a.matMetal == b.matMetal;
 }
 bool LodEqual(const LodData& a, const LodData& b) {
   return a.farGuid == b.farGuid && a.nearDist == b.nearDist && a.farDist == b.farDist;

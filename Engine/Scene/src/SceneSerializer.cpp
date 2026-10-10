@@ -166,6 +166,7 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
       std::fprintf(fp, "MATERIALX %.9g %.9g %.9g %.9g %.9g %d %d %d %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\"\n", m.alpha, m.emissive[0], m.emissive[1], m.emissive[2], m.emissiveStrength, m.unlit ? 1 : 0, m.doubleSided ? 1 : 0, m.alphaMode, m.alphaCutoff, m.ior, m.hasSpecular ? 1 : 0, m.specularColor[0], m.specularColor[1], m.specularColor[2], m.specularStrength, m.clearcoat, m.clearcoatRoughness, m.sheenColor[0], m.sheenColor[1], m.sheenColor[2], m.sheenRoughness, m.anisotropy, m.anisotropyRotation, m.iridescence, m.iridescenceIor, m.iridescenceThicknessMin, m.iridescenceThicknessMax, m.transmission, m.thickness, m.attenuationColor[0], m.attenuationColor[1], m.attenuationColor[2], m.attenuationDistance, m.dispersion, EscapeName(m.emissiveTex).c_str(), EscapeName(m.specularTex).c_str(), EscapeName(m.specularColorTex).c_str(), EscapeName(m.clearcoatTex).c_str(), EscapeName(m.clearcoatRoughnessTex).c_str(), EscapeName(m.clearcoatNormalTex).c_str(), EscapeName(m.sheenColorTex).c_str(), EscapeName(m.sheenRoughnessTex).c_str(), EscapeName(m.anisotropyTex).c_str(), EscapeName(m.iridescenceTex).c_str(), EscapeName(m.iridescenceThicknessTex).c_str(), EscapeName(m.transmissionTex).c_str(), EscapeName(m.thicknessTex).c_str());
       std::fprintf(fp, "MATERIALXF %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d\n", m.xforms[0].offsetU, m.xforms[0].offsetV, m.xforms[0].scaleU, m.xforms[0].scaleV, m.xforms[0].rotation, m.xforms[0].uvSet, m.xforms[1].offsetU, m.xforms[1].offsetV, m.xforms[1].scaleU, m.xforms[1].scaleV, m.xforms[1].rotation, m.xforms[1].uvSet, m.xforms[2].offsetU, m.xforms[2].offsetV, m.xforms[2].scaleU, m.xforms[2].scaleV, m.xforms[2].rotation, m.xforms[2].uvSet, m.xforms[3].offsetU, m.xforms[3].offsetV, m.xforms[3].scaleU, m.xforms[3].scaleV, m.xforms[3].rotation, m.xforms[3].uvSet, m.xforms[4].offsetU, m.xforms[4].offsetV, m.xforms[4].scaleU, m.xforms[4].scaleV, m.xforms[4].rotation, m.xforms[4].uvSet);
       std::fprintf(fp, "MATERIALLINK %d\n", m.linkMask);
+      std::fprintf(fp, "MATDETAIL \"%s\" \"%s\" %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %d\n", EscapeName(m.detailAlbedoTex).c_str(), EscapeName(m.detailNormalTex).c_str(), m.detailTiling, m.layerWeight, m.layerAlbedo[0], m.layerAlbedo[1], m.layerAlbedo[2], m.layerRoughness, m.layerMetallic, m.layerHeight, m.layerHeightBlend ? 1 : 0);
       if (e->variantIndex >= 0) {
         std::fprintf(fp, "VARIANT %d\n", e->variantIndex);
       }
@@ -174,10 +175,12 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
       const PartMaterial& pm = e->partMaterials[pi];
       std::fprintf(fp, "PARTMAT %u %.9g %.9g %.9g %.9g %.9g \"%s\" \"%s\" \"%s\" \"%s\" %.9g %.9g %.9g %.9g %.9g %d %d %d %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\"\n", pm.part, pm.material.albedo[0], pm.material.albedo[1], pm.material.albedo[2], pm.material.metallic, pm.material.roughness, EscapeName(pm.material.albedoTex).c_str(), EscapeName(pm.material.normalTex).c_str(), EscapeName(pm.material.ormTex).c_str(), EscapeName(pm.material.heightTex).c_str(), pm.material.alpha, pm.material.emissive[0], pm.material.emissive[1], pm.material.emissive[2], pm.material.emissiveStrength, pm.material.unlit ? 1 : 0, pm.material.doubleSided ? 1 : 0, pm.material.alphaMode, pm.material.alphaCutoff, pm.material.ior, pm.material.hasSpecular ? 1 : 0, pm.material.specularColor[0], pm.material.specularColor[1], pm.material.specularColor[2], pm.material.specularStrength, pm.material.clearcoat, pm.material.clearcoatRoughness, pm.material.sheenColor[0], pm.material.sheenColor[1], pm.material.sheenColor[2], pm.material.sheenRoughness, pm.material.anisotropy, pm.material.anisotropyRotation, pm.material.iridescence, pm.material.iridescenceIor, pm.material.iridescenceThicknessMin, pm.material.iridescenceThicknessMax, pm.material.transmission, pm.material.thickness, pm.material.attenuationColor[0], pm.material.attenuationColor[1], pm.material.attenuationColor[2], pm.material.attenuationDistance, pm.material.dispersion, EscapeName(pm.material.emissiveTex).c_str(), EscapeName(pm.material.specularTex).c_str(), EscapeName(pm.material.specularColorTex).c_str(), EscapeName(pm.material.clearcoatTex).c_str(), EscapeName(pm.material.clearcoatRoughnessTex).c_str(), EscapeName(pm.material.clearcoatNormalTex).c_str(), EscapeName(pm.material.sheenColorTex).c_str(), EscapeName(pm.material.sheenRoughnessTex).c_str(), EscapeName(pm.material.anisotropyTex).c_str(), EscapeName(pm.material.iridescenceTex).c_str(), EscapeName(pm.material.iridescenceThicknessTex).c_str(), EscapeName(pm.material.transmissionTex).c_str(), EscapeName(pm.material.thicknessTex).c_str());
       std::fprintf(fp, "PARTMATXF %u %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d\n", pm.part, pm.material.xforms[0].offsetU, pm.material.xforms[0].offsetV, pm.material.xforms[0].scaleU, pm.material.xforms[0].scaleV, pm.material.xforms[0].rotation, pm.material.xforms[0].uvSet, pm.material.xforms[1].offsetU, pm.material.xforms[1].offsetV, pm.material.xforms[1].scaleU, pm.material.xforms[1].scaleV, pm.material.xforms[1].rotation, pm.material.xforms[1].uvSet, pm.material.xforms[2].offsetU, pm.material.xforms[2].offsetV, pm.material.xforms[2].scaleU, pm.material.xforms[2].scaleV, pm.material.xforms[2].rotation, pm.material.xforms[2].uvSet, pm.material.xforms[3].offsetU, pm.material.xforms[3].offsetV, pm.material.xforms[3].scaleU, pm.material.xforms[3].scaleV, pm.material.xforms[3].rotation, pm.material.xforms[3].uvSet, pm.material.xforms[4].offsetU, pm.material.xforms[4].offsetV, pm.material.xforms[4].scaleU, pm.material.xforms[4].scaleV, pm.material.xforms[4].rotation, pm.material.xforms[4].uvSet);
+      std::fprintf(fp, "PARTMATDTL %u \"%s\" \"%s\" %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %d\n", pm.part, EscapeName(pm.material.detailAlbedoTex).c_str(), EscapeName(pm.material.detailNormalTex).c_str(), pm.material.detailTiling, pm.material.layerWeight, pm.material.layerAlbedo[0], pm.material.layerAlbedo[1], pm.material.layerAlbedo[2], pm.material.layerRoughness, pm.material.layerMetallic, pm.material.layerHeight, pm.material.layerHeightBlend ? 1 : 0);
     }
     if (e->hasDecal) {
       const DecalData& d = e->decal;
       std::fprintf(fp, "DECAL %.9g %.9g %.9g %.9g \"%s\"\n", d.size[0], d.size[1], d.size[2], d.life, EscapeName(d.texGuid).c_str());
+      std::fprintf(fp, "DECALMAT %d %.9g %.9g\n", d.matMask, d.matRough, d.matMetal);
     }
     if (e->hasLod) {
       const LodData& l = e->lod;
@@ -534,6 +537,28 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
         }
         continue;
       }
+      if (field == "MATDETAIL") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        std::string d0;
+        std::string d1;
+        if (ParseQuoted(s, pos, d0) && ParseQuoted(s, pos, d1)) {
+          current->material.detailAlbedoTex = d0;
+          current->material.detailNormalTex = d1;
+          float dv[9] = { 8.0f, 0.0f, 0.5f, 0.5f, 0.5f, 0.8f, 0.0f, 0.5f, 0.0f };
+          if (ParseFloats(s, pos, dv, 9)) {
+            current->material.detailTiling = dv[0];
+            current->material.layerWeight = dv[1];
+            current->material.layerAlbedo[0] = dv[2];
+            current->material.layerAlbedo[1] = dv[3];
+            current->material.layerAlbedo[2] = dv[4];
+            current->material.layerRoughness = dv[5];
+            current->material.layerMetallic = dv[6];
+            current->material.layerHeight = dv[7];
+            current->material.layerHeightBlend = dv[8] > 0.5f;
+          }
+        }
+        continue;
+      }
       if (field == "VARIANT") {
         size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
         long vv = -1;
@@ -679,6 +704,47 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
         }
         continue;
       }
+      if (field == "PARTMATDTL") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        long pv = -1;
+        if (!ParseInt(s, pos, pv) || pv < 0) {
+          failed = true;
+          break;
+        }
+        PartMaterial* pm = nullptr;
+        for (size_t pi = 0; pi < current->partMaterials.size(); ++pi) {
+          if (current->partMaterials[pi].part == static_cast<uint32_t>(pv)) {
+            pm = &current->partMaterials[pi];
+            break;
+          }
+        }
+        if (pm == nullptr) {
+          PartMaterial fresh;
+          fresh.part = static_cast<uint32_t>(pv);
+          MakeDefaultMaterial(fresh.material);
+          current->partMaterials.push_back(fresh);
+          pm = &current->partMaterials.back();
+        }
+        std::string d0;
+        std::string d1;
+        if (ParseQuoted(s, pos, d0) && ParseQuoted(s, pos, d1)) {
+          pm->material.detailAlbedoTex = d0;
+          pm->material.detailNormalTex = d1;
+          float dv[9] = { 8.0f, 0.0f, 0.5f, 0.5f, 0.5f, 0.8f, 0.0f, 0.5f, 0.0f };
+          if (ParseFloats(s, pos, dv, 9)) {
+            pm->material.detailTiling = dv[0];
+            pm->material.layerWeight = dv[1];
+            pm->material.layerAlbedo[0] = dv[2];
+            pm->material.layerAlbedo[1] = dv[3];
+            pm->material.layerAlbedo[2] = dv[4];
+            pm->material.layerRoughness = dv[5];
+            pm->material.layerMetallic = dv[6];
+            pm->material.layerHeight = dv[7];
+            pm->material.layerHeightBlend = dv[8] > 0.5f;
+          }
+        }
+        continue;
+      }
       if (field == "DECAL") {
         size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
         float dv[4] = { 1.0f, 1.0f, 1.0f, 0.0f };
@@ -698,6 +764,19 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
         }
         current->decal.texGuid = slot;
         current->hasDecal = true;
+        continue;
+      }
+      if (field == "DECALMAT") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        float dv[3] = { 1.0f, 0.5f, 0.0f };
+        if (ParseFloats(s, pos, dv, 3)) {
+          current->decal.matMask = static_cast<int>(dv[0]);
+          if (current->decal.matMask < 0 || current->decal.matMask > 7) {
+            current->decal.matMask = 1;
+          }
+          current->decal.matRough = dv[1];
+          current->decal.matMetal = dv[2];
+        }
         continue;
       }
       if (field == "LOD") {

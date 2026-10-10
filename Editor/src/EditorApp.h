@@ -79,6 +79,9 @@ struct EditorApp {
   bool viewClustered;
   bool viewGpuCull;
   bool viewForwardPlus;
+  bool viewTess;
+  float viewTessFactor;
+  float viewTessDisp;
   float viewNormalBias;
   bool viewAutoBias;
   bool viewSsao;

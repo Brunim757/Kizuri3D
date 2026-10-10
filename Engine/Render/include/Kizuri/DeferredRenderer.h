@@ -65,6 +65,15 @@ struct DeferredMaterial {
   float attenuationDistance = 0.0f;
   float dispersion = 0.0f;
   uint32_t linkGroup = 0xFF;
+  RHITexture detailAlbedoTex = 0;
+  RHITexture detailNormalTex = 0;
+  float detailTiling = 8.0f;
+  float layerWeight = 0.0f;
+  float layerAlbedo[3] = { 0.5f, 0.5f, 0.5f };
+  float layerRoughness = 0.8f;
+  float layerMetallic = 0.0f;
+  float layerHeight = 0.5f;
+  bool layerHeightBlend = false;
 };
 struct DeferredLight {
   float direction[3];
@@ -141,6 +150,9 @@ struct DecalDrawItem {
   float size[3];
   float fade;
   RHITexture tex;
+  int matMask;
+  float matRough;
+  float matMetal;
 };
 struct ForwardDrawItem {
   float world[16];
@@ -219,6 +231,16 @@ public:
   void SetDebugView(int mode);
   int GetDebugView() const;
   void SetFallbackLight(bool on);
+  void SetTessellation(bool on, float factor, float displacement);
+  uint32_t CreateMaterialInstance(const DeferredMaterial& base);
+  bool SetInstanceBase(uint32_t id, const DeferredMaterial& base);
+  bool SetInstanceAlbedo(uint32_t id, float r, float g, float b);
+  bool SetInstanceRoughness(uint32_t id, float roughness);
+  bool SetInstanceMetallic(uint32_t id, float metallic);
+  bool SetInstanceEmissive(uint32_t id, float r, float g, float b, float strength);
+  bool SyncInstance(uint32_t id);
+  bool DestroyInstance(uint32_t id);
+  const DeferredMaterial* GetInstanceMaterial(uint32_t id) const;
   void SetClustered(bool on);
   void SetGpuCulling(bool on);
   void SetForwardPlus(bool on);
@@ -274,7 +296,7 @@ public:
   void SetEnvProbes(int count, const RHITexture* cubes, const float (*boxMin)[4], const float (*boxMax)[4]);
   void DrawObject(const float world[16]);
   void DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat, float lodFade = 0.0f, const float* aabbMin = nullptr, const float* aabbMax = nullptr);
-  void DrawDecal(const float world[16], const float invWorld[16], const float size[3], float fade, RHITexture tex);
+  void DrawDecal(const float world[16], const float invWorld[16], const float size[3], float fade, RHITexture tex, int matMask = 1, float matRough = 0.5f, float matMetal = 0.0f);
   void EndObjectsToTexture(const float camPos[3]);
   void EndObjectsToBackbuffer(const float camPos[3]);
   bool IsReady() const;
@@ -324,6 +346,12 @@ public:
   RHITexture neutralAniso;
   RHIVertexShader geoVS;
   RHIPixelShader geoPS;
+  RHIHullShader tessHS;
+  RHIDomainShader tessDS;
+  RHIConstBuffer tessCB;
+  bool tessOn;
+  float tessFactor;
+  float tessDisp;
   RHIPixelShader forwardPS;
   RHIPixelShader copyPS;
   RHIConstBuffer forwardCB;
@@ -332,6 +360,7 @@ public:
   RHIVertexShader depthVS;
   RHIVertexShader decalVS;
   RHIPixelShader decalPS;
+  RHIPixelShader decalMatsPS;
   RHIConstBuffer decalCB;
   RHIBuffer decalVB;
   RHIBuffer decalIB;
@@ -363,6 +392,13 @@ public:
   std::vector<ShadowDrawItem> shadowDraws;
   std::vector<DecalDrawItem> decalDraws;
   std::vector<ForwardDrawItem> forwardDraws;
+  struct MaterialInstance {
+    DeferredMaterial base;
+    DeferredMaterial current;
+    uint32_t overrideMask;
+    bool active;
+  };
+  std::vector<MaterialInstance> matInstances;
   void RenderForwardPass(const float camPos[3]);
   bool CullWorldAABB(const float world[16], const float inMin[3], const float inMax[3]);
   float frustumPlanes[6][4];
@@ -678,7 +714,7 @@ public:
   bool CreateTargets();
   void DestroyTargets();
   void RenderShadowMaps();
-  void RenderDecals();
+  void RenderDecals(const float camPos[3]);
   void SetupGeometryPass();
   void RenderInternal(const float view[16], const float proj[16], const float camPos[3], bool toTexture);
   void EndInternal(const float camPos[3], bool toTexture);

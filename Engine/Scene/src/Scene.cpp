@@ -105,6 +105,9 @@ void MakeDefaultDecal(DecalData& d) {
   d.size[2] = 1.0f;
   d.life = 0.0f;
   d.texGuid.clear();
+  d.matMask = 1;
+  d.matRough = 0.5f;
+  d.matMetal = 0.0f;
 }
 void MakeDefaultLod(LodData& l) {
   l.farGuid.clear();

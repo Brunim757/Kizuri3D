@@ -551,6 +551,60 @@ public:
     auto it = vsMap.find(vs);
     context->VSSetShader(it == vsMap.end() ? nullptr : it->second.Get(), nullptr, 0);
   }
+  RHIHullShader CreateHullShaderFromFile(const char* path, const char* entry) override {
+    ComPtr<ID3DBlob> blob;
+    if (!CompileShader(path, entry != nullptr ? entry : "main", "hs_5_0", blob)) {
+      return 0;
+    }
+    ComPtr<ID3D11HullShader> hs;
+    if (FAILED(device->CreateHullShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, hs.GetAddressOf()))) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    hsMap[id] = hs;
+    return id;
+  }
+  RHIDomainShader CreateDomainShaderFromFile(const char* path, const char* entry) override {
+    ComPtr<ID3DBlob> blob;
+    if (!CompileShader(path, entry != nullptr ? entry : "main", "ds_5_0", blob)) {
+      return 0;
+    }
+    ComPtr<ID3D11DomainShader> ds;
+    if (FAILED(device->CreateDomainShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, ds.GetAddressOf()))) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    dsMap[id] = ds;
+    return id;
+  }
+  void SetHullShader(RHIHullShader hs) override {
+    auto it = hsMap.find(hs);
+    context->HSSetShader(it == hsMap.end() ? nullptr : it->second.Get(), nullptr, 0);
+  }
+  void SetDomainShader(RHIDomainShader ds) override {
+    auto it = dsMap.find(ds);
+    context->DSSetShader(it == dsMap.end() ? nullptr : it->second.Get(), nullptr, 0);
+  }
+  void SetHullConstantBuffer(uint32_t slot, RHIConstBuffer cb) override {
+    auto it = cbuffers.find(cb);
+    ID3D11Buffer* b = (it == cbuffers.end()) ? nullptr : it->second.Get();
+    context->HSSetConstantBuffers(slot, 1, &b);
+  }
+  void SetDomainConstantBuffer(uint32_t slot, RHIConstBuffer cb) override {
+    auto it = cbuffers.find(cb);
+    ID3D11Buffer* b = (it == cbuffers.end()) ? nullptr : it->second.Get();
+    context->DSSetConstantBuffers(slot, 1, &b);
+  }
+  void SetDomainTexture(uint32_t slot, RHITexture tex) override {
+    auto it = textures.find(tex);
+    ID3D11ShaderResourceView* v = (it == textures.end()) ? nullptr : it->second.srv.Get();
+    context->DSSetShaderResources(slot, 1, &v);
+  }
+  void SetDomainSampler(uint32_t slot, RHISampler sampler) override {
+    auto it = samplers.find(sampler);
+    ID3D11SamplerState* s = (it == samplers.end()) ? nullptr : it->second.Get();
+    context->DSSetSamplers(slot, 1, &s);
+  }
   void SetPixelShader(RHIPixelShader ps) override {
     if (curPS == ps) {
       Note(true);
@@ -703,7 +757,9 @@ public:
   }
   void SetTopology(RHITopology topo) override {
     D3D11_PRIMITIVE_TOPOLOGY d3dTopo = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    (void)topo;
+    if (topo == RHITopology::Patch3) {
+      d3dTopo = D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    }
     if (curTopoD3D == d3dTopo && hasTopo) {
       Note(true);
       return;
@@ -1820,6 +1876,8 @@ private:
   std::unordered_map<uint64_t, uint64_t> csizes;
   std::unordered_map<uint64_t, ComPtr<ID3D11VertexShader>> vsMap;
   std::unordered_map<uint64_t, ComPtr<ID3DBlob>> vsBlobs;
+  std::unordered_map<uint64_t, ComPtr<ID3D11HullShader>> hsMap;
+  std::unordered_map<uint64_t, ComPtr<ID3D11DomainShader>> dsMap;
   std::unordered_map<uint64_t, ComPtr<ID3D11PixelShader>> psMap;
   std::unordered_map<uint64_t, ComPtr<ID3D11ComputeShader>> csMap;
   struct StructBuf {

@@ -41,15 +41,15 @@ Já implementado
 
 Futuro
 
-- [ ] Layered Materials
-- [ ] Material blending avançado
-- [ ] Decal materials
-- [ ] Detail maps
-- [ ] Detail normal maps
+- [x] Layered Materials
+- [x] Material blending avançado
+- [x] Decal materials
+- [x] Detail maps
+- [x] Detail normal maps
 - [x] Parallax Occlusion Mapping
-- [ ] Tessellation/displacement quando aplicável
-- [ ] Material instances
-- [ ] Material inheritance
+- [x] Tessellation/displacement quando aplicável
+- [x] Material instances
+- [x] Material inheritance
 - [x] Runtime material overrides
 
 ---
@@ -276,14 +276,14 @@ Sem Ray Tracing
 
 - [x] Basic decals
 - [x] Deferred decals
-- [ ] Screen-space decals
-- [ ] Normal decals
-- [ ] Roughness decals
-- [ ] Metallic decals
-- [ ] Emissive decals
+- [x] Screen-space decals
+- [x] Normal decals
+- [x] Roughness decals
+- [x] Metallic decals
+- [x] Emissive decals
 - [x] Decal blending
 - [x] Decal projection
-- [ ] Decal sorting
+- [x] Decal sorting
 
 ---
 

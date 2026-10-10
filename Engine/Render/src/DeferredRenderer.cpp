@@ -72,6 +72,8 @@ struct MatExtConstants {
   float extF[4];
   float extG[4];
   float extH[4];
+  float extI[4];
+  float extJ[4];
   float xfA[5][4];
   float xfB[5][4];
 };
@@ -168,6 +170,14 @@ void FillMatConstants(const DeferredMaterial& use, float lodFade, MatConstants& 
   mec.extH[1] = use.attenuationColor[1];
   mec.extH[2] = use.attenuationColor[2];
   mec.extH[3] = use.thickness;
+  mec.extI[0] = use.detailTiling;
+  mec.extI[1] = use.layerWeight;
+  mec.extI[2] = use.layerRoughness;
+  mec.extI[3] = use.layerMetallic;
+  mec.extJ[0] = use.layerAlbedo[0];
+  mec.extJ[1] = use.layerAlbedo[1];
+  mec.extJ[2] = use.layerAlbedo[2];
+  mec.extJ[3] = use.layerHeight;
   for (int s = 0; s < 5; ++s) {
     mec.xfA[s][0] = use.xforms[s].offsetU;
     mec.xfA[s][1] = use.xforms[s].offsetV;
@@ -237,6 +247,12 @@ DeferredRenderer::DeferredRenderer()
   , culledDraws(0)
   , geoVS(0)
   , geoPS(0)
+  , tessHS(0)
+  , tessDS(0)
+  , tessCB(0)
+  , tessOn(false)
+  , tessFactor(4.0f)
+  , tessDisp(0.15f)
   , forwardPS(0)
   , copyPS(0)
   , forwardCB(0)
@@ -245,6 +261,7 @@ DeferredRenderer::DeferredRenderer()
   , depthVS(0)
   , decalVS(0)
   , decalPS(0)
+  , decalMatsPS(0)
   , decalCB(0)
   , decalVB(0)
   , decalIB(0)
@@ -593,11 +610,28 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   std::string copyPath = dir + "/CopyPS.hlsl";
   geoVS = LoadVertexShader(geoVSPath.c_str());
   geoPS = LoadPixelShader(geoPSPath.c_str());
+  std::string tessHSPath = dir + "/TessHS.hlsl";
+  tessHS = rhi->CreateHullShaderFromFile(tessHSPath.c_str(), "main");
+  if (tessHS == 0) {
+    shaderErrors.push_back(std::string("Hull shader failed: ") + tessHSPath);
+  }
+  std::string tessDSPath = dir + "/TessDS.hlsl";
+  tessDS = rhi->CreateDomainShaderFromFile(tessDSPath.c_str(), "main");
+  if (tessDS == 0) {
+    shaderErrors.push_back(std::string("Domain shader failed: ") + tessDSPath);
+  }
+  float tessInit[4] = { 4.0f, 0.15f, 0.0f, 0.0f };
+  tessCB = rhi->CreateConstantBuffer(sizeof(tessInit), &tessInit);
+  if (tessCB == 0) {
+    return false;
+  }
   lightVS = LoadVertexShader(lightVSPath.c_str());
   lightPS = LoadPixelShader(lightPSPath.c_str());
   depthVS = LoadVertexShader(depthVSPath.c_str());
   decalVS = LoadVertexShader(decalVSPath.c_str());
   decalPS = LoadPixelShader(decalPSPath.c_str());
+  std::string decalMatsPSPath = dir + "/DecalMatsPS.hlsl";
+  decalMatsPS = LoadPixelShader(decalMatsPSPath.c_str());
   bloomBrightPS = LoadPixelShader(bloomBrightPath.c_str());
   bloomBlurPS = LoadPixelShader(bloomBlurPath.c_str());
   bloomAddPS = LoadPixelShader(bloomAddPath.c_str());
@@ -949,7 +983,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (decalVB == 0 || decalIB == 0) {
     return false;
   }
-  float decalInit[24] = { 0.0f };
+  float decalInit[32] = { 0.0f };
   decalCB = rhi->CreateConstantBuffer(sizeof(decalInit), &decalInit);
   if (decalCB == 0) {
     return false;
@@ -1124,6 +1158,10 @@ void DeferredRenderer::Shutdown() {
   if (spotCookieCB != 0) {
     rhi->DestroyConstantBuffer(spotCookieCB);
     spotCookieCB = 0;
+  }
+  if (tessCB != 0) {
+    rhi->DestroyConstantBuffer(tessCB);
+    tessCB = 0;
   }
   if (forwardCB != 0) {
     rhi->DestroyConstantBuffer(forwardCB);
@@ -1413,6 +1451,112 @@ int DeferredRenderer::GetDebugView() const {
 }
 void DeferredRenderer::SetFallbackLight(bool on) {
   fallbackOn = on;
+}
+void DeferredRenderer::SetTessellation(bool on, float factor, float displacement) {
+  tessOn = on;
+  tessFactor = factor < 1.0f ? 1.0f : (factor > 16.0f ? 16.0f : factor);
+  tessDisp = displacement < 0.0f ? 0.0f : (displacement > 2.0f ? 2.0f : displacement);
+}
+uint32_t DeferredRenderer::CreateMaterialInstance(const DeferredMaterial& base) {
+  for (uint32_t i = 0; i < matInstances.size(); ++i) {
+    if (!matInstances[i].active) {
+      matInstances[i].base = base;
+      matInstances[i].current = base;
+      matInstances[i].overrideMask = 0;
+      matInstances[i].active = true;
+      return i;
+    }
+  }
+  MaterialInstance inst;
+  inst.base = base;
+  inst.current = base;
+  inst.overrideMask = 0;
+  inst.active = true;
+  matInstances.push_back(inst);
+  return static_cast<uint32_t>(matInstances.size() - 1);
+}
+bool DeferredRenderer::SetInstanceBase(uint32_t id, const DeferredMaterial& base) {
+  if (id >= matInstances.size() || !matInstances[id].active) {
+    return false;
+  }
+  matInstances[id].base = base;
+  return SyncInstance(id);
+}
+bool DeferredRenderer::SetInstanceAlbedo(uint32_t id, float r, float g, float b) {
+  if (id >= matInstances.size() || !matInstances[id].active) {
+    return false;
+  }
+  matInstances[id].current.albedo[0] = r;
+  matInstances[id].current.albedo[1] = g;
+  matInstances[id].current.albedo[2] = b;
+  matInstances[id].overrideMask |= 1u;
+  return true;
+}
+bool DeferredRenderer::SetInstanceRoughness(uint32_t id, float roughness) {
+  if (id >= matInstances.size() || !matInstances[id].active) {
+    return false;
+  }
+  matInstances[id].current.roughness = roughness;
+  matInstances[id].overrideMask |= 2u;
+  return true;
+}
+bool DeferredRenderer::SetInstanceMetallic(uint32_t id, float metallic) {
+  if (id >= matInstances.size() || !matInstances[id].active) {
+    return false;
+  }
+  matInstances[id].current.metallic = metallic;
+  matInstances[id].overrideMask |= 4u;
+  return true;
+}
+bool DeferredRenderer::SetInstanceEmissive(uint32_t id, float r, float g, float b, float strength) {
+  if (id >= matInstances.size() || !matInstances[id].active) {
+    return false;
+  }
+  matInstances[id].current.emissive[0] = r;
+  matInstances[id].current.emissive[1] = g;
+  matInstances[id].current.emissive[2] = b;
+  matInstances[id].current.emissiveStrength = strength;
+  matInstances[id].overrideMask |= 8u;
+  return true;
+}
+bool DeferredRenderer::SyncInstance(uint32_t id) {
+  if (id >= matInstances.size() || !matInstances[id].active) {
+    return false;
+  }
+  MaterialInstance& inst = matInstances[id];
+  DeferredMaterial keep = inst.current;
+  inst.current = inst.base;
+  if ((inst.overrideMask & 1u) != 0u) {
+    inst.current.albedo[0] = keep.albedo[0];
+    inst.current.albedo[1] = keep.albedo[1];
+    inst.current.albedo[2] = keep.albedo[2];
+  }
+  if ((inst.overrideMask & 2u) != 0u) {
+    inst.current.roughness = keep.roughness;
+  }
+  if ((inst.overrideMask & 4u) != 0u) {
+    inst.current.metallic = keep.metallic;
+  }
+  if ((inst.overrideMask & 8u) != 0u) {
+    inst.current.emissive[0] = keep.emissive[0];
+    inst.current.emissive[1] = keep.emissive[1];
+    inst.current.emissive[2] = keep.emissive[2];
+    inst.current.emissiveStrength = keep.emissiveStrength;
+  }
+  return true;
+}
+bool DeferredRenderer::DestroyInstance(uint32_t id) {
+  if (id >= matInstances.size() || !matInstances[id].active) {
+    return false;
+  }
+  matInstances[id].active = false;
+  return true;
+}
+const DeferredMaterial* DeferredRenderer::GetInstanceMaterial(uint32_t id) const {
+  if (id >= matInstances.size() || !matInstances[id].active) {
+    return nullptr;
+  }
+  return &matInstances[id].current;
 }
 void DeferredRenderer::SetClustered(bool on) {
   clusterOn = on;
@@ -3392,6 +3536,8 @@ void DeferredRenderer::SetGeoMaterial(const DeferredMaterial& use, float lodFade
   RHITexture anT = (use.texFlags & 8192u) != 0 && use.anisotropyTex != 0 ? use.anisotropyTex : neutralAniso;
   RHITexture irT = (use.texFlags & 16384u) != 0 && use.iridescenceTex != 0 ? use.iridescenceTex : neutralBlack;
   RHITexture irH = (use.texFlags & 32768u) != 0 && use.iridescenceThicknessTex != 0 ? use.iridescenceThicknessTex : neutralBlack;
+  RHITexture detA = (use.texFlags & 1048576u) != 0 && use.detailAlbedoTex != 0 ? use.detailAlbedoTex : neutralAlbedo;
+  RHITexture detN = (use.texFlags & 2097152u) != 0 && use.detailNormalTex != 0 ? use.detailNormalTex : neutralNormal;
   rhi->SetPixelTexture2D(0, alb);
   rhi->SetPixelTexture2D(1, nrm);
   rhi->SetPixelTexture2D(2, orm);
@@ -3408,6 +3554,8 @@ void DeferredRenderer::SetGeoMaterial(const DeferredMaterial& use, float lodFade
   rhi->SetPixelTexture2D(13, anT);
   rhi->SetPixelTexture2D(14, irT);
   rhi->SetPixelTexture2D(15, irH);
+  rhi->SetPixelTexture2D(16, detA);
+  rhi->SetPixelTexture2D(17, detN);
   rhi->SetPixelSampler(0, geoSampler);
   rhi->SetPixelSampler(1, geoSampler);
   rhi->SetPixelSampler(2, geoSampler);
@@ -3444,6 +3592,23 @@ void DeferredRenderer::DrawGeoSingle(const GeoBatchItem& item) {
   rhi->SetPixelShader(geoPS);
   rhi->SetVertexConstantBuffer(0, geoCB);
   SetGeoMaterial(use, item.lodFade);
+  bool useTess = tessOn && tessHS != 0 && tessDS != 0 && tessCB != 0;
+  if (useTess) {
+    float tc[4] = { tessFactor, tessDisp, ((use.texFlags & 8u) != 0 && use.heightTex != 0) ? 1.0f : 0.0f, 0.0f };
+    rhi->UpdateConstantBuffer(tessCB, &tc, sizeof(tc));
+    rhi->SetTopology(RHITopology::Patch3);
+    rhi->SetHullShader(tessHS);
+    rhi->SetDomainShader(tessDS);
+    rhi->SetHullConstantBuffer(0, tessCB);
+    rhi->SetDomainConstantBuffer(1, tessCB);
+    RHITexture hgt = ((use.texFlags & 8u) != 0 && use.heightTex != 0) ? use.heightTex : neutralBlack;
+    rhi->SetDomainTexture(0, hgt);
+    rhi->SetDomainSampler(0, geoSampler);
+  } else {
+    rhi->SetTopology(RHITopology::TriangleList);
+    rhi->SetHullShader(0);
+    rhi->SetDomainShader(0);
+  }
   rhi->SetVertexBuffer(item.vb, 0);
   rhi->SetIndexBuffer(item.ib);
   if (OccDrawBegin(item.vb, item.ib, item.start, item.count, item.world)) {
@@ -3458,6 +3623,12 @@ void DeferredRenderer::DrawGeoInstanced(uint64_t key, const std::vector<size_t>&
     return;
   }
   if (!batchOk || indices.size() < 2) {
+    for (size_t i : indices) {
+      DrawGeoSingle(geoQueue[i]);
+    }
+    return;
+  }
+  if (tessOn && tessHS != 0 && tessDS != 0) {
     for (size_t i : indices) {
       DrawGeoSingle(geoQueue[i]);
     }
@@ -3580,8 +3751,11 @@ void DeferredRenderer::FlushGeoQueue() {
     }
   }
   geoQueue.clear();
+  rhi->SetTopology(RHITopology::TriangleList);
+  rhi->SetHullShader(0);
+  rhi->SetDomainShader(0);
 }
-void DeferredRenderer::DrawDecal(const float world[16], const float invWorld[16], const float size[3], float fade, RHITexture tex) {
+void DeferredRenderer::DrawDecal(const float world[16], const float invWorld[16], const float size[3], float fade, RHITexture tex, int matMask, float matRough, float matMetal) {
   if (!begun || world == nullptr || invWorld == nullptr || size == nullptr || tex == 0) {
     return;
   }
@@ -3596,12 +3770,39 @@ void DeferredRenderer::DrawDecal(const float world[16], const float invWorld[16]
   item.size[2] = size[2];
   item.fade = fade > 1.0f ? 1.0f : fade;
   item.tex = tex;
+  item.matMask = matMask < 0 ? 0 : (matMask > 15 ? 15 : matMask);
+  item.matRough = matRough < 0.0f ? 0.0f : (matRough > 1.0f ? 1.0f : matRough);
+  item.matMetal = matMetal < 0.0f ? 0.0f : (matMetal > 1.0f ? 1.0f : matMetal);
   decalDraws.push_back(item);
 }
-void DeferredRenderer::RenderDecals() {
+void DeferredRenderer::RenderDecals(const float camPos[3]) {
   if (decalDraws.empty() || decalVB == 0 || decalIB == 0 || decalVS == 0 || decalPS == 0) {
     decalDraws.clear();
     return;
+  }
+  std::vector<size_t> order(decalDraws.size());
+  for (size_t i = 0; i < order.size(); ++i) {
+    order[i] = i;
+  }
+  float fwd[3] = { mainCam.camFwd[0], mainCam.camFwd[1], mainCam.camFwd[2] };
+  for (size_t i = 0; i < order.size(); ++i) {
+    for (size_t j = i + 1; j < order.size(); ++j) {
+      const DecalDrawItem& a = decalDraws[order[i]];
+      const DecalDrawItem& b = decalDraws[order[j]];
+      float dax = a.world[12] - (camPos != nullptr ? camPos[0] : 0.0f);
+      float day = a.world[13] - (camPos != nullptr ? camPos[1] : 0.0f);
+      float daz = a.world[14] - (camPos != nullptr ? camPos[2] : 0.0f);
+      float dbx = b.world[12] - (camPos != nullptr ? camPos[0] : 0.0f);
+      float dby = b.world[13] - (camPos != nullptr ? camPos[1] : 0.0f);
+      float dbz = b.world[14] - (camPos != nullptr ? camPos[2] : 0.0f);
+      float da = dax * fwd[0] + day * fwd[1] + daz * fwd[2];
+      float db = dbx * fwd[0] + dby * fwd[1] + dbz * fwd[2];
+      if (db > da) {
+        size_t t = order[i];
+        order[i] = order[j];
+        order[j] = t;
+      }
+    }
   }
   RHIViewport vp;
   vp.x = viewX;
@@ -3627,7 +3828,6 @@ void DeferredRenderer::RenderDecals() {
   rhi->SetBlendState(blend);
   rhi->SetInputLayout(layout);
   rhi->SetVertexShader(decalVS);
-  rhi->SetPixelShader(decalPS);
   rhi->SetVertexBuffer(decalVB, 0);
   rhi->SetIndexBuffer(decalIB);
   rhi->SetVertexConstantBuffer(0, geoCB);
@@ -3635,15 +3835,17 @@ void DeferredRenderer::RenderDecals() {
   rhi->SetPixelSampler(0, geoSampler);
   rhi->SetPixelSampler(1, sampler);
   rhi->SetPixelTexture(1, gPosition);
-  rhi->SetRenderTargets(1, &gAlbedo, gDepth);
-  for (size_t i = 0; i < decalDraws.size(); ++i) {
-    const DecalDrawItem& d = decalDraws[i];
+  for (size_t oi = 0; oi < order.size(); ++oi) {
+    const DecalDrawItem& d = decalDraws[order[oi]];
+    if (d.matMask == 0) {
+      continue;
+    }
     GeoConstants gc;
     std::memcpy(gc.world, d.world, sizeof(gc.world));
     std::memcpy(gc.view, lastView, sizeof(gc.view));
     std::memcpy(gc.proj, lastProj, sizeof(gc.proj));
     rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
-    float dc[24];
+    float dc[32];
     dc[0] = d.invWorld[0];
     dc[1] = d.invWorld[1];
     dc[2] = d.invWorld[2];
@@ -3664,13 +3866,39 @@ void DeferredRenderer::RenderDecals() {
     dc[17] = static_cast<float>(h);
     dc[18] = viewX;
     dc[19] = viewY;
-    dc[20] = 0.0f;
-    dc[21] = 0.0f;
-    dc[22] = 0.0f;
+    dc[20] = static_cast<float>(d.matMask);
+    dc[21] = d.matRough;
+    dc[22] = d.matMetal;
     dc[23] = 0.0f;
+    float nl = std::sqrt(d.world[8] * d.world[8] + d.world[9] * d.world[9] + d.world[10] * d.world[10]);
+    if (nl < 1e-6f) {
+      nl = 1.0f;
+    }
+    dc[24] = d.world[8] / nl;
+    dc[25] = d.world[9] / nl;
+    dc[26] = d.world[10] / nl;
+    dc[27] = 0.0f;
+    dc[28] = 0.0f;
+    dc[29] = 0.0f;
+    dc[30] = 0.0f;
+    dc[31] = 0.0f;
     rhi->UpdateConstantBuffer(decalCB, &dc, sizeof(dc));
     rhi->SetPixelTexture2D(0, d.tex);
-    rhi->DrawIndexed(36, 0, 0);
+    if ((d.matMask & 1) != 0) {
+      rhi->SetPixelShader(decalPS);
+      rhi->SetRenderTargets(1, &gAlbedo, gDepth);
+      rhi->DrawIndexed(36, 0, 0);
+    }
+    if ((d.matMask & 14) != 0 && decalMatsPS != 0) {
+      blend.enable = false;
+      rhi->SetBlendState(blend);
+      rhi->SetPixelShader(decalMatsPS);
+      RHIRenderTarget matsMrts[3] = { gNormalRough, gMetallic, gEmissive };
+      rhi->SetRenderTargets(3, matsMrts, gDepth);
+      rhi->DrawIndexed(36, 0, 0);
+      blend.enable = true;
+      rhi->SetBlendState(blend);
+    }
     ++stats.decalDraws;
   }
   rhi->SetPixelTexture2D(0, 0);
@@ -3960,6 +4188,8 @@ void DeferredRenderer::RenderForwardPass(const float camPos[3]) {
     RHITexture emi = (d.mat.texFlags & 32u) != 0 && d.mat.emissiveTex != 0 ? d.mat.emissiveTex : neutralBlack;
     RHITexture trm = d.mat.transmissionTex != 0 ? d.mat.transmissionTex : neutralBlack;
     RHITexture thm = d.mat.thicknessTex != 0 ? d.mat.thicknessTex : neutralBlack;
+    RHITexture detA = (d.mat.texFlags & 1048576u) != 0 && d.mat.detailAlbedoTex != 0 ? d.mat.detailAlbedoTex : neutralAlbedo;
+    RHITexture detN = (d.mat.texFlags & 2097152u) != 0 && d.mat.detailNormalTex != 0 ? d.mat.detailNormalTex : neutralNormal;
     rhi->SetPixelTexture2D(0, alb);
     rhi->SetPixelTexture2D(1, nrm);
     rhi->SetPixelTexture2D(2, orm);
@@ -3967,6 +4197,8 @@ void DeferredRenderer::RenderForwardPass(const float camPos[3]) {
     rhi->SetPixelTexture2D(5, emi);
     rhi->SetPixelTexture2D(6, trm);
     rhi->SetPixelTexture2D(7, thm);
+    rhi->SetPixelTexture2D(18, detA);
+    rhi->SetPixelTexture2D(19, detN);
     RHIRasterizer rs;
     rs.cull = d.mat.doubleSided ? RHICull::None : RHICull::Back;
     rs.fill = RHIFill::Solid;
@@ -3989,6 +4221,8 @@ void DeferredRenderer::RenderForwardPass(const float camPos[3]) {
   rhi->SetPixelTexture2D(5, 0);
   rhi->SetPixelTexture2D(6, 0);
   rhi->SetPixelTexture2D(7, 0);
+  rhi->SetPixelTexture2D(18, 0);
+  rhi->SetPixelTexture2D(19, 0);
   rhi->SetPixelTexture(16, 0);
   rhi->SetPixelTexture2D(17, 0);
   blend.enable = false;
@@ -4026,7 +4260,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     EndShadowSection();
   }
   auto decalStart = std::chrono::steady_clock::now();
-  RenderDecals();
+  RenderDecals(camPos);
   stats.msDecal = ElapsedMs(decalStart, std::chrono::steady_clock::now());
   float ssaoVP[16] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
   for (int cc = 0; cc < 4; ++cc) {

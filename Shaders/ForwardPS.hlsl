@@ -48,6 +48,8 @@ cbuffer MatExt : register(b2)
     float4 ExtF;
     float4 ExtG;
     float4 ExtH;
+    float4 ExtI;
+    float4 ExtJ;
     float4 XfA[5];
     float4 XfB[5];
 };
@@ -66,6 +68,8 @@ Texture2D TransTex : register(t6);
 Texture2D ThickTex : register(t7);
 Texture2D TransSrc : register(t16);
 TextureCube EnvTX : register(t17);
+Texture2D DetailFTex : register(t18);
+Texture2D DetailFNormalTex : register(t19);
 SamplerState GeoSamp : register(s0);
 struct PSIn
 {
@@ -182,6 +186,23 @@ float4 main(PSIn pin) : SV_Target
         float3 orm = OrmTex.Sample(GeoSamp, XformUv(pin.uv, pin.uv2, 2)).rgb;
         rough = orm.g;
         metal = orm.b;
+    }
+    if ((flags & 1048576u) != 0u) {
+        float3 det = DetailFTex.Sample(GeoSamp, pin.uv * max(ExtI.x, 0.01)).rgb;
+        alb *= det * 2.0;
+    }
+    if ((flags & 2097152u) != 0u) {
+        float3 t2 = normalize(pin.wtan.xyz);
+        float3 b2 = cross(n, t2) * pin.wtan.w;
+        float2 dnxy = DetailFNormalTex.Sample(GeoSamp, pin.uv * max(ExtI.x, 0.01)).rg * 2.0 - 1.0;
+        float dnz = sqrt(saturate(1.0 - dot(dnxy, dnxy)));
+        n = normalize(n + (t2 * dnxy.x + b2 * dnxy.y) * 0.5 + n * (dnz - 1.0) * 0.5);
+    }
+    if ((flags & 4194304u) != 0u) {
+        float lw = saturate(ExtI.y);
+        alb = lerp(alb, ExtJ.rgb, lw);
+        rough = lerp(rough, ExtI.z, lw);
+        metal = lerp(metal, ExtI.w, lw);
     }
     float iorSafe = max(ExtA.y, 1.01);
     float f0d = (iorSafe - 1.0) / (iorSafe + 1.0);

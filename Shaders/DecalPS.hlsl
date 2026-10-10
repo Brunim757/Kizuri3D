@@ -3,6 +3,8 @@ cbuffer DecalCB : register(b0)
     row_major float4x4 InvW;
     float4 SizeFade;
     float4 DecalScreen;
+    float4 DecalMat;
+    float4 DecalWorldN;
 };
 Texture2D DecalTex : register(t0);
 Texture2D PositionTX : register(t1);

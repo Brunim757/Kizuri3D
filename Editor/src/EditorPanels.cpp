@@ -152,6 +152,15 @@ void FillDeferredFromEntity(AssetDatabase& assets, const MaterialData& m, Deferr
   partMat.attenuationColor[2] = m.attenuationColor[2];
   partMat.attenuationDistance = m.attenuationDistance;
   partMat.dispersion = m.dispersion;
+  partMat.detailTiling = m.detailTiling;
+  partMat.layerWeight = m.layerWeight;
+  partMat.layerAlbedo[0] = m.layerAlbedo[0];
+  partMat.layerAlbedo[1] = m.layerAlbedo[1];
+  partMat.layerAlbedo[2] = m.layerAlbedo[2];
+  partMat.layerRoughness = m.layerRoughness;
+  partMat.layerMetallic = m.layerMetallic;
+  partMat.layerHeight = m.layerHeight;
+  partMat.layerHeightBlend = m.layerHeightBlend;
   uint32_t flags = 0;
   flags |= ResolveMaterialSlot(assets, m.albedoTex, 1u, partMat.albedoTex);
   flags |= ResolveMaterialSlot(assets, m.normalTex, 2u, partMat.normalTex);
@@ -170,6 +179,17 @@ void FillDeferredFromEntity(AssetDatabase& assets, const MaterialData& m, Deferr
   flags |= ResolveMaterialSlot(assets, m.iridescenceThicknessTex, 32768u, partMat.iridescenceThicknessTex);
   flags |= ResolveMaterialSlot(assets, m.transmissionTex, 131072u, partMat.transmissionTex);
   flags |= ResolveMaterialSlot(assets, m.thicknessTex, 262144u, partMat.thicknessTex);
+  flags |= ResolveMaterialSlot(assets, m.detailAlbedoTex, 1048576u, partMat.detailAlbedoTex);
+  if (!m.detailNormalTex.empty()) {
+    assets.EnsureTextureKind(m.detailNormalTex, TexKind::Normal);
+    flags |= ResolveMaterialSlot(assets, m.detailNormalTex, 2097152u, partMat.detailNormalTex);
+  }
+  if (m.layerWeight > 0.001f) {
+    flags |= 4194304u;
+  }
+  if (m.layerHeightBlend) {
+    flags |= 8388608u;
+  }
   if (m.hasSpecular) {
     flags |= 65536u;
   }
@@ -715,7 +735,7 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
     if (!InvertMatrix4(dworld, dinv)) {
       continue;
     }
-    renderer.DrawDecal(dworld, dinv, e->decal.size, fade, dtex);
+    renderer.DrawDecal(dworld, dinv, e->decal.size, fade, dtex, e->decal.matMask, e->decal.matRough, e->decal.matMetal);
   }
   for (auto it = decalAge.begin(); it != decalAge.end();) {
     if (!scene.Has(it->first)) {
@@ -1575,6 +1595,17 @@ void EditorApp::DrawSettings() {
       if (ImGui::Checkbox("Forward+", &viewForwardPlus)) {
         renderer.SetForwardPlus(viewForwardPlus);
       }
+      if (ImGui::Checkbox("Tessellation", &viewTess)) {
+        renderer.SetTessellation(viewTess, viewTessFactor, viewTessDisp);
+      }
+      if (viewTess) {
+        if (ImGui::SliderFloat("Tess Factor", &viewTessFactor, 1.0f, 16.0f)) {
+          renderer.SetTessellation(true, viewTessFactor, viewTessDisp);
+        }
+        if (ImGui::SliderFloat("Tess Disp", &viewTessDisp, 0.0f, 2.0f)) {
+          renderer.SetTessellation(true, viewTessFactor, viewTessDisp);
+        }
+      }
       int dv = viewDebug < 0 ? 0 : (viewDebug > 17 ? 17 : viewDebug);
       if (ImGui::Combo("View", &dv, "Final\0Wireframe\0Unlit\0Albedo+AO\0Normal\0Roughness\0Metallic\0AO\0Emissive\0Depth\0Motion\0ShadowMap\0Probe\0Lightmap\0MatID\0Overdraw\0UV\0Custom\0")) {
         viewDebug = dv;
@@ -1911,6 +1942,19 @@ void EditorApp::DrawInspector() {
     }
     if (ImGui::DragFloat("Life", &dec.life, 0.1f, 0.0f, 300.0f)) {
       decChanged = true;
+    }
+    int dmask = dec.matMask < 0 ? 0 : (dec.matMask > 15 ? 15 : dec.matMask);
+    if (ImGui::Combo("Channels", &dmask, "Off\0Albedo\0Albedo+Normal/Rough\0Full\0Full+Emissive\0")) {
+      dec.matMask = dmask == 0 ? 0 : (dmask == 1 ? 1 : (dmask == 2 ? 3 : (dmask == 3 ? 7 : 15)));
+      decChanged = true;
+    }
+    if (dec.matMask >= 2) {
+      if (ImGui::SliderFloat("Decal Rough", &dec.matRough, 0.0f, 1.0f)) {
+        decChanged = true;
+      }
+      if (ImGui::SliderFloat("Decal Metal", &dec.matMetal, 0.0f, 1.0f)) {
+        decChanged = true;
+      }
     }
     if (decChanged) {
       edits.PushDecal(e->id, dec);
@@ -2554,6 +2598,31 @@ bool EditorApp::DrawMaterialScalars(MaterialData& mat) {
     if (ImGui::SliderInt("Link Mask", &mat.linkMask, 0, 255)) {
       matChanged = true;
     }
+    if (ImGui::CollapsingHeader("Detail Maps")) {
+      if (ImGui::DragFloat("Detail Tiling", &mat.detailTiling, 0.1f, 0.1f, 64.0f)) {
+        matChanged = true;
+      }
+    }
+    if (ImGui::CollapsingHeader("Layered Material")) {
+      if (ImGui::SliderFloat("Layer Weight", &mat.layerWeight, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::ColorEdit3("Layer Albedo", mat.layerAlbedo)) {
+        matChanged = true;
+      }
+      if (ImGui::SliderFloat("Layer Roughness", &mat.layerRoughness, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::SliderFloat("Layer Metallic", &mat.layerMetallic, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+      if (ImGui::Checkbox("Height Blend", &mat.layerHeightBlend)) {
+        matChanged = true;
+      }
+      if (mat.layerHeightBlend && ImGui::SliderFloat("Layer Height", &mat.layerHeight, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+    }
   return matChanged;
 }
 
@@ -2608,6 +2677,8 @@ void EditorApp::DrawMaterialSection(Entity* e) {
   DrawMaterialSlot(e, "Iridescence Thick", 14);
   DrawMaterialSlot(e, "Transmission", 15);
   DrawMaterialSlot(e, "Thickness", 16);
+  DrawMaterialSlot(e, "Detail", 17);
+  DrawMaterialSlot(e, "Detail Normal", 18);
 }
 void EditorApp::DrawPartMaterials(Entity* e) {
   if (e == nullptr || !e->hasMesh || e->meshGuid.empty()) {
@@ -2786,6 +2857,10 @@ static std::string* SlotPtr(MaterialData& m, int slot) {
     return &m.transmissionTex;
   } else if (slot == 16) {
     return &m.thicknessTex;
+  } else if (slot == 17) {
+    return &m.detailAlbedoTex;
+  } else if (slot == 18) {
+    return &m.detailNormalTex;
   }
   return nullptr;
 }

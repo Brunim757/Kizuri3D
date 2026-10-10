@@ -12,7 +12,8 @@ enum class RHIFormat {
   R32_DEPTH
 };
 enum class RHITopology {
-  TriangleList
+  TriangleList,
+  Patch3
 };
 enum class RHICull {
   None,
@@ -36,6 +37,8 @@ enum class RHITextureFormat {
 using RHIBuffer = uint64_t;
 using RHIConstBuffer = uint64_t;
 using RHIVertexShader = uint64_t;
+using RHIHullShader = uint64_t;
+using RHIDomainShader = uint64_t;
 using RHIPixelShader = uint64_t;
 using RHIComputeShader = uint64_t;
 using RHIStructBuffer = uint64_t;
@@ -103,6 +106,14 @@ public:
   virtual RHIPixelShader CreatePixelShaderFromFile(const char* path, const char* entry) = 0;
   virtual void SetVertexShader(RHIVertexShader vs) = 0;
   virtual void SetPixelShader(RHIPixelShader ps) = 0;
+  virtual RHIHullShader CreateHullShaderFromFile(const char* path, const char* entry) = 0;
+  virtual RHIDomainShader CreateDomainShaderFromFile(const char* path, const char* entry) = 0;
+  virtual void SetHullShader(RHIHullShader hs) = 0;
+  virtual void SetDomainShader(RHIDomainShader ds) = 0;
+  virtual void SetHullConstantBuffer(uint32_t slot, RHIConstBuffer cb) = 0;
+  virtual void SetDomainConstantBuffer(uint32_t slot, RHIConstBuffer cb) = 0;
+  virtual void SetDomainTexture(uint32_t slot, RHITexture tex) = 0;
+  virtual void SetDomainSampler(uint32_t slot, RHISampler sampler) = 0;
   virtual RHIInputLayout CreateInputLayoutPNUT(RHIVertexShader vs) = 0;
   virtual RHIInputLayout CreateInputLayoutPNUTInstanced(RHIVertexShader vs) = 0;
   virtual void SetInstanceBuffer(RHIBuffer buf) = 0;

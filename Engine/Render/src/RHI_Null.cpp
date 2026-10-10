@@ -203,6 +203,44 @@ public:
     Note(false);
     curVS = vs;
   }
+  RHIHullShader CreateHullShaderFromFile(const char* path, const char* entry) override {
+    if (path == nullptr || entry == nullptr || path[0] == '\0') {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    shaders[id] = 1;
+    return id;
+  }
+  RHIDomainShader CreateDomainShaderFromFile(const char* path, const char* entry) override {
+    if (path == nullptr || entry == nullptr || path[0] == '\0') {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    shaders[id] = 1;
+    return id;
+  }
+  void SetHullShader(RHIHullShader hs) override {
+    (void)hs;
+  }
+  void SetDomainShader(RHIDomainShader ds) override {
+    (void)ds;
+  }
+  void SetHullConstantBuffer(uint32_t slot, RHIConstBuffer cb) override {
+    (void)slot;
+    (void)cb;
+  }
+  void SetDomainConstantBuffer(uint32_t slot, RHIConstBuffer cb) override {
+    (void)slot;
+    (void)cb;
+  }
+  void SetDomainTexture(uint32_t slot, RHITexture tex) override {
+    (void)slot;
+    (void)tex;
+  }
+  void SetDomainSampler(uint32_t slot, RHISampler sampler) override {
+    (void)slot;
+    (void)sampler;
+  }
   void SetPixelShader(RHIPixelShader ps) override {
     if (curPS == ps) {
       Note(true);

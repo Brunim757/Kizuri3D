@@ -101,11 +101,23 @@ struct MaterialData {
   float attenuationDistance = 0.0f;
   float dispersion = 0.0f;
   int linkMask = 255;
+  std::string detailAlbedoTex;
+  std::string detailNormalTex;
+  float detailTiling = 8.0f;
+  float layerWeight = 0.0f;
+  float layerAlbedo[3] = { 0.5f, 0.5f, 0.5f };
+  float layerRoughness = 0.8f;
+  float layerMetallic = 0.0f;
+  float layerHeight = 0.5f;
+  bool layerHeightBlend = false;
 };
 struct DecalData {
   float size[3];
   float life;
   std::string texGuid;
+  int matMask;
+  float matRough;
+  float matMetal;
 };
 struct PostData {
   float size[3];

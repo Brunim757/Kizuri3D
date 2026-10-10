@@ -13,6 +13,9 @@ cbuffer MatExt : register(b1)
     float4 ExtE;
     float4 ExtF;
     float4 ExtG;
+    float4 ExtH;
+    float4 ExtI;
+    float4 ExtJ;
     float4 XfA[5];
     float4 XfB[5];
 };
@@ -32,6 +35,8 @@ Texture2D SheenRoughTex : register(t12);
 Texture2D AnisoTex : register(t13);
 Texture2D IriTex : register(t14);
 Texture2D IriThickTex : register(t15);
+Texture2D DetailTex : register(t16);
+Texture2D DetailNormalTex : register(t17);
 SamplerState GeoSamp : register(s0);
 struct PSIn
 {
@@ -219,6 +224,28 @@ PSOut main(PSIn pin)
     float iriThick = ExtC.w;
     if ((flags & 32768u) != 0u) {
         iriThick = lerp(ExtC.z, ExtC.w, IriThickTex.Sample(GeoSamp, XformUv(pin.uv, pin.uv2, 0)).g);
+    }
+    if ((flags & 1048576u) != 0u) {
+        float3 det = DetailTex.Sample(GeoSamp, pin.uv * max(ExtI.x, 0.01)).rgb;
+        alb *= det * 2.0;
+    }
+    if ((flags & 2097152u) != 0u) {
+        float2 dnxy = DetailNormalTex.Sample(GeoSamp, pin.uv * max(ExtI.x, 0.01)).rg * 2.0 - 1.0;
+        float dnz = sqrt(saturate(1.0 - dot(dnxy, dnxy)));
+        n = normalize(n + (wT * dnxy.x + wB * dnxy.y) * 0.5 + n * (dnz - 1.0) * 0.5);
+    }
+    if ((flags & 4194304u) != 0u) {
+        float lw = saturate(ExtI.y);
+        if ((flags & 8388608u) != 0u) {
+            float hb = 0.5;
+            if ((flags & 8u) != 0u) {
+                hb = HeightTex.SampleLevel(GeoSamp, XformUv(pin.uv, pin.uv2, 3), 0).r;
+            }
+            lw *= saturate((hb - ExtJ.w) * 6.0 + 0.5);
+        }
+        alb = lerp(alb, ExtJ.rgb, lw);
+        rough = lerp(rough, ExtI.z, lw);
+        metal = lerp(metal, ExtI.w, lw);
     }
     pout.albedo = float4(alb * occ, avec.x * 0.5 + 0.5);
     pout.nrmRough = float4(n, rough);
