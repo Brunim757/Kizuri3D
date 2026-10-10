@@ -248,6 +248,11 @@ public:
   bool GpuCullingActive() const;
   uint32_t ClusterMaxLights() const;
   float ClusterAvgLights() const;
+  bool DdgiReady() const;
+  void SetDdgi(bool on, float weight);
+  void SetProbeAutoRefresh(bool on);
+  bool ProbeRefreshNeeded() const;
+  void MarkProbesRefreshed();
   void TakeShaderErrors(std::vector<std::string>& out);
   void SetGrade(float exposure, bool aces);
   void SetTaa(bool on);
@@ -644,11 +649,6 @@ public:
   float ddgiMin[3];
   float ddgiMax[3];
   void UpdateDdgiGrid();
-  bool DdgiReady() const;
-  void SetDdgi(bool on, float weight);
-  void SetProbeAutoRefresh(bool on);
-  bool ProbeRefreshNeeded() const;
-  void MarkProbesRefreshed();
   uint32_t clusterMax;
   float clusterAvg;
   uint32_t clusterLightCount;
