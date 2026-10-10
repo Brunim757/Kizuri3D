@@ -134,6 +134,15 @@ void MakeDefaultPost(PostData& p) {
   p.saturation = 1.0f;
   p.bloom = 0.8f;
 }
+void MakeDefaultFog(FogData& f) {
+  f.size[0] = 12.0f;
+  f.size[1] = 4.0f;
+  f.size[2] = 12.0f;
+  f.density = 0.02f;
+  f.color[0] = 0.6f;
+  f.color[1] = 0.65f;
+  f.color[2] = 0.7f;
+}
 void ComposeMatrix(const Transform& t, float m[16]) {  float rx = t.rotation[0] * 0.01745329252f;
   float ry = t.rotation[1] * 0.01745329252f;
   float rz = t.rotation[2] * 0.01745329252f;
@@ -281,6 +290,8 @@ EntityId Scene::CreateEntity(const std::string& name) {
     s.entity.hasProbe = false;
     MakeDefaultPost(s.entity.post);
     s.entity.hasPost = false;
+    MakeDefaultFog(s.entity.fog);
+    s.entity.hasFog = false;
     s.entity.parent = EntityId::Invalid();
     s.entity.children.clear();
     id = s.entity.id;
@@ -308,6 +319,8 @@ EntityId Scene::CreateEntity(const std::string& name) {
     s.entity.hasProbe = false;
     MakeDefaultPost(s.entity.post);
     s.entity.hasPost = false;
+    MakeDefaultFog(s.entity.fog);
+    s.entity.hasFog = false;
     s.entity.parent = EntityId::Invalid();
     slots.push_back(s);
     id = slots.back().entity.id;

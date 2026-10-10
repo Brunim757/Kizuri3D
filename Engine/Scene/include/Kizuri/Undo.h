@@ -307,6 +307,39 @@ private:
   PostData prevPost;
   bool prevHas;
 };
+class SetFogCmd : public Command {
+public:
+  SetFogCmd(EntityId target, const FogData& before, const FogData& after);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  FogData before;
+  FogData after;
+};
+class AddFogCmd : public Command {
+public:
+  explicit AddFogCmd(EntityId target);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  FogData prevFog;
+  bool prevHas;
+};
+class RemoveFogCmd : public Command {
+public:
+  explicit RemoveFogCmd(EntityId target);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  FogData prevFog;
+  bool prevHas;
+};
 class SetLodCmd : public Command {
 public:
   SetLodCmd(EntityId target, const LodData& before, const LodData& after);

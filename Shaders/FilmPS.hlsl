@@ -6,6 +6,7 @@ cbuffer PostCB : register(b0)
     float4 Film;
     float4 Toggles;
     row_major float4x4 CurVP;
+    float4 Shimmer;
 };
 Texture2D FrameTX : register(t0);
 Texture2D PositionTX : register(t1);
@@ -34,7 +35,16 @@ float Hash21(float2 p)
 }
 float4 main(PSIn pin) : SV_Target
 {
-    float3 col = FrameTX.Sample(LinearSampler, pin.uv).rgb;
+    float2 suv = pin.uv;
+    if (Shimmer.x > 0.001) {
+        float lum0 = dot(FrameTX.SampleLevel(LinearSampler, pin.uv, 0).rgb, float3(0.2126, 0.7152, 0.0722));
+        float m = saturate((lum0 - 0.6) / 0.4);
+        float t = Film.x * 0.05;
+        float2 wob = float2(sin(pin.uv.y * 180.0 + t * 7.0) + sin(pin.uv.y * 61.0 - t * 5.0), cos(pin.uv.x * 150.0 - t * 6.0));
+        float2 px0 = float2(1.0 / max(Focus.z, 1.0), 1.0 / max(Focus.w, 1.0));
+        suv += wob * px0 * 2.0 * Shimmer.x * m;
+    }
+    float3 col = FrameTX.Sample(LinearSampler, suv).rgb;
     if (Toggles.w > 0.5) {
         col += SsgiTX.Sample(LinearSampler, pin.uv).rgb;
     }

@@ -51,6 +51,12 @@ cbuffer DdgiCB : register(b5)
     float4 DdgiMin;
     float4 DdgiMax;
 };
+cbuffer FogVolCB : register(b6)
+{
+    float4 FogVolMin[4];
+    float4 FogVolMax[4];
+    float4 FogVolCol[4];
+};
 Texture2D SSAOTX : register(t6);
 Texture2D SsrTX : register(t7);
 Texture2D ContactTX : register(t8);
@@ -455,6 +461,21 @@ float3 ApplyFog(float3 col, float3 rayDir, float tMax, float2 suv)
             densAt = dens * exp(-max(p.y - FogInfo.w, 0.0) * FogInfo.z);
         }
         float3 S = (sunCol * ph * sh + FogColor.rgb * 0.15) * densAt;
+        float aerial = saturate((p.y - FogInfo.w) * 0.015);
+        S = lerp(S, SkyColor.rgb * (0.25 + 0.5 * aerial) * densAt, aerial * 0.6);
+        for (int fv = 0; fv < 4; ++fv) {
+            if (FogVolMin[fv].w <= 0.0) {
+                continue;
+            }
+            float3 vmin = FogVolMin[fv].xyz;
+            float3 vmax = FogVolMax[fv].xyz;
+            if (p.x < vmin.x || p.x > vmax.x || p.y < vmin.y || p.y > vmax.y || p.z < vmin.z || p.z > vmax.z) {
+                continue;
+            }
+            float vd = FogVolMin[fv].w;
+            S = lerp(S, FogVolCol[fv].rgb * (sunCol * ph * sh + 0.2) * vd * 4.0, 0.5);
+            densAt += vd;
+        }
         insc += trans * S * stepLen;
         trans *= exp(-densAt * stepLen);
     }

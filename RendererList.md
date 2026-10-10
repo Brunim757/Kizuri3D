@@ -157,10 +157,10 @@ Sem Ray Tracing
 - [x] Volumetric lighting
 - [x] Light shafts
 - [x] God rays
-- [ ] Volumetric shadows
-- [ ] Local volumetric fog
-- [ ] Fog volumes
-- [ ] Height-based atmospheric effects
+- [x] Volumetric shadows
+- [x] Local volumetric fog
+- [x] Fog volumes
+- [x] Height-based atmospheric effects
 
 ---
 
@@ -186,13 +186,13 @@ Sem Ray Tracing
 - [x] HDR pipeline
 - [x] Exposure
 - [x] Auto Exposure
-- [ ] Histogram exposure
+- [x] Histogram exposure
 - [x] Tone Mapping
 - [x] ACES
 - [x] AgX
 - [x] Reinhard
 - [x] Bloom
-- [ ] Lens dirt
+- [x] Lens dirt
 - [x] Vignette
 - [x] Color grading
 - [x] LUT color grading
@@ -206,7 +206,7 @@ Sem Ray Tracing
 - [x] FSR upscaling
 - [x] Depth of Field
 - [x] Motion Blur
-- [ ] Screen-space distortion
+- [x] Screen-space distortion
 
 ---
 
@@ -427,7 +427,7 @@ Sem Ray Tracing
 20. Futuro / Experimental
 
 - [ ] Advanced temporal reconstruction
-- [ ] Advanced volumetric reconstruction
+- [x] Advanced volumetric reconstruction
 - [x] Advanced GI sem Ray Tracing
 - [x] Probe-based dynamic GI
 - [x] Irradiance fields

@@ -127,6 +127,11 @@ struct PostData {
   float saturation;
   float bloom;
 };
+struct FogData {
+  float size[3];
+  float density;
+  float color[3];
+};
 struct LodData {
   std::string farGuid;
   float nearDist;
@@ -166,6 +171,8 @@ struct Entity {
   bool hasProbe;
   PostData post;
   bool hasPost;
+  FogData fog;
+  bool hasFog;
   EntityId parent;
   std::vector<EntityId> children;
 };
@@ -210,6 +217,7 @@ void MakeDefaultLod(LodData& l);
 void MakeDefaultLightmap(LightmapData& l);
 void MakeDefaultProbe(ProbeData& p);
 void MakeDefaultPost(PostData& p);
+void MakeDefaultFog(FogData& f);
 void EntityForward(const Transform& t, float dir[3]);
 void ComposeMatrix(const Transform& t, float m[16]);
 bool InvertMatrix4(const float m[16], float invOut[16]);

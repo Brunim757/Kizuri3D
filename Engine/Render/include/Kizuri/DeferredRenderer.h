@@ -253,6 +253,8 @@ public:
   void SetProbeAutoRefresh(bool on);
   bool ProbeRefreshNeeded() const;
   void MarkProbesRefreshed();
+  void ClearFogVolumes();
+  void AddFogVolume(const float bmin[3], const float bmax[3], float density, const float color[3]);
   void TakeShaderErrors(std::vector<std::string>& out);
   void SetGrade(float exposure, bool aces);
   void SetTaa(bool on);
@@ -261,6 +263,7 @@ public:
   bool IsTaaValid() const;
   void SetToneMapping(int mode);
   void SetAutoExposure(bool on);
+  void SetRobustExposure(bool on);
   void SetGrading(float contrast, float saturation, float temperature, float tint);
   void SetHeightFog(float falloff, float baseHeight);
   void SetGodRays(bool on, float density, float decay, float intensity);
@@ -268,6 +271,7 @@ public:
   void SetLutAmount(float amount);
   bool SetLutPreset(int preset);
   void SetBloom(float strength);
+  void SetLensDirt(float amount);
   void SetFsr(float scale, float sharpness);
   void SetSsao(bool on, float intensity, float radius);
   void SetAoMode(int mode);
@@ -279,6 +283,7 @@ public:
   void SetDof(bool on, float focusDist, float focusRange);
   void SetMotionBlur(bool on, float scale);
   void SetFilm(float ca, float vignette, float grain);
+  void SetHeatHaze(float amount);
   void SetSsgi(bool on);
   void SetFxaa(bool on);
   void SetFog(bool on, float density, const float color[3]);
@@ -522,6 +527,8 @@ public:
   float exposure;
   bool acesOn;
   float bloomStrength;
+  RHITexture dirtTex;
+  float lensDirt;
   RHIPixelShader fsrEasuPS;
   RHIPixelShader fsrRcasPS;
   RHIConstBuffer fsrCB;
@@ -601,6 +608,7 @@ public:
   RHIRenderTarget expRead;
   RHIRenderTarget expWrite;
   bool autoExpOn;
+  bool expRobust;
   float gradeContrast;
   float gradeSaturation;
   float gradeTemp;
@@ -611,6 +619,10 @@ public:
   RHIPixelShader godPS;
   RHIConstBuffer godCB;
   RHIRenderTarget godA;
+  RHIRenderTarget godHalfA;
+  RHIRenderTarget godDepthA;
+  RHIPixelShader godUpPS;
+  RHIConstBuffer godUpCB;
   bool godOn;
   float godDensity;
   float godDecay;
@@ -646,6 +658,11 @@ public:
   uint64_t lightSig;
   RHITexture3D ddgiTex;
   RHIConstBuffer ddgiCB;
+  RHIConstBuffer fogVolCB;
+  float fogVolMin[4][4];
+  float fogVolMax[4][4];
+  float fogVolCol[4][4];
+  int fogVolCount;
   float ddgiMin[3];
   float ddgiMax[3];
   void UpdateDdgiGrid();
@@ -699,6 +716,7 @@ public:
   float filmCa;
   float filmVig;
   float filmGrain;
+  float heatHaze;
   bool filmActive;
   uint64_t frameIndex;
   RHIInputLayout layout;

@@ -346,6 +346,7 @@ void EditorApp::RenderScene() {
   renderer.SetGrade(viewExposure, viewToneMap == 0);
   renderer.SetToneMapping(viewToneMap);
   renderer.SetAutoExposure(viewAutoExp);
+  renderer.SetRobustExposure(viewRobustExp);
   renderer.SetGrading(viewContrast, viewSaturation, viewTemp, viewTint);
   renderer.SetLutAmount(viewLutAmount);
   renderer.SetBloom(viewBloom);
@@ -361,6 +362,8 @@ void EditorApp::RenderScene() {
   renderer.SetDof(viewDof, viewFocusDist, viewFocusRange);
   renderer.SetMotionBlur(viewMotion, viewMotionScale);
   renderer.SetFilm(viewCa, viewVig, viewGrain);
+  renderer.SetHeatHaze(viewHeat);
+  renderer.SetLensDirt(viewLensDirt);
   renderer.SetSsgi(viewSsgi);
   renderer.SetFxaa(viewFxaa);
   renderer.SetTaa(viewTaa);
@@ -468,6 +471,27 @@ void EditorApp::RenderScene() {
 void EditorApp::SubmitSceneDraws(const float cpos[3]) {
   renderer.ClearLights();
   renderer.SetFallbackLight(!soloLightId.IsValid());
+  renderer.ClearFogVolumes();
+  {
+    std::vector<EntityId> fogIds = scene.All();
+    for (size_t i = 0; i < fogIds.size(); ++i) {
+      const Entity* fe = scene.Get(fogIds[i]);
+      if (fe == nullptr || !fe->hasFog) {
+        continue;
+      }
+      float fbmin[3] = {
+        fe->transform.position[0] - fe->fog.size[0] * 0.5f,
+        fe->transform.position[1] - fe->fog.size[1] * 0.5f,
+        fe->transform.position[2] - fe->fog.size[2] * 0.5f
+      };
+      float fbmax[3] = {
+        fe->transform.position[0] + fe->fog.size[0] * 0.5f,
+        fe->transform.position[1] + fe->fog.size[1] * 0.5f,
+        fe->transform.position[2] + fe->fog.size[2] * 0.5f
+      };
+      renderer.AddFogVolume(fbmin, fbmax, fe->fog.density, fe->fog.color);
+    }
+  }
   {
     const PostData* active = nullptr;
     std::vector<EntityId> postIds = scene.All();
@@ -1366,6 +1390,12 @@ void EditorApp::DrawDebugOverlays() {
       DrawBoxEdges(dl, world, nsize, hsize, &vf.m[0][0], &pf.m[0][0], viewX, viewY, viewW, viewH, IM_COL32(200, 120, 255, 200));
       ++drawn;
     }
+    if (e->hasFog) {
+      float hsize[3] = { e->fog.size[0] * 0.5f, e->fog.size[1] * 0.5f, e->fog.size[2] * 0.5f };
+      float nsize[3] = { -hsize[0], -hsize[1], -hsize[2] };
+      DrawBoxEdges(dl, world, nsize, hsize, &vf.m[0][0], &pf.m[0][0], viewX, viewY, viewW, viewH, IM_COL32(120, 200, 220, 200));
+      ++drawn;
+    }
   }
 }
 void EditorApp::DrawLightGizmo() {  if (!selection.HasSelection()) {
@@ -1429,6 +1459,9 @@ void EditorApp::DrawSettings() {
         renderer.SetToneMapping(tm);
       }
       ImGui::Checkbox("Auto Exposure", &viewAutoExp);
+      if (viewAutoExp && ImGui::Checkbox("Robust Histogram", &viewRobustExp)) {
+        renderer.SetRobustExposure(viewRobustExp);
+      }
       ImGui::SliderFloat("Contrast", &viewContrast, 0.0f, 2.0f);
       ImGui::SliderFloat("Saturation", &viewSaturation, 0.0f, 3.0f);
       ImGui::SliderFloat("Temperature", &viewTemp, -1.0f, 1.0f);
@@ -1493,6 +1526,12 @@ void EditorApp::DrawSettings() {
       ImGui::SliderFloat("Chromatic Aberration", &viewCa, 0.0f, 2.0f);
       ImGui::SliderFloat("Vignette", &viewVig, 0.0f, 1.0f);
       ImGui::SliderFloat("Film Grain", &viewGrain, 0.0f, 0.25f);
+      if (ImGui::SliderFloat("Heat Haze", &viewHeat, 0.0f, 1.0f)) {
+        renderer.SetHeatHaze(viewHeat);
+      }
+      if (ImGui::SliderFloat("Lens Dirt", &viewLensDirt, 0.0f, 2.0f)) {
+        renderer.SetLensDirt(viewLensDirt);
+      }
       ImGui::Separator();
       ImGui::Checkbox("Fog", &viewFog);
       ImGui::SliderFloat("Fog Density", &viewFogDensity, 0.0f, 0.05f);
@@ -2223,7 +2262,30 @@ void EditorApp::DrawInspector() {
       edits.PushPost(e->id, pv);
     }
   }
-  if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal || !e->hasLod || !e->hasLightmap || !e->hasProbe || !e->hasPost) {
+  if (e->hasFog) {
+    ImGui::Separator();
+    ImGui::Text("Fog Volume");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Remove##fog")) {
+      std::unique_ptr<Command> cmd(new RemoveFogCmd(e->id));
+      undo.Execute(std::move(cmd), scene);
+    }
+    FogData fg = e->fog;
+    bool fgChanged = false;
+    if (ImGui::DragFloat3("Volume Size", fg.size, 0.1f, 0.5f, 200.0f)) {
+      fgChanged = true;
+    }
+    if (ImGui::DragFloat("Density", &fg.density, 0.001f, 0.0f, 1.0f)) {
+      fgChanged = true;
+    }
+    if (ImGui::ColorEdit3("Fog Color", fg.color)) {
+      fgChanged = true;
+    }
+    if (fgChanged) {
+      edits.PushFog(e->id, fg);
+    }
+  }
+  if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal || !e->hasLod || !e->hasLightmap || !e->hasProbe || !e->hasPost || !e->hasFog) {
     ImGui::Separator();
     if (ImGui::Button("Add Component")) {
       ImGui::OpenPopup("AddComponent");
@@ -2275,6 +2337,10 @@ void EditorApp::DrawInspector() {
       }
       if (!e->hasPost && ImGui::MenuItem("Post Volume")) {
         std::unique_ptr<Command> cmd(new AddPostCmd(e->id));
+        undo.Execute(std::move(cmd), scene);
+      }
+      if (!e->hasFog && ImGui::MenuItem("Fog Volume")) {
+        std::unique_ptr<Command> cmd(new AddFogCmd(e->id));
         undo.Execute(std::move(cmd), scene);
       }
       ImGui::EndPopup();

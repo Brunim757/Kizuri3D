@@ -202,6 +202,7 @@ struct PostConstants {
   float film[4];
   float toggles[4];
   float curVP[16];
+  float shimmer[4];
 };
 struct DebugConstants {
   float mode[4];
@@ -290,6 +291,8 @@ DeferredRenderer::DeferredRenderer()
   , exposure(1.0f)
   , acesOn(true)
   , bloomStrength(0.5f)
+  , dirtTex(0)
+  , lensDirt(0.0f)
   , fsrEasuPS(0)
   , fsrRcasPS(0)
   , fsrCB(0)
@@ -368,6 +371,7 @@ DeferredRenderer::DeferredRenderer()
   , expRead(0)
   , expWrite(0)
   , autoExpOn(false)
+  , expRobust(true)
   , gradeContrast(1.0f)
   , gradeSaturation(1.0f)
   , gradeTemp(0.0f)
@@ -378,6 +382,10 @@ DeferredRenderer::DeferredRenderer()
   , godPS(0)
   , godCB(0)
   , godA(0)
+  , godHalfA(0)
+  , godDepthA(0)
+  , godUpPS(0)
+  , godUpCB(0)
   , godOn(false)
   , godDensity(1.0f)
   , godDecay(0.95f)
@@ -413,6 +421,8 @@ DeferredRenderer::DeferredRenderer()
   , lightSig(0)
   , ddgiTex(0)
   , ddgiCB(0)
+  , fogVolCB(0)
+  , fogVolCount(0)
   , godRan(false)
   , taaA(0)
   , taaB(0)
@@ -442,6 +452,7 @@ DeferredRenderer::DeferredRenderer()
   , filmCa(0.0f)
   , filmVig(0.0f)
   , filmGrain(0.0f)
+  , heatHaze(0.0f)
   , filmActive(false)
   , frameIndex(0)
   , layout(0)
@@ -797,6 +808,16 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (godPS == 0) {
     return false;
   }
+  std::string godUpPath = dir + "/GodUpsamplePS.hlsl";
+  godUpPS = LoadPixelShader(godUpPath.c_str());
+  if (godUpPS == 0) {
+    return false;
+  }
+  float godUpInit[8] = { 0.0f };
+  godUpCB = rhi->CreateConstantBuffer(sizeof(godUpInit), &godUpInit);
+  if (godUpCB == 0) {
+    return false;
+  }
   float godInit[16] = { 0.0f };
   godCB = rhi->CreateConstantBuffer(sizeof(godInit), &godInit);
   if (godCB == 0) {
@@ -837,6 +858,11 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   ddgiTex = rhi->CreateTexture3D(8, 4, 8, RHITextureFormat::RGBA16F);
   float ddgiInit[8] = { -20.0f, -20.0f, -20.0f, 0.35f, 20.0f, 20.0f, 20.0f, 1.0f };
   ddgiCB = rhi->CreateConstantBuffer(sizeof(ddgiInit), &ddgiInit);
+  float fogVolInit[48] = { 0.0f };
+  fogVolCB = rhi->CreateConstantBuffer(sizeof(fogVolInit), &fogVolInit);
+  if (fogVolCB == 0) {
+    return false;
+  }
   if (ddgiCB == 0) {
     return false;
   }
@@ -954,6 +980,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (!rhi->UpdateTextureMip(neutralAlbedo, 0, 1, 1, 4, whitePx, 4) || !rhi->UpdateTextureMip(neutralNormal, 0, 1, 1, 4, nrmPx, 4) || !rhi->UpdateTextureMip(neutralOrm, 0, 1, 1, 4, ormPx, 4) || !rhi->UpdateTextureMip(neutralBlack, 0, 1, 1, 4, blackPx, 4) || !rhi->UpdateTextureMip(neutralAniso, 0, 1, 1, 4, anisoPx, 4)) {
     return false;
   }
+  GenerateDirtTexture();
   matTable = rhi->CreateTexture2D(256, 1, 1, RHITextureFormat::RGBA8_UNORM);
   if (matTable == 0) {
     return false;
@@ -1119,6 +1146,10 @@ void DeferredRenderer::Shutdown() {
     rhi->DestroyTexture(neutralAniso);
     neutralAniso = 0;
   }
+  if (dirtTex != 0) {
+    rhi->DestroyTexture(dirtTex);
+    dirtTex = 0;
+  }
   if (matTable != 0) {
     rhi->DestroyTexture(matTable);
     matTable = 0;
@@ -1239,6 +1270,10 @@ void DeferredRenderer::Shutdown() {
     rhi->DestroyConstantBuffer(godCB);
     godCB = 0;
   }
+  if (godUpCB != 0) {
+    rhi->DestroyConstantBuffer(godUpCB);
+    godUpCB = 0;
+  }
   if (debugCB != 0) {
     rhi->DestroyConstantBuffer(debugCB);
     debugCB = 0;
@@ -1250,6 +1285,10 @@ void DeferredRenderer::Shutdown() {
   if (ddgiCB != 0) {
     rhi->DestroyConstantBuffer(ddgiCB);
     ddgiCB = 0;
+  }
+  if (fogVolCB != 0) {
+    rhi->DestroyConstantBuffer(fogVolCB);
+    fogVolCB = 0;
   }
   if (ddgiTex != 0) {
     rhi->DestroyTexture3D(ddgiTex);
@@ -1611,6 +1650,41 @@ void DeferredRenderer::SetDdgi(bool on, float weight) {
 }
 void DeferredRenderer::SetProbeAutoRefresh(bool on) {
   probeAutoRefresh = on;
+}
+void DeferredRenderer::ClearFogVolumes() {
+  for (int i = 0; i < 4; ++i) {
+    fogVolMin[i][0] = 0.0f;
+    fogVolMin[i][1] = 0.0f;
+    fogVolMin[i][2] = 0.0f;
+    fogVolMin[i][3] = 0.0f;
+    fogVolMax[i][0] = 0.0f;
+    fogVolMax[i][1] = 0.0f;
+    fogVolMax[i][2] = 0.0f;
+    fogVolMax[i][3] = 0.0f;
+    fogVolCol[i][0] = 0.6f;
+    fogVolCol[i][1] = 0.65f;
+    fogVolCol[i][2] = 0.7f;
+    fogVolCol[i][3] = 0.0f;
+  }
+  fogVolCount = 0;
+}
+void DeferredRenderer::AddFogVolume(const float bmin[3], const float bmax[3], float density, const float color[3]) {
+  if (fogVolCount < 0 || fogVolCount > 3 || bmin == nullptr || bmax == nullptr) {
+    return;
+  }
+  int i = fogVolCount++;
+  fogVolMin[i][0] = bmin[0];
+  fogVolMin[i][1] = bmin[1];
+  fogVolMin[i][2] = bmin[2];
+  fogVolMin[i][3] = density < 0.0f ? 0.0f : (density > 1.0f ? 1.0f : density);
+  fogVolMax[i][0] = bmax[0];
+  fogVolMax[i][1] = bmax[1];
+  fogVolMax[i][2] = bmax[2];
+  fogVolMax[i][3] = 0.0f;
+  fogVolCol[i][0] = color != nullptr ? color[0] : 0.6f;
+  fogVolCol[i][1] = color != nullptr ? color[1] : 0.65f;
+  fogVolCol[i][2] = color != nullptr ? color[2] : 0.7f;
+  fogVolCol[i][3] = 0.0f;
 }
 bool DeferredRenderer::ProbeRefreshNeeded() const {
   return probeAutoRefresh && probeRefreshNeeded;
@@ -2148,6 +2222,9 @@ void DeferredRenderer::SetToneMapping(int mode) {
 void DeferredRenderer::SetAutoExposure(bool on) {
   autoExpOn = on;
 }
+void DeferredRenderer::SetRobustExposure(bool on) {
+  expRobust = on;
+}
 void DeferredRenderer::SetGrading(float contrast, float saturation, float temperature, float tint) {
   gradeContrast = contrast < 0.0f ? 0.0f : (contrast > 2.0f ? 2.0f : contrast);
   gradeSaturation = saturation < 0.0f ? 0.0f : (saturation > 3.0f ? 3.0f : saturation);
@@ -2270,6 +2347,61 @@ void DeferredRenderer::SetBloom(float strength) {
     bloomStrength = 2.0f;
   }
 }
+void DeferredRenderer::SetLensDirt(float amount) {
+  lensDirt = amount < 0.0f ? 0.0f : (amount > 2.0f ? 2.0f : amount);
+}
+void DeferredRenderer::GenerateDirtTexture() {
+  if (rhi == nullptr || dirtTex != 0) {
+    return;
+  }
+  const int size = 256;
+  std::vector<unsigned char> px(static_cast<size_t>(size) * size * 4, 0);
+  auto hash = [](int x, int y, int s) -> float {
+    uint32_t h = static_cast<uint32_t>(x * 374761393 + y * 668265263 + s * 1440662683);
+    h = (h ^ (h >> 13)) * 1274126177u;
+    h ^= h >> 16;
+    return static_cast<float>(h & 0xFFFFu) / 65535.0f;
+  };
+  for (int y = 0; y < size; ++y) {
+    for (int x = 0; x < size; ++x) {
+      float u = static_cast<float>(x) / size;
+      float v = static_cast<float>(y) / size;
+      float n = hash(x / 4, y / 4, 1) * 0.6f + hash(x / 16, y / 16, 7) * 0.4f;
+      float specks = 0.0f;
+      float s1 = hash(x / 32, y / 32, 13);
+      if (s1 > 0.985f) {
+        float dx = (u - (hash(x / 32, 0, 17) * 0.9f + 0.05f)) * 8.0f;
+        float dy = (v - (hash(0, y / 32, 19) * 0.9f + 0.05f)) * 8.0f;
+        specks = (1.0f - (dx * dx + dy * dy)) * (s1 - 0.985f) * 60.0f;
+      }
+      float streak = 0.0f;
+      float sy = hash(x / 2, 0, 23);
+      if (sy > 0.93f) {
+        streak = (sy - 0.93f) * 8.0f * (0.5f + 0.5f * hash(x / 2, y / 8, 29));
+      }
+      float d = n * 0.25f + specks + streak * 0.3f;
+      if (d < 0.0f) {
+        d = 0.0f;
+      }
+      if (d > 1.0f) {
+        d = 1.0f;
+      }
+      size_t o = (static_cast<size_t>(y) * size + x) * 4;
+      unsigned char b = static_cast<unsigned char>(d * 255.0f);
+      px[o + 0] = b;
+      px[o + 1] = b;
+      px[o + 2] = b;
+      px[o + 3] = 255;
+    }
+  }
+  dirtTex = rhi->CreateTexture2D(size, size, 1, RHITextureFormat::RGBA8_UNORM);
+  if (dirtTex != 0) {
+    if (!rhi->UpdateTextureMip(dirtTex, 0, size, size, size * 4, px.data(), px.size())) {
+      rhi->DestroyTexture(dirtTex);
+      dirtTex = 0;
+    }
+  }
+}
 void DeferredRenderer::SetSsao(bool on, float intensity, float radius) {  ssaoOn = on;  ssaoIntensity = intensity;
   if (ssaoIntensity < 0.0f) {
     ssaoIntensity = 0.0f;
@@ -2334,6 +2466,9 @@ void DeferredRenderer::SetFilm(float ca, float vignette, float grain) {
   filmCa = ca < 0.0f ? 0.0f : (ca > 2.0f ? 2.0f : ca);
   filmVig = vignette < 0.0f ? 0.0f : (vignette > 1.0f ? 1.0f : vignette);
   filmGrain = grain < 0.0f ? 0.0f : (grain > 0.25f ? 0.25f : grain);
+}
+void DeferredRenderer::SetHeatHaze(float amount) {
+  heatHaze = amount < 0.0f ? 0.0f : (amount > 1.0f ? 1.0f : amount);
 }
 void DeferredRenderer::SetSsgi(bool on) {
   ssgiOn = on;
@@ -4958,6 +5093,25 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelTexture3D(26, ddgiTex);
     rhi->SetPixelConstantBuffer(5, ddgiCB);
   }
+  if (fogVolCB != 0) {
+    float fv[48];
+    for (int i = 0; i < 4; ++i) {
+      fv[i * 4 + 0] = fogVolMin[i][0];
+      fv[i * 4 + 1] = fogVolMin[i][1];
+      fv[i * 4 + 2] = fogVolMin[i][2];
+      fv[i * 4 + 3] = fogVolMin[i][3];
+      fv[16 + i * 4 + 0] = fogVolMax[i][0];
+      fv[16 + i * 4 + 1] = fogVolMax[i][1];
+      fv[16 + i * 4 + 2] = fogVolMax[i][2];
+      fv[16 + i * 4 + 3] = fogVolMax[i][3];
+      fv[32 + i * 4 + 0] = fogVolCol[i][0];
+      fv[32 + i * 4 + 1] = fogVolCol[i][1];
+      fv[32 + i * 4 + 2] = fogVolCol[i][2];
+      fv[32 + i * 4 + 3] = fogVolCol[i][3];
+    }
+    rhi->UpdateConstantBuffer(fogVolCB, &fv, sizeof(fv));
+    rhi->SetPixelConstantBuffer(6, fogVolCB);
+  }
   if (ssaoValid) {
     rhi->SetPixelTexture(6, ssaoA);
   }
@@ -5108,7 +5262,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetRenderTargets(1, &bloomA, 0);
     rhi->SetPixelTexture(0, bloomB);
     NoteFullscreen();
-    float ba[4] = { bloomStrength, 0.0f, 0.0f, 0.0f };
+    float ba[4] = { bloomStrength, lensDirt, 0.0f, 0.0f };
     rhi->UpdateConstantBuffer(bloomCB, &ba, sizeof(ba));
     rhi->SetRenderTargets(1, &gViewport, 0);
     RHIViewport fvp;
@@ -5122,9 +5276,11 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelShader(bloomAddPS);
     rhi->SetPixelTexture(0, gLight);
     rhi->SetPixelTexture(1, bloomA);
+    rhi->SetPixelTexture2D(2, dirtTex);
     NoteFullscreen();
     rhi->SetPixelTexture(0, 0);
     rhi->SetPixelTexture(1, 0);
+    rhi->SetPixelTexture2D(2, 0);
     if (autoExpOn && lumA != 0 && lumB != 0 && expA != 0 && expB != 0 && lumPS != 0) {
       float lc0[8] = { 0.0f, 0.0f, 0.18f, 0.015625f, 0.015625f, 0.0f, 0.0f, 0.0f };
       uint32_t lc0i[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
@@ -5147,6 +5303,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       rhi->SetPixelTexture(0, gLight);
       NoteFullscreen();
       float lc1[8] = { 0.0f, 0.0f, 0.18f, 0.125f, 0.125f, 0.0f, 0.0f, 0.0f };
+      lc1[5] = expRobust ? 1.0f : 0.0f;
       uint32_t lc1i[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
       std::memcpy(lc1i, lc1, sizeof(lc1));
       lc1i[0] = 1;
@@ -5236,12 +5393,15 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       rhi->UpdateConstantBuffer(godCB, &gc, sizeof(gc));
       rhi->SetPixelConstantBuffer(0, godCB);
       rhi->SetPixelSampler(0, sampler);
-      rhi->SetRenderTargets(1, &godA, 0);
+      int godHW = w / 2 > 0 ? w / 2 : 1;
+      int godHH = h / 2 > 0 ? h / 2 : 1;
+      RHIRenderTarget godMrts[2] = { godHalfA, godDepthA };
+      rhi->SetRenderTargets(2, godMrts, 0);
       RHIViewport gvp2;
-      gvp2.x = viewX;
-      gvp2.y = viewY;
-      gvp2.w = static_cast<float>(w);
-      gvp2.h = static_cast<float>(h);
+      gvp2.x = viewX * 0.5f;
+      gvp2.y = viewY * 0.5f;
+      gvp2.w = static_cast<float>(godHW);
+      gvp2.h = static_cast<float>(godHH);
       gvp2.minD = 0.0f;
       gvp2.maxD = 1.0f;
       rhi->SetViewport(gvp2);
@@ -5252,6 +5412,33 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       NoteFullscreen();
       rhi->SetPixelTexture(0, 0);
       rhi->SetPixelTexture(1, 0);
+      if (godUpPS != 0 && godUpCB != 0) {
+        float gu[8] = {
+          godHW > 0 ? 1.0f / static_cast<float>(godHW) : 0.0f,
+          godHH > 0 ? 1.0f / static_cast<float>(godHH) : 0.0f,
+          0.0f, 0.0f,
+          camPos[0], camPos[1], camPos[2], 1.0f
+        };
+        rhi->UpdateConstantBuffer(godUpCB, &gu, sizeof(gu));
+        rhi->SetPixelConstantBuffer(0, godUpCB);
+        rhi->SetRenderTargets(1, &godA, 0);
+        RHIViewport guvp;
+        guvp.x = viewX;
+        guvp.y = viewY;
+        guvp.w = static_cast<float>(w);
+        guvp.h = static_cast<float>(h);
+        guvp.minD = 0.0f;
+        guvp.maxD = 1.0f;
+        rhi->SetViewport(guvp);
+        rhi->SetPixelShader(godUpPS);
+        rhi->SetPixelTexture(0, godHalfA);
+        rhi->SetPixelTexture(1, godDepthA);
+        rhi->SetPixelTexture(2, gPosition);
+        NoteFullscreen();
+        rhi->SetPixelTexture(0, 0);
+        rhi->SetPixelTexture(1, 0);
+        rhi->SetPixelTexture(2, 0);
+      }
       godRan = true;
       filmSrc = godA;
     }
@@ -5369,7 +5556,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       filmSrc = fxaaA;
       fxaaRan = true;
     }
-    if (filmPS != 0 && filmA != 0 && (dofOn || motionOn || filmCa > 0.0f || filmVig > 0.0f || filmGrain > 0.0f || ssgiOn)) {
+    if (filmPS != 0 && filmA != 0 && (dofOn || motionOn || filmCa > 0.0f || filmVig > 0.0f || filmGrain > 0.0f || heatHaze > 0.0f || ssgiOn)) {
       filmActive = true;
       PostConstants pc;
       for (int cc = 0; cc < 4; ++cc) {
@@ -5406,6 +5593,10 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       pc.toggles[1] = motionOn ? 1.0f : 0.0f;
       pc.toggles[2] = motionScale;
       pc.toggles[3] = ssgiOn ? 1.0f : 0.0f;
+      pc.shimmer[0] = heatHaze;
+      pc.shimmer[1] = 0.0f;
+      pc.shimmer[2] = 0.0f;
+      pc.shimmer[3] = 0.0f;
       rhi->UpdateConstantBuffer(filmCB, &pc, sizeof(pc));
       rhi->SetPixelConstantBuffer(0, filmCB);
       rhi->SetPixelSampler(0, sampler);
@@ -5552,10 +5743,14 @@ bool DeferredRenderer::CreateTargets() {
   expA = rhi->CreateRenderTarget(1, 1, RHIFormat::RGBA16F);
   expB = rhi->CreateRenderTarget(1, 1, RHIFormat::RGBA16F);
   godA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
+  int godHW = w / 2 > 0 ? w / 2 : 1;
+  int godHH = h / 2 > 0 ? h / 2 : 1;
+  godHalfA = rhi->CreateRenderTarget(godHW, godHH, RHIFormat::RGBA8_UNORM);
+  godDepthA = rhi->CreateRenderTarget(godHW, godHH, RHIFormat::RGBA16F);
   debugA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   overdrawA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   uvA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
-  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 &&   fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && bentA != 0 && ssrA != 0 && ssrTmp != 0 && ssrHist != 0 && ssrHistB != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0 && taaSharpA != 0 && lumA != 0 && lumB != 0 && expA != 0 && expB != 0 && godA != 0 && debugA != 0 && overdrawA != 0 && uvA != 0;
+  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 &&   fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && bentA != 0 && ssrA != 0 && ssrTmp != 0 && ssrHist != 0 && ssrHistB != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0 && taaSharpA != 0 && lumA != 0 && lumB != 0 && expA != 0 && expB != 0 && godA != 0 && godHalfA != 0 && godDepthA != 0 && debugA != 0 && overdrawA != 0 && uvA != 0;
 }
 void DeferredRenderer::DestroyTargets() {
   if (rhi == nullptr) {
@@ -5714,6 +5909,14 @@ void DeferredRenderer::DestroyTargets() {
   if (godA != 0) {
     rhi->DestroyRenderTarget(godA);
     godA = 0;
+  }
+  if (godHalfA != 0) {
+    rhi->DestroyRenderTarget(godHalfA);
+    godHalfA = 0;
+  }
+  if (godDepthA != 0) {
+    rhi->DestroyRenderTarget(godDepthA);
+    godDepthA = 0;
   }
   if (debugA != 0) {
     rhi->DestroyRenderTarget(debugA);

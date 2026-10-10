@@ -37,13 +37,39 @@ float TileAvgLog(float2 uv, float2 tile)
     }
     return acc / 16.0;
 }
+float TileAvgLogRobust(float2 uv, float2 tile)
+{
+    float v[16];
+    int n = 0;
+    for (int y = 0; y < 4; ++y) {
+        for (int x = 0; x < 4; ++x) {
+            float2 off = float2((float(x) - 1.5) * 0.5 * tile.x, (float(y) - 1.5) * 0.5 * tile.y);
+            v[n] = SrcTX.SampleLevel(LinearSampler, uv + off, 0).r;
+            n++;
+        }
+    }
+    for (int i = 0; i < 16; ++i) {
+        for (int j = i + 1; j < 16; ++j) {
+            if (v[j] < v[i]) {
+                float t = v[i];
+                v[i] = v[j];
+                v[j] = t;
+            }
+        }
+    }
+    float acc = 0.0;
+    for (int k = 4; k < 12; ++k) {
+        acc += v[k];
+    }
+    return acc / 8.0;
+}
 float4 main(PSIn pin) : SV_Target
 {
     if (Mode == 0) {
         float l = TileAvgLuma(pin.uv, float2(TileU, TileV));
         return float4(log(max(l, 1e-4)), 0.0, 0.0, 1.0);
     } else if (Mode == 1) {
-        float l = TileAvgLog(pin.uv, float2(TileU, TileV));
+        float l = LumPad.x > 0.5 ? TileAvgLogRobust(pin.uv, float2(TileU, TileV)) : TileAvgLog(pin.uv, float2(TileU, TileV));
         return float4(l, 0.0, 0.0, 1.0);
     }
     float l = TileAvgLog(pin.uv, float2(1.0, 1.0));

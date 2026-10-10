@@ -84,6 +84,15 @@ void EditQueue::PushPost(EntityId target, const PostData& value) {
   e.value = value;
   postEdits.push_back(e);
 }
+void EditQueue::PushFog(EntityId target, const FogData& value) {
+  if (!target.IsValid()) {
+    return;
+  }
+  FogEdit e;
+  e.target = target;
+  e.value = value;
+  fogEdits.push_back(e);
+}
 bool MaterialEqual(const MaterialData& a, const MaterialData& b) {
   if (!(a.albedo[0] == b.albedo[0] && a.albedo[1] == b.albedo[1] && a.albedo[2] == b.albedo[2] && a.alpha == b.alpha && a.metallic == b.metallic && a.roughness == b.roughness && a.albedoTex == b.albedoTex && a.normalTex == b.normalTex && a.ormTex == b.ormTex && a.heightTex == b.heightTex)) {
     return false;
@@ -131,8 +140,11 @@ bool ProbeEqual(const ProbeData& a, const ProbeData& b) {
 bool PostEqual(const PostData& a, const PostData& b) {
   return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.exposure == b.exposure && a.toneMap == b.toneMap && a.contrast == b.contrast && a.saturation == b.saturation && a.bloom == b.bloom;
 }
+bool FogEqual(const FogData& a, const FogData& b) {
+  return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.density == b.density && a.color[0] == b.color[0] && a.color[1] == b.color[1] && a.color[2] == b.color[2];
+}
 size_t EditQueue::Pending() const {
-  return edits.size() + lightEdits.size() + materialEdits.size() + partMaterialEdits.size() + decalEdits.size() + lodEdits.size() + lightmapEdits.size() + probeEdits.size() + postEdits.size();
+  return edits.size() + lightEdits.size() + materialEdits.size() + partMaterialEdits.size() + decalEdits.size() + lodEdits.size() + lightmapEdits.size() + probeEdits.size() + postEdits.size() + fogEdits.size();
 }
 size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
   size_t applied = 0;
@@ -362,6 +374,30 @@ size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
     }
   }
   postEdits.clear();
+  for (size_t i = 0; i < fogEdits.size(); ++i) {
+    bool last = true;
+    for (size_t j = i + 1; j < fogEdits.size(); ++j) {
+      if (fogEdits[j].target == fogEdits[i].target) {
+        last = false;
+        break;
+      }
+    }
+    if (!last) {
+      continue;
+    }
+    const Entity* e = scene.Get(fogEdits[i].target);
+    if (e == nullptr || !e->hasFog) {
+      continue;
+    }
+    if (FogEqual(e->fog, fogEdits[i].value)) {
+      continue;
+    }
+    std::unique_ptr<Command> cmd(new SetFogCmd(fogEdits[i].target, e->fog, fogEdits[i].value));
+    if (undo.Execute(std::move(cmd), scene)) {
+      ++applied;
+    }
+  }
+  fogEdits.clear();
   return applied;
 }
 void EditQueue::Clear() {
@@ -374,5 +410,6 @@ void EditQueue::Clear() {
   lightmapEdits.clear();
   probeEdits.clear();
   postEdits.clear();
+  fogEdits.clear();
 }
 }

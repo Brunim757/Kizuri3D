@@ -198,6 +198,10 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
       const PostData& p = e->post;
       std::fprintf(fp, "POSTVOL %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g\n", p.size[0], p.size[1], p.size[2], p.exposure, p.toneMap, p.contrast, p.saturation, p.bloom);
     }
+    if (e->hasFog) {
+      const FogData& f = e->fog;
+      std::fprintf(fp, "FOGVOL %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n", f.size[0], f.size[1], f.size[2], f.density, f.color[0], f.color[1], f.color[2]);
+    }
   }
   std::fclose(fp);
   return true;
@@ -248,6 +252,8 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
     bool hasProbe;
     PostData post;
     bool hasPost;
+    FogData fog;
+    bool hasFog;
   };
   std::vector<PendingEntity> pending;
   PendingEntity* current = nullptr;
@@ -278,6 +284,7 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       MakeDefaultLightmap(pe.lightmap);
       MakeDefaultProbe(pe.probe);
       MakeDefaultPost(pe.post);
+      MakeDefaultFog(pe.fog);
       pe.hasMesh = false;
       pe.hasLight = false;
       pe.hasMaterial = false;
@@ -287,6 +294,7 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       pe.hasLightmap = false;
       pe.hasProbe = false;
       pe.hasPost = false;
+      pe.hasFog = false;
       pe.parentIdx = -1;
       size_t pos = 7;
       if (!ParseQuoted(s, pos, pe.name) || pe.name.empty()) {
@@ -853,6 +861,24 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
         current->hasPost = true;
         continue;
       }
+      if (field == "FOGVOL") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        float fv[7] = { 12.0f, 4.0f, 12.0f, 0.02f, 0.6f, 0.65f, 0.7f };
+        if (!ParseFloats(s, pos, fv, 7)) {
+          failed = true;
+          break;
+        }
+        MakeDefaultFog(current->fog);
+        current->fog.size[0] = fv[0];
+        current->fog.size[1] = fv[1];
+        current->fog.size[2] = fv[2];
+        current->fog.density = fv[3];
+        current->fog.color[0] = fv[4];
+        current->fog.color[1] = fv[5];
+        current->fog.color[2] = fv[6];
+        current->hasFog = true;
+        continue;
+      }
       const FieldDesc* fd = nullptr;
       for (size_t f = 0; f < tdesc->fields.size(); ++f) {
         if (tdesc->fields[f].name == field) {
@@ -925,6 +951,8 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       createdEntity->hasProbe = pending[i].hasProbe;
       createdEntity->post = pending[i].post;
       createdEntity->hasPost = pending[i].hasPost;
+      createdEntity->fog = pending[i].fog;
+      createdEntity->hasFog = pending[i].hasFog;
     }
     created.push_back(id);
   }

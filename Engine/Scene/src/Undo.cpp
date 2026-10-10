@@ -799,6 +799,92 @@ bool RemovePostCmd::Revert(Scene& scene) {
 const char* RemovePostCmd::Name() const {
   return "Remove Post Volume";
 }
+SetFogCmd::SetFogCmd(EntityId t, const FogData& b, const FogData& a)
+  : target(t)
+  , before(b)
+  , after(a) {
+}
+bool SetFogCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasFog) {
+    return false;
+  }
+  e->fog = after;
+  scene.MarkDirty();
+  return true;
+}
+bool SetFogCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasFog) {
+    return false;
+  }
+  e->fog = before;
+  scene.MarkDirty();
+  return true;
+}
+const char* SetFogCmd::Name() const {
+  return "Set Fog Volume";
+}
+AddFogCmd::AddFogCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultFog(prevFog);
+}
+bool AddFogCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || e->hasFog) {
+    return false;
+  }
+  prevFog = e->fog;
+  prevHas = e->hasFog;
+  e->hasFog = true;
+  MakeDefaultFog(e->fog);
+  scene.MarkDirty();
+  return true;
+}
+bool AddFogCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->fog = prevFog;
+  e->hasFog = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* AddFogCmd::Name() const {
+  return "Add Fog Volume";
+}
+RemoveFogCmd::RemoveFogCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultFog(prevFog);
+}
+bool RemoveFogCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasFog) {
+    return false;
+  }
+  prevFog = e->fog;
+  prevHas = e->hasFog;
+  e->hasFog = false;
+  MakeDefaultFog(e->fog);
+  scene.MarkDirty();
+  return true;
+}
+bool RemoveFogCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->fog = prevFog;
+  e->hasFog = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* RemoveFogCmd::Name() const {
+  return "Remove Fog Volume";
+}
 SetLodCmd::SetLodCmd(EntityId t, const LodData& b, const LodData& a)
   : target(t)
   , before(b)

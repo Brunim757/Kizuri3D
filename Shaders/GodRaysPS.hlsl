@@ -13,7 +13,7 @@ struct PSIn
     float4 pos : SV_Position;
     float2 uv : TEXCOORD0;
 };
-float4 main(PSIn pin) : SV_Target
+float4 main(PSIn pin, out float4 depthOut : SV_Target1) : SV_Target0
 {
     float3 base = SceneTX.Sample(LinearSampler, pin.uv).rgb;
     float2 sunUV = GodParams.xy;
@@ -45,5 +45,6 @@ float4 main(PSIn pin) : SV_Target
         illum *= decay;
     }
     float3 outc = base + acc / 32.0 * exposure * 0.25;
+    depthOut = float4(cdepth, cdepth, cdepth, 1.0);
     return float4(outc, 1.0);
 }
