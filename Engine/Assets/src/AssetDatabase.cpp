@@ -1415,16 +1415,6 @@ RHITexture AssetDatabase::BuildCookieArray(const std::vector<const TextureAssetD
       const TextureMipData& mip = td->mips[0];
       DXGI_FORMAT srcFmt = CookieDxgiFormat(td->format);
       if (mip.width > 0 && mip.height > 0 && !mip.data.empty() && srcFmt != DXGI_FORMAT_UNKNOWN) {
-        DirectX::TexMetadata md = {};
-        md.width = mip.width;
-        md.height = mip.height;
-        md.depth = 1;
-        md.arraySize = 1;
-        md.mipLevels = 1;
-        md.miscFlags = 0;
-        md.miscFlags2 = 0;
-        md.format = srcFmt;
-        md.dimension = DirectX::TEX_DIMENSION_TEXTURE2D;
         DirectX::Image srcImg = {};
         srcImg.width = mip.width;
         srcImg.height = mip.height;
@@ -1434,24 +1424,14 @@ RHITexture AssetDatabase::BuildCookieArray(const std::vector<const TextureAssetD
         srcImg.pixels = const_cast<uint8_t*>(mip.data.data());
         img = &srcImg;
         if (srcFmt != DXGI_FORMAT_R8G8B8A8_UNORM) {
-          if (FAILED(DirectX::Decompress(&srcImg, 1, md, DXGI_FORMAT_R8G8B8A8_UNORM, DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, decompressed))) {
+          if (FAILED(DirectX::Decompress(srcImg, DXGI_FORMAT_R8G8B8A8_UNORM, decompressed))) {
             img = nullptr;
           } else {
             img = decompressed.GetImage(0, 0, 0);
           }
         }
         if (img != nullptr && (img->width != 256 || img->height != 256)) {
-          DirectX::TexMetadata rmd = {};
-          rmd.width = img->width;
-          rmd.height = img->height;
-          rmd.depth = 1;
-          rmd.arraySize = 1;
-          rmd.mipLevels = 1;
-          rmd.miscFlags = 0;
-          rmd.miscFlags2 = 0;
-          rmd.format = DXGI_FORMAT_R8G8B8A8_UNORM;
-          rmd.dimension = DirectX::TEX_DIMENSION_TEXTURE2D;
-          if (FAILED(DirectX::Resize(img, 1, rmd, 256, 256, DirectX::TEX_FILTER_DEFAULT, resized))) {
+          if (FAILED(DirectX::Resize(*img, 256, 256, DirectX::TEX_FILTER_DEFAULT, resized))) {
             img = nullptr;
           } else {
             img = resized.GetImage(0, 0, 0);
@@ -1501,16 +1481,6 @@ static bool VtMipToRgba(const TextureAssetData& td, int mip, std::vector<unsigne
     }
     return true;
   }
-  DirectX::TexMetadata md = {};
-  md.width = m.width;
-  md.height = m.height;
-  md.depth = 1;
-  md.arraySize = 1;
-  md.mipLevels = 1;
-  md.miscFlags = 0;
-  md.miscFlags2 = 0;
-  md.format = srcFmt;
-  md.dimension = DirectX::TEX_DIMENSION_TEXTURE2D;
   DirectX::Image srcImg = {};
   srcImg.width = m.width;
   srcImg.height = m.height;
@@ -1519,7 +1489,7 @@ static bool VtMipToRgba(const TextureAssetData& td, int mip, std::vector<unsigne
   srcImg.slicePitch = m.data.size();
   srcImg.pixels = const_cast<uint8_t*>(m.data.data());
   DirectX::ScratchImage dec;
-  if (FAILED(DirectX::Decompress(&srcImg, 1, md, DXGI_FORMAT_R8G8B8A8_UNORM, DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, dec))) {
+  if (FAILED(DirectX::Decompress(srcImg, DXGI_FORMAT_R8G8B8A8_UNORM, dec))) {
     return false;
   }
   const DirectX::Image* di = dec.GetImage(0, 0, 0);
