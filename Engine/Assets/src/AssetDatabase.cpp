@@ -5,9 +5,11 @@
 #include "Kizuri/Assets/TextureImporter.h"
 #include "Kizuri/Path.h"
 #include "Kizuri/Log.h"
+#include <DirectXTex.h>
 #include <stb_image.h>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <new>
@@ -1254,6 +1256,15 @@ void AssetDatabase::UpdateStreaming(const float cameraPos[3], const std::vector<
     float dy = uses[u].pos[1] - cameraPos[1];
     float dz = uses[u].pos[2] - cameraPos[2];
     float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+    bool isBatch = uses[u].meshGuid.compare(0, 8, "batch://") == 0;
+    if (!isBatch && meshStreaming && !uses[u].tierOnly && dist > meshStreamDist && mr->second.gpuReady) {
+      DropMeshGpu(mr->second);
+      ++streamEvictions;
+    }
+    if (!isBatch && geoStreaming && uses[u].tierOnly && dist > geoStreamDist && mr->second.gpuReady) {
+      DropMeshGpu(mr->second);
+      ++streamEvictions;
+    }
     for (size_t m = 0; m < mr->second.data.materials.size(); ++m) {
       const MeshMaterialData& mm = mr->second.data.materials[m];
       const std::string* slots[17] = { &mm.albedoTexGuid, &mm.normalTexGuid, &mm.ormTexGuid, &mm.heightTexGuid, &mm.emissiveTexGuid, &mm.specularTexGuid, &mm.specularColorTexGuid, &mm.clearcoatTexGuid, &mm.clearcoatRoughnessTexGuid, &mm.clearcoatNormalTexGuid, &mm.sheenColorTexGuid, &mm.sheenRoughnessTexGuid, &mm.anisotropyTexGuid, &mm.iridescenceTexGuid, &mm.iridescenceThicknessTexGuid, &mm.transmissionTexGuid, &mm.thicknessTexGuid };
@@ -1265,6 +1276,9 @@ void AssetDatabase::UpdateStreaming(const float cameraPos[3], const std::vector<
 }
 void AssetDatabase::RequestTexture(const std::string& guid, float dist) {
   if (guid.empty()) {
+    return;
+  }
+  if (vtIndex.find(guid) != vtIndex.end()) {
     return;
   }
   auto tr = texRecords.find(guid);
@@ -1294,6 +1308,587 @@ void AssetDatabase::RequestTexture(const std::string& guid, float dist) {
       uploadQueue.push_back(up);
     }
   }
+}
+void AssetDatabase::SetMeshStreaming(bool on, float distance) {
+  meshStreaming = on;
+  if (distance > 5.0f) {
+    meshStreamDist = distance > 2000.0f ? 2000.0f : distance;
+  }
+}
+void AssetDatabase::SetGeometryStreaming(bool on, float distance) {
+  geoStreaming = on;
+  if (distance > 5.0f) {
+    geoStreamDist = distance > 2000.0f ? 2000.0f : distance;
+  }
+}
+void AssetDatabase::UpsertBatchMesh(const std::string& key, const MeshAssetData& data) {
+  if (key.empty() || data.positions.empty() || data.indices.empty()) {
+    return;
+  }
+  auto it = records.find(key);
+  if (it != records.end() && it->second.gpuReady) {
+    return;
+  }
+  if (it != records.end()) {
+    DropMeshGpu(it->second);
+    it->second.data = data;
+    it->second.loaded = true;
+    return;
+  }
+  MeshRecord rec;
+  rec.guid = key;
+  rec.meshPath = "";
+  rec.sourcePath = "";
+  rec.sourceHash = 0;
+  rec.hasSource = false;
+  rec.state = MeshAssetState::NoSource;
+  rec.data = data;
+  rec.loaded = true;
+  rec.lastSeenSourceTime = 0;
+  rec.gpuVB = 0;
+  rec.gpuIB = 0;
+  rec.gpuCount = 0;
+  rec.gpuReady = false;
+  rec.stageVBDone = 0;
+  rec.stageIBDone = 0;
+  records[key] = rec;
+}
+void AssetDatabase::DiscardBatchMeshes() {
+  for (auto it = records.begin(); it != records.end();) {
+    if (it->first.compare(0, 8, "batch://") == 0) {
+      DropMeshGpu(it->second);
+      it = records.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+static DXGI_FORMAT CookieDxgiFormat(TexFormat fmt) {
+  switch (fmt) {
+    case TexFormat::Rgba8:
+      return DXGI_FORMAT_R8G8B8A8_UNORM;
+    case TexFormat::Bc1:
+      return DXGI_FORMAT_BC1_UNORM;
+    case TexFormat::Bc3:
+      return DXGI_FORMAT_BC3_UNORM;
+    case TexFormat::Bc5:
+      return DXGI_FORMAT_BC5_UNORM;
+    case TexFormat::Bc4:
+      return DXGI_FORMAT_BC4_UNORM;
+    case TexFormat::Bc6H:
+      return DXGI_FORMAT_BC6H_UF16;
+    case TexFormat::Bc7:
+      return DXGI_FORMAT_BC7_UNORM;
+    default:
+      return DXGI_FORMAT_UNKNOWN;
+  }
+}
+RHITexture AssetDatabase::BuildCookieArray(const std::vector<const TextureAssetData*>& slices) {  if (gpuRhi == nullptr) {
+    return 0;
+  }
+  size_t n = slices.size();
+  if (n == 0) {
+    n = 1;
+  }
+  if (n > 16) {
+    n = 16;
+  }
+  if (cookieArrayTex != 0) {
+    gpuRhi->DestroyTexture(cookieArrayTex);
+    cookieArrayTex = 0;
+  }
+  RHITexture arr = gpuRhi->CreateTextureArray(256, 256, static_cast<int>(n), 1, RHITextureFormat::RGBA8_UNORM);
+  if (arr == 0) {
+    return 0;
+  }
+  std::vector<unsigned char> white(static_cast<size_t>(256) * 256 * 4, 255);
+  for (size_t s = 0; s < n; ++s) {
+    const unsigned char* bytes = white.data();
+    uint32_t pitch = 1024;
+    size_t byteCount = white.size();
+    DirectX::ScratchImage owned;
+    const DirectX::Image* img = nullptr;
+    DirectX::ScratchImage decompressed;
+    DirectX::ScratchImage resized;
+    const TextureAssetData* td = s < slices.size() ? slices[s] : nullptr;
+    if (td != nullptr && !td->mips.empty()) {
+      const TextureMipData& mip = td->mips[0];
+      DXGI_FORMAT srcFmt = CookieDxgiFormat(td->format);
+      if (mip.width > 0 && mip.height > 0 && !mip.data.empty() && srcFmt != DXGI_FORMAT_UNKNOWN) {
+        DirectX::TexMetadata md = {};
+        md.width = mip.width;
+        md.height = mip.height;
+        md.depth = 1;
+        md.arraySize = 1;
+        md.mipLevels = 1;
+        md.miscFlags = 0;
+        md.miscFlags2 = 0;
+        md.format = srcFmt;
+        md.dimension = DirectX::TEX_DIMENSION_TEXTURE2D;
+        DirectX::Image srcImg = {};
+        srcImg.width = mip.width;
+        srcImg.height = mip.height;
+        srcImg.format = srcFmt;
+        srcImg.rowPitch = mip.rowPitch;
+        srcImg.slicePitch = mip.data.size();
+        srcImg.pixels = const_cast<uint8_t*>(mip.data.data());
+        img = &srcImg;
+        if (srcFmt != DXGI_FORMAT_R8G8B8A8_UNORM) {
+          if (FAILED(DirectX::Decompress(&srcImg, 1, md, DXGI_FORMAT_R8G8B8A8_UNORM, DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, decompressed))) {
+            img = nullptr;
+          } else {
+            img = decompressed.GetImage(0, 0, 0);
+          }
+        }
+        if (img != nullptr && (img->width != 256 || img->height != 256)) {
+          DirectX::TexMetadata rmd = {};
+          rmd.width = img->width;
+          rmd.height = img->height;
+          rmd.depth = 1;
+          rmd.arraySize = 1;
+          rmd.mipLevels = 1;
+          rmd.miscFlags = 0;
+          rmd.miscFlags2 = 0;
+          rmd.format = DXGI_FORMAT_R8G8B8A8_UNORM;
+          rmd.dimension = DirectX::TEX_DIMENSION_TEXTURE2D;
+          if (FAILED(DirectX::Resize(img, 1, rmd, 256, 256, DirectX::TEX_FILTER_DEFAULT, resized))) {
+            img = nullptr;
+          } else {
+            img = resized.GetImage(0, 0, 0);
+          }
+        }
+        if (img != nullptr && img->width == 256 && img->height == 256 && img->pixels != nullptr) {
+          bytes = img->pixels;
+          pitch = static_cast<uint32_t>(img->rowPitch);
+          byteCount = img->slicePitch;
+        } else {
+          bytes = white.data();
+          pitch = 1024;
+          byteCount = white.size();
+          img = nullptr;
+        }
+      }
+    }
+    if (!gpuRhi->UpdateTextureArraySlice(arr, static_cast<int>(s), 0, 256, 256, pitch, bytes, byteCount)) {
+      gpuRhi->DestroyTexture(arr);
+      return 0;
+    }
+  }
+  cookieArrayTex = arr;
+  return arr;
+}
+static bool VtMipToRgba(const TextureAssetData& td, int mip, std::vector<unsigned char>& rgbaOut, int& wOut, int& hOut) {
+  rgbaOut.clear();
+  wOut = 0;
+  hOut = 0;
+  if (mip < 0 || mip >= static_cast<int>(td.mips.size())) {
+    return false;
+  }
+  const TextureMipData& m = td.mips[mip];
+  DXGI_FORMAT srcFmt = CookieDxgiFormat(td.format);
+  if (m.width == 0 || m.height == 0 || m.data.empty() || srcFmt == DXGI_FORMAT_UNKNOWN) {
+    return false;
+  }
+  if (m.rowPitch < m.width * 4 && srcFmt == DXGI_FORMAT_R8G8B8A8_UNORM) {
+    return false;
+  }
+  if (srcFmt == DXGI_FORMAT_R8G8B8A8_UNORM) {
+    wOut = static_cast<int>(m.width);
+    hOut = static_cast<int>(m.height);
+    rgbaOut.resize(static_cast<size_t>(m.width) * m.height * 4);
+    for (uint32_t y = 0; y < m.height; ++y) {
+      std::memcpy(&rgbaOut[static_cast<size_t>(y) * m.width * 4], &m.data[static_cast<size_t>(y) * m.rowPitch], static_cast<size_t>(m.width) * 4);
+    }
+    return true;
+  }
+  DirectX::TexMetadata md = {};
+  md.width = m.width;
+  md.height = m.height;
+  md.depth = 1;
+  md.arraySize = 1;
+  md.mipLevels = 1;
+  md.miscFlags = 0;
+  md.miscFlags2 = 0;
+  md.format = srcFmt;
+  md.dimension = DirectX::TEX_DIMENSION_TEXTURE2D;
+  DirectX::Image srcImg = {};
+  srcImg.width = m.width;
+  srcImg.height = m.height;
+  srcImg.format = srcFmt;
+  srcImg.rowPitch = m.rowPitch;
+  srcImg.slicePitch = m.data.size();
+  srcImg.pixels = const_cast<uint8_t*>(m.data.data());
+  DirectX::ScratchImage dec;
+  if (FAILED(DirectX::Decompress(&srcImg, 1, md, DXGI_FORMAT_R8G8B8A8_UNORM, DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, dec))) {
+    return false;
+  }
+  const DirectX::Image* di = dec.GetImage(0, 0, 0);
+  if (di == nullptr || di->pixels == nullptr) {
+    return false;
+  }
+  wOut = static_cast<int>(di->width);
+  hOut = static_cast<int>(di->height);
+  rgbaOut.resize(di->slicePitch);
+  std::memcpy(rgbaOut.data(), di->pixels, di->slicePitch);
+  return true;
+}
+int AssetDatabase::CreateVirtualTexture(const TextureAssetData* src, const std::string& texGuid) {
+  if (src == nullptr || texGuid.empty() || gpuRhi == nullptr) {
+    return -1;
+  }
+  auto existing = vtIndex.find(texGuid);
+  if (existing != vtIndex.end()) {
+    return static_cast<int>(existing->second);
+  }
+  if (src->width == 0 || src->height == 0 || src->width > 1024 || src->height > 1024 || src->mips.empty()) {
+    return -1;
+  }
+  VtEntry e;
+  e.texGuid = texGuid;
+  e.w = static_cast<int>(src->width);
+  e.h = static_cast<int>(src->height);
+  e.mipCount = static_cast<int>(src->mips.size());
+  e.pagesX = (e.w + 31) / 32;
+  e.pagesY = (e.h + 31) / 32;
+  if (e.pagesX * e.pagesY > 1024) {
+    return -1;
+  }
+  e.physical = gpuRhi->CreateTexture2D(1024, 1024, 1, RHITextureFormat::RGBA8_UNORM);
+  e.tableTex = gpuRhi->CreateTexture2D(64, 64, 1, RHITextureFormat::RGBA8_UNORM);
+  e.tailTex = gpuRhi->CreateTexture2D(64, 64, 1, RHITextureFormat::RGBA8_UNORM);
+  if (e.physical == 0 || e.tableTex == 0 || e.tailTex == 0) {
+    if (e.physical != 0) {
+      gpuRhi->DestroyTexture(e.physical);
+    }
+    if (e.tableTex != 0) {
+      gpuRhi->DestroyTexture(e.tableTex);
+    }
+    if (e.tailTex != 0) {
+      gpuRhi->DestroyTexture(e.tailTex);
+    }
+    return -1;
+  }
+  std::vector<unsigned char> black(static_cast<size_t>(1024) * 1024 * 4, 0);
+  gpuRhi->UpdateTextureMip(e.physical, 0, 1024, 1024, 4096, black.data(), black.size());
+  e.tableCpu.assign(static_cast<size_t>(64) * 64 * 4, 0);
+  gpuRhi->UpdateTextureMip(e.tableTex, 0, 64, 64, 256, e.tableCpu.data(), e.tableCpu.size());
+  std::vector<unsigned char> tailRgba;
+  int tailW = 0;
+  int tailH = 0;
+  bool tailOk = VtMipToRgba(*src, e.mipCount - 1, tailRgba, tailW, tailH) && tailW > 0 && tailH > 0;
+  std::vector<unsigned char> tail64(static_cast<size_t>(64) * 64 * 4, 0);
+  if (tailOk) {
+    for (int y = 0; y < 64; ++y) {
+      int sy = y * tailH / 64;
+      for (int x = 0; x < 64; ++x) {
+        int sx = x * tailW / 64;
+        size_t di = (static_cast<size_t>(y) * 64 + x) * 4;
+        size_t si = (static_cast<size_t>(sy) * tailW + sx) * 4;
+        tail64[di + 0] = tailRgba[si + 0];
+        tail64[di + 1] = tailRgba[si + 1];
+        tail64[di + 2] = tailRgba[si + 2];
+        tail64[di + 3] = tailRgba[si + 3];
+      }
+    }
+  }
+  gpuRhi->UpdateTextureMip(e.tailTex, 0, 64, 64, 256, tail64.data(), tail64.size());
+  e.residentMip = 99;
+  e.nextPage = 0;
+  vtEntries.push_back(e);
+  vtIndex[texGuid] = vtEntries.size() - 1;
+  return static_cast<int>(vtEntries.size() - 1);
+}
+bool AssetDatabase::UpdateVirtualTexture(const std::string& texGuid, float dist, int budget) {
+  auto it = vtIndex.find(texGuid);
+  if (it == vtIndex.end() || gpuRhi == nullptr) {
+    return false;
+  }
+  VtEntry& e = vtEntries[it->second];
+  auto tr = texRecords.find(texGuid);
+  if (tr == texRecords.end() || !tr->second.loaded) {
+    return false;
+  }
+  const TextureAssetData& td = tr->second.data;
+  if (budget < 1) {
+    budget = 1;
+  }
+  if (budget > 64) {
+    budget = 64;
+  }
+  int want = e.mipCount - SelectMipLevel(dist, e.mipCount);
+  if (want < 0) {
+    want = 0;
+  }
+  if (want >= e.mipCount) {
+    want = e.mipCount - 1;
+  }
+  if (want < 0) {
+    return false;
+  }
+  if (want > 5) {
+    want = 99;
+  }
+  if (want != e.residentMip) {
+    e.residentMip = want;
+    e.nextPage = 0;
+    e.mipRgbaMip = -1;
+    e.mipRgba.clear();
+    std::fill(e.tableCpu.begin(), e.tableCpu.end(), 0);
+    gpuRhi->UpdateTextureMip(e.tableTex, 0, 64, 64, 256, e.tableCpu.data(), e.tableCpu.size());
+    if (want == 99) {
+      return true;
+    }
+  }
+  if (want == 99) {
+    return true;
+  }
+  if (e.mipRgbaMip != want) {
+    if (!VtMipToRgba(td, want, e.mipRgba, e.mipRgbaW, e.mipRgbaH) || e.mipRgbaW <= 0 || e.mipRgbaH <= 0) {
+      return false;
+    }
+    e.mipRgbaMip = want;
+  }
+  int total = e.pagesX * e.pagesY;
+  int step = 32 >> want;
+  if (step < 1) {
+    step = 1;
+  }
+  int done = 0;
+  while (done < budget && e.nextPage < total) {
+    int p = e.nextPage++;
+    int px = p % e.pagesX;
+    int py = p / e.pagesX;
+    int sx = px * step;
+    int sy = py * step;
+    if (sx >= e.mipRgbaW || sy >= e.mipRgbaH) {
+      continue;
+    }
+    int sw = step;
+    int sh = step;
+    if (sx + sw > e.mipRgbaW) {
+      sw = e.mipRgbaW - sx;
+    }
+    if (sy + sh > e.mipRgbaH) {
+      sh = e.mipRgbaH - sy;
+    }
+    std::vector<unsigned char> tile(static_cast<size_t>(32) * 32 * 4);
+    for (int y = 0; y < 32; ++y) {
+      int ryy = y * sh / 32;
+      for (int x = 0; x < 32; ++x) {
+        int rxx = x * sw / 32;
+        size_t di = (static_cast<size_t>(y) * 32 + x) * 4;
+        size_t si = (static_cast<size_t>(sy + ryy) * e.mipRgbaW + (sx + rxx)) * 4;
+        tile[di + 0] = e.mipRgba[si + 0];
+        tile[di + 1] = e.mipRgba[si + 1];
+        tile[di + 2] = e.mipRgba[si + 2];
+        tile[di + 3] = e.mipRgba[si + 3];
+      }
+    }
+    if (!gpuRhi->UpdateTextureRegion(e.physical, 0, (p % 32) * 32, (p / 32) * 32, 32, 32, 128, tile.data(), tile.size())) {
+      return false;
+    }
+    size_t ti = (static_cast<size_t>(py) * 64 + px) * 4;
+    e.tableCpu[ti + 0] = static_cast<unsigned char>(p % 32);
+    e.tableCpu[ti + 1] = static_cast<unsigned char>(p / 32);
+    e.tableCpu[ti + 2] = 255;
+    e.tableCpu[ti + 3] = static_cast<unsigned char>(want > 255 ? 255 : want);
+    ++done;
+  }
+  if (done > 0) {
+    gpuRhi->UpdateTextureMip(e.tableTex, 0, 64, 64, 256, e.tableCpu.data(), e.tableCpu.size());
+  }
+  return true;
+}
+bool AssetDatabase::GetVirtualBundle(const std::string& texGuid, VtBundle& out) {
+  out = VtBundle();
+  auto it = vtIndex.find(texGuid);
+  if (it == vtIndex.end()) {
+    return false;
+  }
+  const VtEntry& e = vtEntries[it->second];
+  if (e.physical == 0 || e.tableTex == 0 || e.tailTex == 0) {
+    return false;
+  }
+  out.physical = e.physical;
+  out.table = e.tableTex;
+  out.tail = e.tailTex;
+  out.residentMip = static_cast<float>(e.residentMip);
+  out.valid = true;
+  return true;
+}
+std::string AssetDatabase::CreateProceduralTexture(int mode, int w, int h) {
+  if (mode < 0 || mode > 3) {
+    return "";
+  }
+  if (w < 16) {
+    w = 16;
+  }
+  if (h < 16) {
+    h = 16;
+  }
+  if (w > 512) {
+    w = 512;
+  }
+  if (h > 512) {
+    h = 512;
+  }
+  char guidBuf[64];
+  std::snprintf(guidBuf, sizeof(guidBuf), "proc://%d_%dx%d", mode, w, h);
+  std::string guid = guidBuf;
+  auto existing = texRecords.find(guid);
+  if (existing != texRecords.end() && existing->second.loaded) {
+    return guid;
+  }
+  std::vector<unsigned char> base(static_cast<size_t>(w) * h * 4);
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      size_t o = (static_cast<size_t>(y) * w + x) * 4;
+      if (mode == 0) {
+        bool c = ((x / 8) + (y / 8)) % 2 == 0;
+        base[o + 0] = c ? 255 : 32;
+        base[o + 1] = c ? 255 : 32;
+        base[o + 2] = c ? 255 : 32;
+        base[o + 3] = 255;
+      } else if (mode == 1) {
+        uint32_t hx = static_cast<uint32_t>(x * 1973 + y * 9277 + 26699u) | 1u;
+        hx ^= hx >> 13;
+        hx *= 1274126177u;
+        hx ^= hx >> 16;
+        unsigned char v = static_cast<unsigned char>((hx >> 8) & 255u);
+        base[o + 0] = v;
+        base[o + 1] = v;
+        base[o + 2] = v;
+        base[o + 3] = 255;
+      } else if (mode == 2) {
+        unsigned char v = static_cast<unsigned char>(y * 255 / (h > 1 ? h - 1 : 1));
+        base[o + 0] = v;
+        base[o + 1] = static_cast<unsigned char>(255 - v);
+        base[o + 2] = static_cast<unsigned char>(128 + v / 2);
+        base[o + 3] = 255;
+      } else {
+        base[o + 0] = 128;
+        base[o + 1] = 128;
+        base[o + 2] = 255;
+        base[o + 3] = 255;
+      }
+    }
+  }
+  DirectX::Image srcImg = {};
+  srcImg.width = static_cast<size_t>(w);
+  srcImg.height = static_cast<size_t>(h);
+  srcImg.format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  srcImg.rowPitch = static_cast<size_t>(w) * 4;
+  srcImg.slicePitch = base.size();
+  srcImg.pixels = base.data();
+  DirectX::TexMetadata md = {};
+  md.width = static_cast<size_t>(w);
+  md.height = static_cast<size_t>(h);
+  md.depth = 1;
+  md.arraySize = 1;
+  md.mipLevels = 1;
+  md.miscFlags = 0;
+  md.miscFlags2 = 0;
+  md.format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  md.dimension = DirectX::TEX_DIMENSION_TEXTURE2D;
+  DirectX::ScratchImage mipChain;
+  if (FAILED(DirectX::GenerateMipMaps(&srcImg, 1, md, DirectX::TEX_FILTER_DEFAULT, 0, mipChain))) {
+    return "";
+  }
+  TextureRecord rec;
+  rec.guid = guid;
+  rec.texPath = guid;
+  rec.sourcePath = "";
+  rec.sourceHash = 0;
+  rec.hasSource = false;
+  rec.state = TextureAssetState::Ready;
+  rec.data.guid = guid;
+  rec.data.width = static_cast<uint32_t>(w);
+  rec.data.height = static_cast<uint32_t>(h);
+  rec.data.format = TexFormat::Rgba8;
+  rec.data.srgb = mode != 3;
+  rec.data.hasSource = false;
+  rec.data.sourcePath = "";
+  rec.data.sourceHash = 0;
+  rec.data.sourceTimestamp = 0;
+  size_t mipCount = mipChain.GetImageCount();
+  for (size_t m = 0; m < mipCount; ++m) {
+    const DirectX::Image* img = mipChain.GetImage(m, 0, 0);
+    if (img == nullptr || img->pixels == nullptr) {
+      return "";
+    }
+    TextureMipData mip;
+    mip.width = static_cast<uint32_t>(img->width);
+    mip.height = static_cast<uint32_t>(img->height);
+    mip.rowPitch = static_cast<uint32_t>(img->rowPitch);
+    mip.data.assign(img->pixels, img->pixels + img->slicePitch);
+    rec.data.mips.push_back(mip);
+  }
+  if (rec.data.mips.empty()) {
+    return "";
+  }
+  rec.loaded = true;
+  rec.lastSeenSourceTime = 0;
+  rec.gpu = 0;
+  rec.residentLevels = 0;
+  rec.selectedLevels = 0;
+  texRecords[guid] = rec;
+  return guid;
+}
+RHITexture AssetDatabase::BuildDecalAtlas(const std::vector<const TextureAssetData*>& textures, std::vector<float>& outRects) {
+  outRects.clear();
+  if (gpuRhi == nullptr || textures.empty()) {
+    return 0;
+  }
+  size_t n = textures.size();
+  if (n > 16) {
+    n = 16;
+  }
+  if (decalAtlasTex != 0) {
+    gpuRhi->DestroyTexture(decalAtlasTex);
+    decalAtlasTex = 0;
+  }
+  RHITexture arr = gpuRhi->CreateTexture2D(2048, 2048, 1, RHITextureFormat::RGBA8_UNORM);
+  if (arr == 0) {
+    return 0;
+  }
+  std::vector<unsigned char> black(static_cast<size_t>(2048) * 2048 * 4, 0);
+  gpuRhi->UpdateTextureMip(arr, 0, 2048, 2048, 8192, black.data(), black.size());
+  outRects.reserve(n * 4);
+  for (size_t s = 0; s < n; ++s) {
+    int cellX = static_cast<int>(s % 4);
+    int cellY = static_cast<int>(s / 4);
+    float u0 = static_cast<float>(cellX * 512) / 2048.0f;
+    float v0 = static_cast<float>(cellY * 512) / 2048.0f;
+    float u1 = static_cast<float>(cellX * 512 + 512) / 2048.0f;
+    float v1 = static_cast<float>(cellY * 512 + 512) / 2048.0f;
+    outRects.push_back(u0);
+    outRects.push_back(v0);
+    outRects.push_back(u1);
+    outRects.push_back(v1);
+    const TextureAssetData* td = textures[s];
+    std::vector<unsigned char> rgba;
+    int rw = 0;
+    int rh = 0;
+    if (td == nullptr || !VtMipToRgba(*td, 0, rgba, rw, rh) || rw <= 0 || rh <= 0) {
+      continue;
+    }
+    std::vector<unsigned char> cell(static_cast<size_t>(512) * 512 * 4);
+    for (int y = 0; y < 512; ++y) {
+      int sy = y * rh / 512;
+      for (int x = 0; x < 512; ++x) {
+        int sx = x * rw / 512;
+        size_t di = (static_cast<size_t>(y) * 512 + x) * 4;
+        size_t si = (static_cast<size_t>(sy) * rw + sx) * 4;
+        cell[di + 0] = rgba[si + 0];
+        cell[di + 1] = rgba[si + 1];
+        cell[di + 2] = rgba[si + 2];
+        cell[di + 3] = rgba[si + 3];
+      }
+    }
+    gpuRhi->UpdateTextureRegion(arr, 0, cellX * 512, cellY * 512, 512, 512, 2048, cell.data(), cell.size());
+  }
+  decalAtlasTex = arr;
+  return arr;
 }
 bool AssetDatabase::EnsureTextureKind(const std::string& guid, TexKind kind) {
   if (guid.empty() || (kind != TexKind::Normal && kind != TexKind::Orm)) {
@@ -1604,6 +2199,13 @@ bool AssetDatabase::EnsureMeshGpu(const std::string& guid, size_t maxBytes) {
   size_t vertexCount = record->data.positions.size() / 3;
   if (vertexCount == 0 || record->data.indices.empty()) {
     return false;
+  }
+  if (!record->meshletsBuilt) {
+    record->meshletsBuilt = true;
+    std::vector<MeshletRange> ranges;
+    if (BuildMeshlets(record->data, ranges)) {
+      record->meshlets = ranges;
+    }
   }
   size_t vbBytes = vertexCount * 56;
   size_t ibBytes = record->data.indices.size() * 4;

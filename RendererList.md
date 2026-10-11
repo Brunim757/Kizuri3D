@@ -144,7 +144,7 @@ Sem Ray Tracing
 - [x] Lightmap compression
 - [x] Mixed lighting
 - [x] Dynamic/baked lighting combination
-- [ ] Ambient probe
+- [x] Ambient probe
 - [x] Reflection probe integration
 
 ---
@@ -227,22 +227,22 @@ Sem Ray Tracing
 
 - [x] Frustum culling
 - [x] Occlusion culling
-- [ ] Hierarchical Z-buffer
-- [ ] GPU culling
-- [ ] GPU-driven rendering
-- [ ] Indirect drawing
-- [ ] Multi-draw indirect quando aplicável
+- [x] Hierarchical Z-buffer
+- [x] GPU culling
+- [x] GPU-driven rendering
+- [x] Indirect drawing
+- [ ] Multi-draw indirect quando aplicável (N/A no DX11 — sem ExecuteIndirect)
 - [x] Instanced rendering
 - [x] GPU instancing
 - [x] Dynamic batching quando vantajoso
-- [ ] Static batching quando vantajoso
+- [x] Static batching quando vantajoso
 - [x] Mesh LOD
 - [x] Automatic LOD
 - [x] LOD groups
 - [x] LOD streaming
-- [ ] Mesh streaming
-- [ ] Geometry streaming
-- [ ] Meshlet-like organization compatível com DX11
+- [x] Mesh streaming
+- [x] Geometry streaming
+- [x] Meshlet-like organization compatível com DX11
 - [x] Render queues
 - [x] Sorting otimizado
 
@@ -254,8 +254,8 @@ Sem Ray Tracing
 - [x] Mipmaps
 - [x] Mipmap streaming
 - [x] Anisotropic filtering
-- [ ] Virtual texturing
-- [ ] Sparse-like virtual texture system
+- [x] Virtual texturing
+- [x] Sparse-like virtual texture system
 - [x] Texture compression
 - [x] BC1
 - [x] BC3
@@ -264,9 +264,9 @@ Sem Ray Tracing
 - [x] BC6H
 - [x] BC7
 - [x] HDR textures
-- [ ] Texture arrays
-- [ ] Texture atlases
-- [ ] Runtime texture generation
+- [x] Texture arrays
+- [x] Texture atlases
+- [x] Runtime texture generation
 - [x] Async texture upload
 - [x] Texture residency management
 

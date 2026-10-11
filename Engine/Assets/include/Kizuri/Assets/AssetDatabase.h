@@ -35,6 +35,8 @@ struct MeshRecord {
   RHIBuffer gpuIB;
   uint32_t gpuCount;
   bool gpuReady;
+  bool meshletsBuilt = false;
+  std::vector<MeshletRange> meshlets;
   std::vector<float> stageInterleaved;
   size_t stageVBDone;
   size_t stageIBDone;
@@ -115,6 +117,14 @@ struct ImportTexTask : public enki::ITaskSet {
 struct MeshUse {
   std::string meshGuid;
   float pos[3];
+  bool tierOnly = false;
+};
+struct VtBundle {
+  RHITexture physical = 0;
+  RHITexture table = 0;
+  RHITexture tail = 0;
+  float residentMip = 99.0f;
+  bool valid = false;
 };
 struct TexUpload {
   std::string guid;
@@ -198,6 +208,19 @@ public:
   RHITexture EquirectToCube(const float* hdr, int w, int h);
   bool EnsureMeshGpu(const std::string& guid, size_t maxBytes);
   void DropMeshGpu(MeshRecord& record);
+  void UpsertBatchMesh(const std::string& key, const MeshAssetData& data);
+  void DiscardBatchMeshes();
+  RHITexture BuildCookieArray(const std::vector<const TextureAssetData*>& slices);
+  std::string CreateProceduralTexture(int mode, int w, int h);
+  RHITexture BuildDecalAtlas(const std::vector<const TextureAssetData*>& textures, std::vector<float>& outRects);
+  int CreateVirtualTexture(const TextureAssetData* src, const std::string& texGuid);
+  bool UpdateVirtualTexture(const std::string& texGuid, float dist, int budget = 8);
+  bool GetVirtualBundle(const std::string& texGuid, VtBundle& out);
+  void SetMeshStreaming(bool on, float distance);
+  void SetGeometryStreaming(bool on, float distance);
+  bool MeshStreamingOn() const { return meshStreaming; }
+  bool GeometryStreamingOn() const { return geoStreaming; }
+  uint64_t StreamEvictions() const { return streamEvictions; }
   void DropTexGpu(TextureRecord& record);
   void UpdateStreaming(const float cameraPos[3], const std::vector<MeshUse>& uses);
   size_t DrainUploads(IRHI* rhi, size_t maxBytes);
@@ -233,6 +256,33 @@ private:
   std::vector<std::string> importWarnings;
   std::map<std::string, int64_t> seenMeshTime;
   std::map<std::string, std::string> pathToGuid;
+  bool meshStreaming = false;
+  float meshStreamDist = 150.0f;
+  bool geoStreaming = false;
+  float geoStreamDist = 80.0f;
+  uint64_t streamEvictions = 0;
+  RHITexture cookieArrayTex = 0;
+  RHITexture decalAtlasTex = 0;
+  struct VtEntry {
+    std::string texGuid;
+    int w = 0;
+    int h = 0;
+    int mipCount = 0;
+    int residentMip = 99;
+    RHITexture physical = 0;
+    RHITexture tableTex = 0;
+    RHITexture tailTex = 0;
+    std::vector<unsigned char> tableCpu;
+    std::vector<unsigned char> mipRgba;
+    int mipRgbaW = 0;
+    int mipRgbaH = 0;
+    int mipRgbaMip = -1;
+    int nextPage = 0;
+    int pagesX = 0;
+    int pagesY = 0;
+  };
+  std::vector<VtEntry> vtEntries;
+  std::map<std::string, size_t> vtIndex;
   void EnsureJobs();
   void* AllocTaskMemory(size_t size, size_t alignment);
   void FreeTaskMemory(void* p);

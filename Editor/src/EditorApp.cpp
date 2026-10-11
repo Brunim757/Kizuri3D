@@ -53,6 +53,11 @@ EditorApp::EditorApp()
   , viewDynRes(false)
   , viewDynTarget(16.6f)
   , viewOcc(false)
+  , viewGpuDriven(false)
+  , viewStaticBatch(true)
+  , viewMeshletCull(true)
+  , viewProcMode(0)
+  , viewProcSize(256)
   , viewShadowAuto(false)
   , viewShadowFilter(0)
   , viewVsmQuality(1)
@@ -304,6 +309,7 @@ void EditorApp::PumpAssets() {
       lu.pos[0] = e->transform.position[0];
       lu.pos[1] = e->transform.position[1];
       lu.pos[2] = e->transform.position[2];
+      lu.tierOnly = true;
       uses.push_back(lu);
     }
     MeshUse u;
@@ -320,6 +326,9 @@ void EditorApp::PumpAssets() {
     float dist = sqrtf(dx * dx + dy * dy + dz * dz);
     if (e->hasMaterial) {
       assets.RequestTexture(e->material.albedoTex, dist);
+      if (e->material.vtAlbedo) {
+        assets.UpdateVirtualTexture(e->material.albedoTex, dist);
+      }
       assets.RequestTexture(e->material.normalTex, dist);
       assets.RequestTexture(e->material.ormTex, dist);
       assets.RequestTexture(e->material.heightTex, dist);

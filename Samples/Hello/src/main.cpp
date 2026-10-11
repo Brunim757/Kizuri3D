@@ -497,11 +497,11 @@ bool TestDebugViews() {
   renderer.SetDebugView(-5);
   ok = ok && renderer.GetDebugView() == 0;
   renderer.SetDebugView(99);
-  ok = ok && renderer.GetDebugView() == 17;
+  ok = ok && renderer.GetDebugView() == 18;
   std::vector<std::string> shaderErrors;
   renderer.TakeShaderErrors(shaderErrors);
   ok = ok && shaderErrors.empty();
-  for (int m = 0; m <= 17 && ok; ++m) {
+  for (int m = 0; m <= 18 && ok; ++m) {
     renderer.SetDebugView(m);
     renderer.BeginObjects(view, proj);
     renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
@@ -1225,6 +1225,388 @@ bool TestGodUpsample() {
   rhi->DestroyBuffer(tib);
   renderer.Shutdown();
   rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestGpuDriven() {
+  float pl[6][4] = {
+    { 1, 0, 0, 10 }, { -1, 0, 0, 10 }, { 0, 1, 0, 10 },
+    { 0, -1, 0, 10 }, { 0, 0, 1, 10 }, { 0, 0, -1, 10 }
+  };
+  float inside[3] = { 0, 0, 0 };
+  float outside[3] = { 50, 0, 0 };
+  if (!Kizuri::DeferredRenderer::CullSphereVisible(pl, inside, 1.0f)) {
+    return false;
+  }
+  if (Kizuri::DeferredRenderer::CullSphereVisible(pl, outside, 1.0f)) {
+    return false;
+  }
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 5 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  Kizuri::RenderDirectionalLight dl;
+  dl.dir[0] = 0.0f;
+  dl.dir[1] = -1.0f;
+  dl.dir[2] = 0.2f;
+  dl.color[0] = 1.0f;
+  dl.color[1] = 0.95f;
+  dl.color[2] = 0.9f;
+  dl.intensity = 3.0f;
+  dl.castShadow = false;
+  dl.effectiveSize = 0.5f;
+  dl.shadowSize = 1024;
+  dl.cascades = 2;
+  dl.lambda = 0.5f;
+  renderer.AddDirectionalLight(dl);
+  renderer.SetGpuDriven(true);
+  if (!renderer.IsGpuDriven()) {
+    rhi->DestroyBuffer(tvb);
+    rhi->DestroyBuffer(tib);
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  bool ok = renderer.GpuDrivenDraws() == 1;
+  renderer.SetGpuDriven(false);
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestStaticMerge() {
+  Kizuri::MeshAssetData a;
+  a.positions = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
+  a.normals = { 0, 0, 1, 0, 0, 1, 0, 0, 1 };
+  a.uvs = { 0, 0, 1, 0, 0, 1 };
+  a.tangents = { 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1 };
+  a.indices = { 0, 1, 2 };
+  Kizuri::MeshAssetData b = a;
+  Kizuri::StaticMergePart pa;
+  pa.data = &a;
+  pa.indexOffset = 0;
+  pa.indexCount = 3;
+  pa.world[0] = 1.0f; pa.world[1] = 0.0f; pa.world[2] = 0.0f; pa.world[3] = 0.0f;
+  pa.world[4] = 0.0f; pa.world[5] = 1.0f; pa.world[6] = 0.0f; pa.world[7] = 0.0f;
+  pa.world[8] = 0.0f; pa.world[9] = 0.0f; pa.world[10] = 1.0f; pa.world[11] = 0.0f;
+  pa.world[12] = 0.0f; pa.world[13] = 0.0f; pa.world[14] = 0.0f; pa.world[15] = 1.0f;
+  Kizuri::StaticMergePart pb = pa;
+  pb.data = &b;
+  pb.world[12] = 2.0f;
+  Kizuri::MeshAssetData out;
+  std::vector<Kizuri::StaticMergePart> parts;
+  parts.push_back(pa);
+  parts.push_back(pb);
+  if (!Kizuri::BuildMergedMesh(parts, out)) {
+    return false;
+  }
+  if (out.positions.size() != 18 || out.indices.size() != 6 || out.parts.size() != 1) {
+    return false;
+  }
+  if (out.positions[9] != 2.0f || out.positions[12] != 3.0f) {
+    return false;
+  }
+  if (out.aabbMin[0] != 0.0f || out.aabbMax[0] != 3.0f) {
+    return false;
+  }
+  if (out.indices[3] != 3 || out.indices[5] != 5) {
+    return false;
+  }
+  return true;
+}
+bool TestMeshlets() {
+  Kizuri::MeshAssetData grid;
+  const int n = 12;
+  for (int y = 0; y <= n; ++y) {
+    for (int x = 0; x <= n; ++x) {
+      grid.positions.push_back(static_cast<float>(x));
+      grid.positions.push_back(static_cast<float>(y));
+      grid.positions.push_back(0.0f);
+      grid.normals.push_back(0.0f);
+      grid.normals.push_back(0.0f);
+      grid.normals.push_back(1.0f);
+      grid.uvs.push_back(static_cast<float>(x) / n);
+      grid.uvs.push_back(static_cast<float>(y) / n);
+    }
+  }
+  for (int y = 0; y < n; ++y) {
+    for (int x = 0; x < n; ++x) {
+      uint32_t a = static_cast<uint32_t>(y * (n + 1) + x);
+      uint32_t b2 = a + 1;
+      uint32_t c = a + n + 1;
+      uint32_t d = c + 1;
+      grid.indices.push_back(a);
+      grid.indices.push_back(b2);
+      grid.indices.push_back(c);
+      grid.indices.push_back(b2);
+      grid.indices.push_back(d);
+      grid.indices.push_back(c);
+    }
+  }
+  size_t before = grid.indices.size();
+  std::vector<Kizuri::MeshletRange> ranges;
+  if (!Kizuri::BuildMeshlets(grid, ranges)) {
+    return false;
+  }
+  if (ranges.size() < 2) {
+    return false;
+  }
+  size_t total = 0;
+  for (size_t i = 0; i < ranges.size(); ++i) {
+    total += ranges[i].indexCount;
+  }
+  if (total != before || grid.indices.size() != before) {
+    return false;
+  }
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float open[6][4] = { { 0,0,0,0 }, { 0,0,0,0 }, { 0,0,0,0 }, { 0,0,0,0 }, { 0,0,0,0 }, { 0,0,0,0 } };
+  float cam[3] = { 6, 6, 10 };
+  if (!Kizuri::MeshletRangeVisible(ident, ranges[0], open, cam)) {
+    return false;
+  }
+  float shut[6][4] = { { 0,0,-1,-10 }, { 0,0,0,0 }, { 0,0,0,0 }, { 0,0,0,0 }, { 0,0,0,0 }, { 0,0,0,0 } };
+  if (Kizuri::MeshletRangeVisible(ident, ranges[0], shut, cam)) {
+    return false;
+  }
+  return true;
+}
+bool TestMeshStreaming() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kzmeshstream_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  Kizuri::AssetDatabase db;
+  db.SetAssetsDir(dir.string());
+  Kizuri::MeshAssetData mesh;
+  mesh.guid = "mstream-1";
+  mesh.positions = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
+  mesh.normals = { 0, 0, 1, 0, 0, 1, 0, 0, 1 };
+  mesh.uvs = { 0, 0, 1, 0, 0, 1 };
+  mesh.tangents = { 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1 };
+  mesh.indices = { 0, 1, 2 };
+  mesh.aabbMin[0] = 0.0f;
+  mesh.aabbMin[1] = 0.0f;
+  mesh.aabbMin[2] = 0.0f;
+  mesh.aabbMax[0] = 1.0f;
+  mesh.aabbMax[1] = 1.0f;
+  mesh.aabbMax[2] = 0.0f;
+  mesh.hasSource = false;
+  if (!Kizuri::EncodeMeshFile(mesh, (dir / "m.kzmesh").string())) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  db.Scan();
+  db.DrainBlocking();
+  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  Kizuri::RHIDesc desc;
+  desc.windowHandle = nullptr;
+  desc.width = 64;
+  desc.height = 64;
+  desc.vsync = false;
+  rhi->Initialize(desc);
+  db.SetGpuRHI(rhi);
+  if (!db.EnsureMeshGpu("mstream-1", 1000000)) {
+    Kizuri::DestroyRHI(rhi);
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  db.SetMeshStreaming(true, 10.0f);
+  db.SetGeometryStreaming(true, 5.0f);
+  float camFar[3] = { 500.0f, 0.0f, 0.0f };
+  std::vector<Kizuri::MeshUse> uses;
+  Kizuri::MeshUse use;
+  use.meshGuid = "mstream-1";
+  use.pos[0] = 0.0f;
+  use.pos[1] = 0.0f;
+  use.pos[2] = 0.0f;
+  uses.push_back(use);
+  db.UpdateStreaming(camFar, uses);
+  const Kizuri::MeshRecord* mr = db.GetByGuid("mstream-1");
+  if (mr == nullptr || mr->gpuReady) {
+    Kizuri::DestroyRHI(rhi);
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  if (db.StreamEvictions() != 1) {
+    Kizuri::DestroyRHI(rhi);
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  float camNear[3] = { 2.0f, 0.0f, 0.0f };
+  db.UpdateStreaming(camNear, uses);
+  if (!db.EnsureMeshGpu("mstream-1", 1000000)) {
+    Kizuri::DestroyRHI(rhi);
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  mr = db.GetByGuid("mstream-1");
+  bool ok = mr != nullptr && mr->gpuReady;
+  Kizuri::DestroyRHI(rhi);
+  rhi = nullptr;
+  db.SetGpuRHI(nullptr);
+  fs::remove_all(dir, ec);
+  return ok;
+}
+static Kizuri::TextureAssetData MakeRgbaTestTex(int w, int h, unsigned char r, unsigned char g, unsigned char b) {
+  Kizuri::TextureAssetData td;
+  td.width = static_cast<uint32_t>(w);
+  td.height = static_cast<uint32_t>(h);
+  td.format = Kizuri::TexFormat::Rgba8;
+  td.srgb = true;
+  td.hasSource = false;
+  Kizuri::TextureMipData mip;
+  mip.width = static_cast<uint32_t>(w);
+  mip.height = static_cast<uint32_t>(h);
+  mip.rowPitch = static_cast<uint32_t>(w * 4);
+  mip.data.resize(static_cast<size_t>(w) * h * 4);
+  for (int i = 0; i < w * h; ++i) {
+    mip.data[static_cast<size_t>(i) * 4 + 0] = r;
+    mip.data[static_cast<size_t>(i) * 4 + 1] = g;
+    mip.data[static_cast<size_t>(i) * 4 + 2] = b;
+    mip.data[static_cast<size_t>(i) * 4 + 3] = 255;
+  }
+  td.mips.push_back(mip);
+  return td;
+}
+bool TestCookieArray() {
+  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  Kizuri::RHIDesc desc;
+  desc.windowHandle = nullptr;
+  desc.width = 64;
+  desc.height = 64;
+  desc.vsync = false;
+  rhi->Initialize(desc);
+  Kizuri::AssetDatabase db;
+  db.SetGpuRHI(rhi);
+  Kizuri::TextureAssetData red = MakeRgbaTestTex(4, 4, 255, 0, 0);
+  Kizuri::TextureAssetData blue = MakeRgbaTestTex(8, 4, 0, 0, 255);
+  std::vector<const Kizuri::TextureAssetData*> slices;
+  slices.push_back(&red);
+  slices.push_back(&blue);
+  slices.push_back(nullptr);
+  Kizuri::RHITexture arr = db.BuildCookieArray(slices);
+  bool ok = arr != 0;
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestProcedural() {
+  Kizuri::AssetDatabase db;
+  std::string g0 = db.CreateProceduralTexture(0, 16, 16);
+  std::string g3 = db.CreateProceduralTexture(3, 16, 16);
+  std::string bad = db.CreateProceduralTexture(9, 16, 16);
+  if (g0.empty() || g3.empty() || !bad.empty()) {
+    return false;
+  }
+  if (db.CreateProceduralTexture(0, 16, 16) != g0) {
+    return false;
+  }
+  const Kizuri::TextureRecord* tr = db.GetTexByGuid(g0);
+  if (tr == nullptr || tr->data.mips.empty()) {
+    return false;
+  }
+  const Kizuri::TextureMipData& mip = tr->data.mips[0];
+  if (mip.width != 16 || mip.height != 16) {
+    return false;
+  }
+  if (mip.data[0] != 255 || mip.data[3] != 255) {
+    return false;
+  }
+  size_t dark = (static_cast<size_t>(0) * 16 + 8) * 4;
+  if (mip.data[dark] != 32) {
+    return false;
+  }
+  const Kizuri::TextureRecord* tn = db.GetTexByGuid(g3);
+  if (tn == nullptr || tn->data.mips.empty() || tn->data.mips[0].data[0] != 128 || tn->data.mips[0].data[2] != 255) {
+    return false;
+  }
+  return true;
+}
+bool TestDecalAtlas() {
+  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  Kizuri::RHIDesc desc;
+  desc.windowHandle = nullptr;
+  desc.width = 64;
+  desc.height = 64;
+  desc.vsync = false;
+  rhi->Initialize(desc);
+  Kizuri::AssetDatabase db;
+  db.SetGpuRHI(rhi);
+  Kizuri::TextureAssetData red = MakeRgbaTestTex(4, 4, 255, 0, 0);
+  Kizuri::TextureAssetData green = MakeRgbaTestTex(4, 4, 0, 255, 0);
+  std::vector<const Kizuri::TextureAssetData*> texs;
+  texs.push_back(&red);
+  texs.push_back(&green);
+  std::vector<float> rects;
+  Kizuri::RHITexture atlas = db.BuildDecalAtlas(texs, rects);
+  bool ok = atlas != 0 && rects.size() == 8 && rects[0] == 0.0f && rects[2] == 0.25f && rects[4] == 0.25f;
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestVirtualTexture() {
+  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  Kizuri::RHIDesc desc;
+  desc.windowHandle = nullptr;
+  desc.width = 64;
+  desc.height = 64;
+  desc.vsync = false;
+  rhi->Initialize(desc);
+  Kizuri::AssetDatabase db;
+  db.SetGpuRHI(rhi);
+  std::string guid = db.CreateProceduralTexture(0, 256, 256);
+  if (guid.empty()) {
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  const Kizuri::TextureRecord* tr = db.GetTexByGuid(guid);
+  if (tr == nullptr) {
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  int vt = db.CreateVirtualTexture(&tr->data, guid);
+  if (vt < 0) {
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  if (!db.UpdateVirtualTexture(guid, 2.0f, 64)) {
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  Kizuri::VtBundle bundle;
+  if (!db.GetVirtualBundle(guid, bundle) || !bundle.valid || bundle.residentMip != 0.0f) {
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  if (!db.UpdateVirtualTexture(guid, 500.0f, 64)) {
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  bool ok = db.GetVirtualBundle(guid, bundle) && bundle.valid && bundle.residentMip == 99.0f;
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
@@ -8098,6 +8480,14 @@ int main() {
   failures += Check("GodUpsample", TestGodUpsample());
   failures += Check("RobustExp", TestRobustExp());
   failures += Check("Sss", TestSss());
+  failures += Check("GpuDriven", TestGpuDriven());
+  failures += Check("StaticMerge", TestStaticMerge());
+  failures += Check("Meshlets", TestMeshlets());
+  failures += Check("MeshStreaming", TestMeshStreaming());
+  failures += Check("CookieArray", TestCookieArray());
+  failures += Check("Procedural", TestProcedural());
+  failures += Check("DecalAtlas", TestDecalAtlas());
+  failures += Check("VirtualTexture", TestVirtualTexture());
   failures += Check("LensDirt", TestLensDirt());
   failures += Check("RHI-Null", TestRHINull());
   failures += Check("FrustumCull", TestFrustumCull());

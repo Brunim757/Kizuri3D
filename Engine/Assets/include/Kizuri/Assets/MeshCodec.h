@@ -118,5 +118,23 @@ std::string LodSiblingPath(const std::string& baseMeshPath, int tier);
 bool IsAutoLodPath(const std::string& path);
 void SelectAutoLod(float dist, float nearDist, float farDist, int& tierA, int& tierB, float& fadeB);
 bool OptimizeVertexCache(MeshAssetData& data);
+struct MeshletRange {
+  uint32_t indexOffset = 0;
+  uint32_t indexCount = 0;
+  float apex[3] = { 0.0f, 0.0f, 0.0f };
+  float axis[3] = { 0.0f, 0.0f, 1.0f };
+  float cutoff = 1.0f;
+  float center[3] = { 0.0f, 0.0f, 0.0f };
+  float radius = 0.0f;
+};
+bool BuildMeshlets(MeshAssetData& data, std::vector<MeshletRange>& outRanges);
+bool MeshletRangeVisible(const float world[16], const MeshletRange& range, const float planes[6][4], const float camPos[3]);
+struct StaticMergePart {
+  const MeshAssetData* data = nullptr;
+  uint32_t indexOffset = 0;
+  uint32_t indexCount = 0;
+  float world[16] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+};
+bool BuildMergedMesh(const std::vector<StaticMergePart>& parts, MeshAssetData& out);
 bool UnwrapPrim(const std::vector<float>& inPos, const std::vector<float>& inNrm, const std::vector<float>& inUv, const std::vector<float>& inTan, const std::vector<uint32_t>& inIdx, std::vector<float>& outPos, std::vector<float>& outNrm, std::vector<float>& outUv, std::vector<float>& outTan, std::vector<uint32_t>& outIdx, std::vector<float>& outUv2);
 }

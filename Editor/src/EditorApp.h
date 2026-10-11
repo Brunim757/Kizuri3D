@@ -14,6 +14,7 @@
 #include "Kizuri/DeferredRenderer.h"
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 namespace Kizuri {
 struct EditorApp {
   Window window;
@@ -66,6 +67,25 @@ struct EditorApp {
   bool viewDynRes;
   float viewDynTarget;
   bool viewOcc;
+  bool viewGpuDriven;
+  bool viewStaticBatch;
+  bool viewMeshletCull;
+  int viewProcMode;
+  int viewProcSize;
+  std::string viewProcGuid;
+  struct StaticBucketDraw {
+    std::string guid;
+    DeferredMaterial mat;
+    float bmin[3];
+    float bmax[3];
+    std::vector<EntityId> ids;
+  };
+  std::string lastStaticKey;
+  std::vector<StaticBucketDraw> lastStaticBuckets;
+  std::string lastCookieKey;
+  std::string lastDecalKey;
+  std::vector<float> lastDecalRects;
+  std::vector<std::string> lastDecalGuids;
   bool viewShadowAuto;
   int viewShadowFilter;
   int viewVsmQuality;
@@ -199,6 +219,8 @@ struct EditorApp {
   void DrawSettings();
   void DrawMeshSection(Entity* e);
   void SubmitSceneDraws(const float cpos[3]);
+  std::unordered_set<EntityId, EntityIdHash> SubmitStaticBatches(const float cpos[3]);
+  void DrawMeshRanges(const float world[16], const MeshRecord* rec, uint32_t partOff, uint32_t partCount, const DeferredMaterial* mat, float fade, const float* aabbMin, const float* aabbMax, const float* camPos);
   void BakeEnvironment();
   void BakeLightmap(EntityId id);
   void BakeFaces(float px, float py, float pz);

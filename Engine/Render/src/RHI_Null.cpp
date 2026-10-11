@@ -431,6 +431,62 @@ public:
     std::memset(dst, 0, bytes);
     return true;
   }
+  RHIStructBuffer CreateIndirectArgs() override {
+    uint64_t id = nextId++;
+    shaders[id] = 1;
+    return id;
+  }
+  void DrawIndexedIndirect(RHIStructBuffer argsBuf) override {
+    (void)argsBuf;
+    Note(false);
+  }
+  void ClearStructBufferUint(RHIStructBuffer buf, uint32_t v) override {
+    (void)buf;
+    (void)v;
+  }
+  bool UpdateStructBuffer(RHIStructBuffer buf, const void* data, size_t bytes) override {
+    (void)buf;
+    (void)data;
+    (void)bytes;
+    return true;
+  }
+  void SetInstanceBufferStruct(RHIStructBuffer buf) override {
+    (void)buf;
+    Note(false);
+  }
+  RHITexture CreateTextureArray(int w, int h, int slices, int mipLevels, RHITextureFormat fmt) override {
+    (void)w;
+    (void)h;
+    (void)slices;
+    (void)mipLevels;
+    (void)fmt;
+    uint64_t id = nextId++;
+    shaders[id] = 1;
+    return id;
+  }
+  bool UpdateTextureArraySlice(RHITexture tex, int slice, int mip, int w, int h, uint32_t rowPitch, const void* data, size_t bytes) override {
+    (void)tex;
+    (void)slice;
+    (void)mip;
+    (void)w;
+    (void)h;
+    (void)rowPitch;
+    (void)data;
+    (void)bytes;
+    return true;
+  }
+  bool UpdateTextureRegion(RHITexture tex, int mip, int x, int y, int w, int h, uint32_t rowPitch, const void* data, size_t bytes) override {
+    (void)tex;
+    (void)mip;
+    (void)x;
+    (void)y;
+    (void)w;
+    (void)h;
+    (void)rowPitch;
+    (void)data;
+    (void)bytes;
+    return true;
+  }
   void SetPixelTexture2D(uint32_t slot, RHITexture tex) override {
     (void)slot;
     (void)tex;

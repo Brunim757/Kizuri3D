@@ -28,6 +28,10 @@ struct LodEdit {
   EntityId target;
   LodData value;
 };
+struct StaticEdit {
+  EntityId target;
+  bool value;
+};
 struct LightmapEdit {
   EntityId target;
   LightmapData value;
@@ -52,6 +56,7 @@ public:
   void PushPartMaterial(EntityId target, uint32_t part, const MaterialData& value);
   void PushDecal(EntityId target, const DecalData& value);
   void PushLod(EntityId target, const LodData& value);
+  void PushStatic(EntityId target, bool value);
   void PushLightmap(EntityId target, const LightmapData& value);
   void PushProbe(EntityId target, const ProbeData& value);
   void PushPost(EntityId target, const PostData& value);
@@ -66,6 +71,7 @@ private:
   std::vector<PartMaterialEdit> partMaterialEdits;
   std::vector<DecalEdit> decalEdits;
   std::vector<LodEdit> lodEdits;
+  std::vector<StaticEdit> staticEdits;
   std::vector<LightmapEdit> lightmapEdits;
   std::vector<ProbeEdit> probeEdits;
   std::vector<PostEdit> postEdits;

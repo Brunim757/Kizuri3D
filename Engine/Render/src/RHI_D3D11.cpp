@@ -1233,6 +1233,175 @@ public:
     context->Unmap(staging.Get(), 0);
     return true;
   }
+  RHIStructBuffer CreateIndirectArgs() override {
+    D3D11_BUFFER_DESC bd;
+    bd.ByteWidth = 20;
+    bd.Usage = D3D11_USAGE_DEFAULT;
+    bd.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+    bd.CPUAccessFlags = 0;
+    bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED | D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS;
+    bd.StructureByteStride = 4;
+    ComPtr<ID3D11Buffer> buf;
+    if (FAILED(device->CreateBuffer(&bd, nullptr, buf.GetAddressOf()))) {
+      return 0;
+    }
+    D3D11_SHADER_RESOURCE_VIEW_DESC svd;
+    svd.Format = DXGI_FORMAT_UNKNOWN;
+    svd.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
+    svd.BufferEx.FirstElement = 0;
+    svd.BufferEx.NumElements = 5;
+    svd.BufferEx.Flags = 0;
+    ComPtr<ID3D11ShaderResourceView> srv;
+    if (FAILED(device->CreateShaderResourceView(buf.Get(), &svd, srv.GetAddressOf()))) {
+      return 0;
+    }
+    D3D11_UNORDERED_ACCESS_VIEW_DESC uvd;
+    uvd.Format = DXGI_FORMAT_UNKNOWN;
+    uvd.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+    uvd.Buffer.FirstElement = 0;
+    uvd.Buffer.NumElements = 5;
+    uvd.Buffer.Flags = 0;
+    ComPtr<ID3D11UnorderedAccessView> uav;
+    if (FAILED(device->CreateUnorderedAccessView(buf.Get(), &uvd, uav.GetAddressOf()))) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    StructBuf sb;
+    sb.buf = buf;
+    sb.srv = srv;
+    sb.uav = uav;
+    sb.count = 5;
+    sb.stride = 4;
+    structBufs[id] = sb;
+    return id;
+  }
+  void DrawIndexedIndirect(RHIStructBuffer argsBuf) override {
+    auto it = structBufs.find(argsBuf);
+    if (it == structBufs.end()) {
+      return;
+    }
+    context->DrawIndexedInstancedIndirect(it->second.buf.Get(), 0);
+  }
+  void ClearStructBufferUint(RHIStructBuffer buf, uint32_t v) override {
+    auto it = structBufs.find(buf);
+    if (it == structBufs.end() || it->second.uav.Get() == nullptr) {
+      return;
+    }
+    UINT values[4] = { v, v, v, v };
+    context->ClearUnorderedAccessViewUint(it->second.uav.Get(), values);
+  }
+  bool UpdateStructBuffer(RHIStructBuffer buf, const void* data, size_t bytes) override {
+    auto it = structBufs.find(buf);
+    if (it == structBufs.end() || data == nullptr || bytes == 0) {
+      return false;
+    }
+    size_t total = static_cast<size_t>(it->second.count) * it->second.stride;
+    if (bytes > total) {
+      bytes = total;
+    }
+    context->UpdateSubresource(it->second.buf.Get(), 0, nullptr, data, 0, 0);
+    return true;
+  }
+  void SetInstanceBufferStruct(RHIStructBuffer buf) override {
+    auto it = structBufs.find(buf);
+    ID3D11Buffer* b = (it == structBufs.end()) ? nullptr : it->second.buf.Get();
+    UINT stride = (it == structBufs.end() || it->second.stride == 0) ? 64 : it->second.stride;
+    UINT offset = 0;
+    context->IASetVertexBuffers(1, 1, &b, &stride, &offset);
+  }
+  RHITexture CreateTextureArray(int tw, int th, int slices, int mipLevels, RHITextureFormat fmt) override {
+    if (tw <= 0 || th <= 0 || slices <= 0 || slices > 32 || mipLevels <= 0 || mipLevels > 16) {
+      return 0;
+    }
+    D3D11_TEXTURE2D_DESC td;
+    td.Width = static_cast<UINT>(tw);
+    td.Height = static_cast<UINT>(th);
+    td.MipLevels = static_cast<UINT>(mipLevels);
+    td.ArraySize = static_cast<UINT>(slices);
+    td.Format = ToTextureFormat(fmt);
+    td.SampleDesc.Count = 1;
+    td.SampleDesc.Quality = 0;
+    td.Usage = D3D11_USAGE_DEFAULT;
+    td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    td.CPUAccessFlags = 0;
+    td.MiscFlags = 0;
+    ComPtr<ID3D11Texture2D> tex;
+    if (FAILED(device->CreateTexture2D(&td, nullptr, tex.GetAddressOf()))) {
+      return 0;
+    }
+    D3D11_SHADER_RESOURCE_VIEW_DESC sd;
+    sd.Format = td.Format;
+    sd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+    sd.Texture2DArray.MostDetailedMip = 0;
+    sd.Texture2DArray.MipLevels = static_cast<UINT>(mipLevels);
+    sd.Texture2DArray.FirstArraySlice = 0;
+    sd.Texture2DArray.ArraySize = static_cast<UINT>(slices);
+    ComPtr<ID3D11ShaderResourceView> srv;
+    if (FAILED(device->CreateShaderResourceView(tex.Get(), &sd, srv.GetAddressOf()))) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    TexEntry entry;
+    entry.tex = tex;
+    entry.srv = srv;
+    entry.w = tw;
+    entry.h = th;
+    entry.mips = mipLevels;
+    entry.slices = slices;
+    entry.fmt = fmt;
+    textures[id] = entry;
+    return id;
+  }
+  bool UpdateTextureArraySlice(RHITexture tex, int slice, int mip, int mw, int mh, uint32_t rowPitch, const void* data, size_t bytes) override {
+    auto it = textures.find(tex);
+    if (it == textures.end() || data == nullptr) {
+      return false;
+    }
+    if (slice < 0 || slice >= it->second.slices) {
+      return false;
+    }
+    if (!CheckTextureMipParams(it->second.w, it->second.h, it->second.mips, it->second.fmt, mip, mw, mh, rowPitch, bytes)) {
+      return false;
+    }
+    UINT sub = D3D11CalcSubresource(static_cast<UINT>(mip), static_cast<UINT>(slice), static_cast<UINT>(it->second.mips));
+    context->UpdateSubresource(it->second.tex.Get(), sub, nullptr, data, rowPitch, 0);
+    return true;
+  }
+  bool UpdateTextureRegion(RHITexture tex, int mip, int x, int y, int w, int h, uint32_t rowPitch, const void* data, size_t bytes) override {
+    auto it = textures.find(tex);
+    if (it == textures.end() || data == nullptr) {
+      return false;
+    }
+    if (mip < 0 || mip >= it->second.mips || x < 0 || y < 0 || w <= 0 || h <= 0) {
+      return false;
+    }
+    int mw = it->second.w >> mip;
+    int mh = it->second.h >> mip;
+    if (mw < 1) {
+      mw = 1;
+    }
+    if (mh < 1) {
+      mh = 1;
+    }
+    if (x + w > mw || y + h > mh) {
+      return false;
+    }
+    size_t need = static_cast<size_t>(rowPitch) * static_cast<size_t>(h);
+    if (bytes < need) {
+      return false;
+    }
+    UINT sub = D3D11CalcSubresource(static_cast<UINT>(mip), 0, static_cast<UINT>(it->second.mips));
+    D3D11_BOX box;
+    box.left = static_cast<UINT>(x);
+    box.top = static_cast<UINT>(y);
+    box.front = 0;
+    box.right = static_cast<UINT>(x + w);
+    box.bottom = static_cast<UINT>(y + h);
+    box.back = 1;
+    context->UpdateSubresource(it->second.tex.Get(), sub, &box, data, rowPitch, 0);
+    it->second.resident.insert(mip);
+    return true;
+  }
   void SetPixelTexture(uint32_t slot, RHIRenderTarget rt) override {
     if (rt == 0) {
       ID3D11ShaderResourceView* nullSrv = nullptr;
@@ -1917,6 +2086,7 @@ private:
     int w = 0;
     int h = 0;
     int mips = 0;
+    int slices = 1;
     RHITextureFormat fmt = RHITextureFormat::RGBA8_UNORM;
     bool isCube = false;
     std::set<int> resident;

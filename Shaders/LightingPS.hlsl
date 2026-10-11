@@ -81,6 +81,7 @@ TextureCube PointCube : register(t5);
 Texture2D MomentsTX : register(t21);
 Texture2D BentTX : register(t22);
 Texture2D CookieTX : register(t23);
+Texture2DArray CookieArray : register(t27);
 Texture2D LinkTX : register(t24);
 Texture2D ClusterTX : register(t25);
 Texture3D DdgiTX : register(t26);
@@ -786,7 +787,12 @@ float4 main(PSIn pin) : SV_Target
                     if (scc.w > 1e-5) {
                         float2 cuv = scc.xy / scc.w * float2(0.5, -0.5) + 0.5;
                         if (cuv.x >= 0.0 && cuv.x <= 1.0 && cuv.y >= 0.0 && cuv.y <= 1.0) {
-                            cookie = CookieTX.SampleLevel(LinearSampler, cuv, 0).rgb;
+                            if (Counts.w > 1.5) {
+                                int slice = i < 0 ? 0 : (i > 15 ? 15 : i);
+                                cookie = CookieArray.SampleLevel(LinearSampler, float3(cuv, (float) slice), 0).rgb;
+                            } else {
+                                cookie = CookieTX.SampleLevel(LinearSampler, cuv, 0).rgb;
+                            }
                         }
                     }
                 }

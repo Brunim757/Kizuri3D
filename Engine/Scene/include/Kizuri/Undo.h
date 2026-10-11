@@ -351,6 +351,17 @@ private:
   LodData before;
   LodData after;
 };
+class SetStaticCmd : public Command {
+public:
+  SetStaticCmd(EntityId target, bool before, bool after);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  bool before;
+  bool after;
+};
 class AddLodCmd : public Command {
 public:
   explicit AddLodCmd(EntityId target);

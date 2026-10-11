@@ -8,6 +8,10 @@ cbuffer SsrCB : register(b0)
 Texture2D PositionTX : register(t0);
 Texture2D NormalRoughTX : register(t1);
 Texture2D AlbedoTX : register(t2);
+Texture2D Hzb0TX : register(t3);
+Texture2D Hzb1TX : register(t4);
+Texture2D Hzb2TX : register(t5);
+Texture2D Hzb3TX : register(t6);
 SamplerState LinearSampler : register(s0);
 struct PSIn
 {
@@ -29,14 +33,12 @@ float4 main(PSIn pin) : SV_Target
     float3 V = normalize(CamPos.xyz - wpos);
     float3 R = reflect(-V, N);
     float stepLen = Params.y / max(Params.x, 1.0);
-    float3 march = wpos;
+    float t = stepLen;
+    int mip = 2;
     float2 hitUv = float2(-1.0, -1.0);
     float found = 0.0;
-    for (int i = 0; i < 24; ++i) {
-        if ((float) i >= Params.x) {
-            break;
-        }
-        march += R * stepLen;
+    for (int i = 0; i < 32; ++i) {
+        float3 march = wpos + R * t;
         float4 sp = mul(float4(march, 1.0), ViewProj);
         if (sp.w <= 1e-5) {
             break;
@@ -45,16 +47,28 @@ float4 main(PSIn pin) : SV_Target
         if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0) {
             break;
         }
-        float3 scene = PositionTX.SampleLevel(LinearSampler, suv, 0).xyz;
-        if (dot(scene, scene) < 1e-8) {
-            continue;
+        float cellMin = Hzb0TX.SampleLevel(LinearSampler, suv, 0).r;
+        if (mip == 1) {
+            cellMin = Hzb1TX.SampleLevel(LinearSampler, suv, 0).r;
+        } else if (mip == 2) {
+            cellMin = Hzb2TX.SampleLevel(LinearSampler, suv, 0).r;
+        } else if (mip >= 3) {
+            cellMin = Hzb3TX.SampleLevel(LinearSampler, suv, 0).r;
         }
-        float marchD = length(march - CamPos.xyz);
-        float sceneD = length(scene - CamPos.xyz);
-        if (marchD > sceneD + 0.05) {
-            hitUv = suv;
-            found = 1.0;
-            break;
+        float rayD = length(march - CamPos.xyz);
+        float bias = 0.05 * (float) (1 << min(mip, 3));
+        if (rayD > cellMin + bias) {
+            if (mip == 0) {
+                hitUv = suv;
+                found = 1.0;
+                break;
+            }
+            mip--;
+        } else {
+            t += stepLen * (float) (1 << min(mip, 3));
+            if (mip < 2) {
+                mip++;
+            }
         }
     }
     if (found < 0.5) {

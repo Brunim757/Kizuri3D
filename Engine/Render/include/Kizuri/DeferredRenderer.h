@@ -1,6 +1,7 @@
 #pragma once
 #include "Kizuri/RHI.h"
 #include <vector>
+#include <string>
 #include <unordered_map>
 #include <chrono>
 #include <stdint.h>
@@ -66,8 +67,7 @@ struct DeferredMaterial {
   float dispersion = 0.0f;
   uint32_t linkGroup = 0xFF;
   RHITexture detailAlbedoTex = 0;
-  RHITexture detailNormalTex = 0;
-  float detailTiling = 8.0f;
+  RHITexture detailNormalTex = 0;  float detailTiling = 8.0f;
   float layerWeight = 0.0f;
   float layerAlbedo[3] = { 0.5f, 0.5f, 0.5f };
   float layerRoughness = 0.8f;
@@ -76,6 +76,10 @@ struct DeferredMaterial {
   bool layerHeightBlend = false;
   float sssColor[3] = { 0.85f, 0.35f, 0.25f };
   float sssIntensity = 0.0f;
+  RHITexture vtTable = 0;
+  RHITexture vtTail = 0;
+  float vtResidentMip = 99.0f;
+  std::string vtGuid;
 };
 struct DeferredLight {
   float direction[3];
@@ -155,6 +159,8 @@ struct DecalDrawItem {
   int matMask;
   float matRough;
   float matMetal;
+  float atlasRect[4];
+  bool useAtlas;
 };
 struct ForwardDrawItem {
   float world[16];
@@ -175,6 +181,9 @@ struct GeoBatchItem {
   DeferredMaterial mat;
   float lodFade;
   uint64_t matHash;
+  float bmin[3];
+  float bmax[3];
+  bool hasBounds;
 };
 struct RenderStats {
   uint32_t geometryDraws = 0;
@@ -189,6 +198,9 @@ struct RenderStats {
   uint32_t culledDraws = 0;
   uint32_t occludedDraws = 0;
   uint32_t instancedDraws = 0;
+  uint32_t gpuDrivenDraws = 0;
+  uint32_t staticBatches = 0;
+  uint32_t staticSavedDraws = 0;
   uint32_t clusterMax = 0;
   float clusterAvg = 0.0f;
   bool shadowCached = false;
@@ -216,6 +228,7 @@ public:
   void Shutdown();
   bool SetMesh(const float* positions, const float* normals, const float* uvs, size_t vertexCount, const uint32_t* indices, size_t indexCount, const float* tangents = nullptr, const float* uv2 = nullptr);
   void SetMaterial(const DeferredMaterial& mat);
+  const DeferredMaterial& DefaultMaterial() const { return material; }
   void SetLight(const DeferredLight& light);
   void ClearLights();
   void AddPointLight(const RenderPointLight& light);
@@ -227,6 +240,7 @@ public:
   void SetCameraLightMask(uint32_t mask);
   void SetSpotCookie(RHITexture tex);
   void SetSpotCookieOn(bool on);
+  void SetCookieArray(RHITexture tex);
   void SetMaterialLinkGroup(uint32_t matId, uint32_t mask);
   void SetMainCamera(const MainCameraSetup& setup);
   void SetShadowDebug(bool debug);
@@ -245,6 +259,12 @@ public:
   const DeferredMaterial* GetInstanceMaterial(uint32_t id) const;
   void SetClustered(bool on);
   void SetGpuCulling(bool on);
+  void SetGpuDriven(bool on);
+  bool IsGpuDriven() const { return gpuDriven; }
+  uint32_t GpuDrivenDraws() const;
+  void SetStaticBatchInfo(uint32_t batches, uint32_t savedDraws);
+  bool GetFrustumPlanes(float planes[6][4]) const;
+  static bool CullSphereVisible(const float planes[6][4], const float c[3], float radius);
   void SetForwardPlus(bool on);
   bool ClusterReady() const;
   bool GpuCullingActive() const;
@@ -312,6 +332,8 @@ public:
   void DrawObject(const float world[16]);
   void DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat, float lodFade = 0.0f, const float* aabbMin = nullptr, const float* aabbMax = nullptr);
   void DrawDecal(const float world[16], const float invWorld[16], const float size[3], float fade, RHITexture tex, int matMask = 1, float matRough = 0.5f, float matMetal = 0.0f);
+  void DrawDecalAtlas(const float world[16], const float invWorld[16], const float size[3], float fade, const float rect[4], int matMask = 1, float matRough = 0.5f, float matMetal = 0.0f);
+  void SetDecalAtlas(RHITexture tex);
   void EndObjectsToTexture(const float camPos[3]);
   void EndObjectsToBackbuffer(const float camPos[3]);
   bool IsReady() const;
@@ -377,6 +399,7 @@ public:
   RHIPixelShader decalPS;
   RHIPixelShader decalMatsPS;
   RHIConstBuffer decalCB;
+  RHITexture decalAtlasTex;
   RHIBuffer decalVB;
   RHIBuffer decalIB;
   RHIRenderTarget shadowAtlas;
@@ -474,6 +497,7 @@ public:
   void SetGeoMaterial(const DeferredMaterial& use, float lodFade);
   void DrawGeoSingle(const GeoBatchItem& item);
   void DrawGeoInstanced(uint64_t key, const std::vector<size_t>& indices);
+  void DrawGeoGpuDriven(const std::vector<size_t>& indices);
   void FlushGeoQueue();
   bool shadowCacheOn;
   bool shadowAutoRes;
@@ -567,6 +591,9 @@ public:
   RHIPixelShader ssrTemporalPS;
   RHIConstBuffer ssrCB;
   RHIConstBuffer ssrTCB;
+  RHIPixelShader hzbPS;
+  RHIConstBuffer hzbCB;
+  RHIRenderTarget hzbA[5];
   RHIRenderTarget ssrA;
   RHIRenderTarget ssrTmp;
   RHIRenderTarget ssrHist;
@@ -652,6 +679,13 @@ public:
   RHIComputeShader lightGridCS;
   RHIConstBuffer cullCB;
   RHIStructBuffer gridBuf;
+  RHIComputeShader cullInstCS;
+  RHIConstBuffer instCullCB;
+  RHIStructBuffer cullInBuf;
+  RHIStructBuffer cullOutBuf;
+  RHIStructBuffer cullArgsBuf;
+  uint32_t cullBufCap;
+  bool gpuDriven;
   bool computeAvailable;
   bool gpuCullParity;
   bool forwardPlus;
@@ -679,6 +713,7 @@ public:
   void AssignForwardLights();
   std::vector<std::string> shaderErrors;
   void RunDebugPass(const float camPos[3]);
+  void BuildHzb(const float camPos[3]);
   void RunOverdrawPass();
   void RunUvPass();
   RHIRenderTarget taaA;
@@ -751,6 +786,7 @@ public:
   uint32_t camLightMask;
   RHITexture spotCookie;
   bool spotCookieOn;
+  RHITexture cookieArrayTex;
   RHITexture linkTable;
   unsigned char linkPx[256 * 4];
   bool CreateTargets();

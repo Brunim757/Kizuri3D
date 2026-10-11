@@ -5,9 +5,12 @@ cbuffer DecalCB : register(b0)
     float4 DecalScreen;
     float4 DecalMat;
     float4 DecalWorldN;
+    float4 DecalAtlasRect;
+    float4 DecalAtlasMeta;
 };
 Texture2D DecalTex : register(t0);
 Texture2D PositionTX : register(t1);
+Texture2D DecalAtlas : register(t2);
 SamplerState DecalSamp : register(s0);
 SamplerState LinearSampler : register(s1);
 struct PSIn
@@ -43,7 +46,13 @@ PSOut main(PSIn pin)
         discard;
     }
     float2 uv = local.xy + 0.5;
-    float4 tex = DecalTex.Sample(DecalSamp, uv);
+    float4 tex;
+    if (DecalAtlasMeta.x > 0.5) {
+        float2 auv = DecalAtlasRect.xy + uv * (DecalAtlasRect.zw - DecalAtlasRect.xy);
+        tex = DecalAtlas.Sample(DecalSamp, auv);
+    } else {
+        tex = DecalTex.Sample(DecalSamp, uv);
+    }
     float a = tex.a * SizeFade.w;
     if (a <= 0.5) {
         discard;

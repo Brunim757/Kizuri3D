@@ -911,6 +911,32 @@ bool SetLodCmd::Revert(Scene& scene) {
 const char* SetLodCmd::Name() const {
   return "Set LOD";
 }
+SetStaticCmd::SetStaticCmd(EntityId t, bool b, bool a)
+  : target(t)
+  , before(b)
+  , after(a) {
+}
+bool SetStaticCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->isStatic = after;
+  scene.MarkDirty();
+  return true;
+}
+bool SetStaticCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->isStatic = before;
+  scene.MarkDirty();
+  return true;
+}
+const char* SetStaticCmd::Name() const {
+  return "Set Static";
+}
 AddLodCmd::AddLodCmd(EntityId t)
   : target(t)
   , prevHas(false) {

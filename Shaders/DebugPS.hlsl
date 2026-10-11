@@ -17,6 +17,7 @@ Texture2D ShadowAtlasTX : register(t7);
 Texture2D OverdrawTX : register(t8);
 Texture2D UvTX : register(t9);
 Texture2D LightTX : register(t10);
+Texture2D HzbTX : register(t11);
 SamplerState LinearSampler : register(s0);
 struct PSIn
 {
@@ -99,6 +100,10 @@ float4 main(PSIn pin) : SV_Target
     } else if (mode < 16.5) {
         float2 u = UvTX.Sample(LinearSampler, pin.uv).rg;
         return float4(frac(u), 0.0, 1.0);
+    } else if (mode < 18.5) {
+        float hd = HzbTX.Sample(LinearSampler, pin.uv).r;
+        float hv = saturate(1.0 - hd / max(DebugMode.z, 1.0));
+        return float4(hv, hv, hv, 1.0);
     }
     return float4(LightTX.Sample(LinearSampler, pin.uv).rgb, 1.0);
 }

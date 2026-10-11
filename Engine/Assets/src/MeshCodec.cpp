@@ -4,6 +4,7 @@
 #include <flatbuffers/flatbuffers.h>
 #include <meshoptimizer.h>
 #include <zstd.h>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -604,5 +605,361 @@ bool OptimizeVertexCache(MeshAssetData& data) {
     anyOk = true;
   }
   return anyOk;
+}
+bool BuildMergedMesh(const std::vector<StaticMergePart>& parts, MeshAssetData& out) { out = MeshAssetData();
+  if (parts.empty()) {
+    return false;
+  }
+  size_t totalVerts = 0;
+  size_t totalIdx = 0;
+  for (size_t i = 0; i < parts.size(); ++i) {
+    const StaticMergePart& p = parts[i];
+    if (p.data == nullptr || p.indexCount == 0 || p.indexCount % 3 != 0) {
+      return false;
+    }
+    size_t vc = p.data->positions.size() / 3;
+    if (vc == 0 || p.data->normals.size() != vc * 3) {
+      return false;
+    }
+    if (static_cast<size_t>(p.indexOffset) + static_cast<size_t>(p.indexCount) > p.data->indices.size()) {
+      return false;
+    }
+    totalVerts += vc;
+    totalIdx += p.indexCount;
+    if (totalVerts > 1000000 || totalIdx > 3000000) {
+      return false;
+    }
+  }
+  out.positions.reserve(totalVerts * 3);
+  out.normals.reserve(totalVerts * 3);
+  out.uvs.reserve(totalVerts * 2);
+  out.tangents.reserve(totalVerts * 4);
+  out.indices.reserve(totalIdx);
+  bool needTangentGen = false;
+  for (size_t i = 0; i < parts.size(); ++i) {
+    const StaticMergePart& p = parts[i];
+    const MeshAssetData& d = *p.data;
+    size_t vc = d.positions.size() / 3;
+    uint32_t base = static_cast<uint32_t>(out.positions.size() / 3);
+    const float* m = p.world;
+    float a00 = m[0];
+    float a01 = m[1];
+    float a02 = m[2];
+    float a10 = m[4];
+    float a11 = m[5];
+    float a12 = m[6];
+    float a20 = m[8];
+    float a21 = m[9];
+    float a22 = m[10];
+    float det = a00 * (a11 * a22 - a12 * a21) - a01 * (a10 * a22 - a12 * a20) + a02 * (a10 * a21 - a11 * a20);
+    float inv[9];
+    if (det > 1e-12f || det < -1e-12f) {
+      float id = 1.0f / det;
+      inv[0] = (a11 * a22 - a12 * a21) * id;
+      inv[1] = (a02 * a21 - a01 * a22) * id;
+      inv[2] = (a01 * a12 - a02 * a11) * id;
+      inv[3] = (a12 * a20 - a10 * a22) * id;
+      inv[4] = (a00 * a22 - a02 * a20) * id;
+      inv[5] = (a02 * a10 - a00 * a12) * id;
+      inv[6] = (a10 * a21 - a11 * a20) * id;
+      inv[7] = (a01 * a20 - a00 * a21) * id;
+      inv[8] = (a00 * a11 - a01 * a10) * id;
+    } else {
+      inv[0] = 1.0f;
+      inv[1] = 0.0f;
+      inv[2] = 0.0f;
+      inv[3] = 0.0f;
+      inv[4] = 1.0f;
+      inv[5] = 0.0f;
+      inv[6] = 0.0f;
+      inv[7] = 0.0f;
+      inv[8] = 1.0f;
+    }
+    bool hasUv = d.uvs.size() == vc * 2;
+    bool hasTan = d.tangents.size() == vc * 4;
+    if (!hasTan) {
+      needTangentGen = true;
+    }
+    for (size_t v = 0; v < vc; ++v) {
+      float x = d.positions[v * 3 + 0];
+      float y = d.positions[v * 3 + 1];
+      float z = d.positions[v * 3 + 2];
+      out.positions.push_back(x * m[0] + y * m[4] + z * m[8] + m[12]);
+      out.positions.push_back(x * m[1] + y * m[5] + z * m[9] + m[13]);
+      out.positions.push_back(x * m[2] + y * m[6] + z * m[10] + m[14]);
+      float nx = d.normals[v * 3 + 0];
+      float ny = d.normals[v * 3 + 1];
+      float nz = d.normals[v * 3 + 2];
+      float wx = nx * inv[0] + ny * inv[3] + nz * inv[6];
+      float wy = nx * inv[1] + ny * inv[4] + nz * inv[7];
+      float wz = nx * inv[2] + ny * inv[5] + nz * inv[8];
+      float wl = std::sqrt(wx * wx + wy * wy + wz * wz);
+      if (wl < 1e-12f) {
+        wx = 0.0f;
+        wy = 1.0f;
+        wz = 0.0f;
+        wl = 1.0f;
+      }
+      out.normals.push_back(wx / wl);
+      out.normals.push_back(wy / wl);
+      out.normals.push_back(wz / wl);
+      out.uvs.push_back(hasUv ? d.uvs[v * 2 + 0] : 0.0f);
+      out.uvs.push_back(hasUv ? d.uvs[v * 2 + 1] : 0.0f);
+      if (hasTan) {
+        out.tangents.push_back(d.tangents[v * 4 + 0]);
+        out.tangents.push_back(d.tangents[v * 4 + 1]);
+        out.tangents.push_back(d.tangents[v * 4 + 2]);
+        out.tangents.push_back(d.tangents[v * 4 + 3]);
+      } else {
+        out.tangents.push_back(1.0f);
+        out.tangents.push_back(0.0f);
+        out.tangents.push_back(0.0f);
+        out.tangents.push_back(1.0f);
+      }
+    }
+    for (uint32_t k = 0; k < p.indexCount; ++k) {
+      out.indices.push_back(base + d.indices[static_cast<size_t>(p.indexOffset) + k]);
+    }
+  }
+  if (needTangentGen) {
+    std::vector<float> gen;
+    if (GenerateTangents(out.positions, out.normals, out.uvs, out.indices, gen) && gen.size() == out.positions.size() / 3 * 4) {
+      out.tangents = gen;
+    }
+  }
+  MeshPartData part;
+  part.indexOffset = 0;
+  part.indexCount = static_cast<uint32_t>(out.indices.size());
+  part.material = 0;
+  out.parts.push_back(part);
+  ComputeAABB(out.positions, out.aabbMin, out.aabbMax);
+  return !out.indices.empty();
+}
+bool BuildMeshlets(MeshAssetData& data, std::vector<MeshletRange>& outRanges) {
+  outRanges.clear();
+  size_t vcount = data.positions.size() / 3;
+  if (vcount == 0 || data.indices.size() < 768 || data.indices.size() % 3 != 0) {
+    return false;
+  }
+  if (data.normals.size() != vcount * 3) {
+    return false;
+  }
+  const size_t maxVerts = 64;
+  const size_t maxTris = 124;
+  struct PartWork {
+    uint32_t srcOff;
+    uint32_t srcCount;
+    uint32_t mat;
+  };
+  std::vector<PartWork> work;
+  if (data.parts.empty()) {
+    PartWork w;
+    w.srcOff = 0;
+    w.srcCount = static_cast<uint32_t>(data.indices.size());
+    w.mat = 0;
+    work.push_back(w);
+  } else {
+    for (size_t pi = 0; pi < data.parts.size(); ++pi) {
+      const MeshPartData& pd = data.parts[pi];
+      if (pd.indexCount == 0 || pd.indexCount % 3 != 0) {
+        return false;
+      }
+      if (static_cast<size_t>(pd.indexOffset) + static_cast<size_t>(pd.indexCount) > data.indices.size()) {
+        return false;
+      }
+      PartWork w;
+      w.srcOff = pd.indexOffset;
+      w.srcCount = pd.indexCount;
+      w.mat = pd.material;
+      work.push_back(w);
+    }
+  }
+  bool hasUv = data.uvs.size() == vcount * 2;
+  bool hasTan = data.tangents.size() == vcount * 4;
+  bool hasUv2 = data.uv2s.size() == vcount * 2;
+  std::vector<float> npos;
+  std::vector<float> nnrm;
+  std::vector<float> nuv;
+  std::vector<float> ntan;
+  std::vector<float> nuv2;
+  std::vector<uint32_t> nidx;
+  std::vector<MeshPartData> nparts;
+  nidx.reserve(data.indices.size());
+  for (size_t wi = 0; wi < work.size(); ++wi) {
+    const PartWork& w = work[wi];
+    size_t bound = meshopt_buildMeshletsBound(w.srcCount, maxVerts, maxTris);
+    std::vector<meshopt_Meshlet> meshlets(bound);
+    std::vector<unsigned int> meshletVerts(vcount);
+    std::vector<unsigned char> meshletTris(w.srcCount);
+    std::vector<unsigned int> idx(w.srcCount);
+    for (uint32_t i = 0; i < w.srcCount; ++i) {
+      idx[i] = data.indices[static_cast<size_t>(w.srcOff) + i];
+    }
+    size_t mcount = meshopt_buildMeshlets(meshlets.data(), meshletVerts.data(), meshletTris.data(), idx.data(), w.srcCount, data.positions.data(), vcount, sizeof(float) * 3, maxVerts, maxTris, 0.0f);
+    uint32_t partBase = static_cast<uint32_t>(nidx.size());
+    if (mcount < 2) {
+      uint32_t vbase0 = static_cast<uint32_t>(npos.size() / 3);
+      for (size_t v = 0; v < vcount; ++v) {
+        npos.push_back(data.positions[v * 3 + 0]);
+        npos.push_back(data.positions[v * 3 + 1]);
+        npos.push_back(data.positions[v * 3 + 2]);
+        nnrm.push_back(data.normals[v * 3 + 0]);
+        nnrm.push_back(data.normals[v * 3 + 1]);
+        nnrm.push_back(data.normals[v * 3 + 2]);
+        nuv.push_back(hasUv ? data.uvs[v * 2 + 0] : 0.0f);
+        nuv.push_back(hasUv ? data.uvs[v * 2 + 1] : 0.0f);
+        if (hasTan) {
+          ntan.push_back(data.tangents[v * 4 + 0]);
+          ntan.push_back(data.tangents[v * 4 + 1]);
+          ntan.push_back(data.tangents[v * 4 + 2]);
+          ntan.push_back(data.tangents[v * 4 + 3]);
+        } else {
+          ntan.push_back(1.0f);
+          ntan.push_back(0.0f);
+          ntan.push_back(0.0f);
+          ntan.push_back(1.0f);
+        }
+        if (hasUv2) {
+          nuv2.push_back(data.uv2s[v * 2 + 0]);
+          nuv2.push_back(data.uv2s[v * 2 + 1]);
+        }
+      }
+      for (uint32_t i = 0; i < w.srcCount; ++i) {
+        nidx.push_back(vbase0 + data.indices[static_cast<size_t>(w.srcOff) + i]);
+      }
+      meshopt_Bounds bounds = meshopt_computeClusterBounds(idx.data(), w.srcCount, data.positions.data(), vcount, sizeof(float) * 3);
+      MeshletRange range;
+      range.indexOffset = partBase;
+      range.indexCount = w.srcCount;
+      range.apex[0] = bounds.cone_apex[0];
+      range.apex[1] = bounds.cone_apex[1];
+      range.apex[2] = bounds.cone_apex[2];
+      range.axis[0] = bounds.cone_axis[0];
+      range.axis[1] = bounds.cone_axis[1];
+      range.axis[2] = bounds.cone_axis[2];
+      range.cutoff = bounds.cone_cutoff;
+      range.center[0] = bounds.center[0];
+      range.center[1] = bounds.center[1];
+      range.center[2] = bounds.center[2];
+      range.radius = bounds.radius;
+      outRanges.push_back(range);
+    } else {
+      for (size_t m = 0; m < mcount; ++m) {
+        meshopt_Meshlet& ml = meshlets[m];
+        meshopt_optimizeMeshlet(meshletVerts.data() + ml.vertex_offset, meshletTris.data() + ml.triangle_offset, ml.triangle_count, ml.vertex_count);
+        meshopt_Bounds bounds = meshopt_computeMeshletBounds(meshletVerts.data() + ml.vertex_offset, meshletTris.data() + ml.triangle_offset, ml.triangle_count, data.positions.data(), vcount, sizeof(float) * 3);
+        uint32_t vbase = static_cast<uint32_t>(npos.size() / 3);
+        for (unsigned int lv = 0; lv < ml.vertex_count; ++lv) {
+          unsigned int src = meshletVerts[ml.vertex_offset + lv];
+          if (src >= vcount) {
+            return false;
+          }
+          npos.push_back(data.positions[src * 3 + 0]);
+          npos.push_back(data.positions[src * 3 + 1]);
+          npos.push_back(data.positions[src * 3 + 2]);
+          nnrm.push_back(data.normals[src * 3 + 0]);
+          nnrm.push_back(data.normals[src * 3 + 1]);
+          nnrm.push_back(data.normals[src * 3 + 2]);
+          nuv.push_back(hasUv ? data.uvs[src * 2 + 0] : 0.0f);
+          nuv.push_back(hasUv ? data.uvs[src * 2 + 1] : 0.0f);
+          if (hasTan) {
+            ntan.push_back(data.tangents[src * 4 + 0]);
+            ntan.push_back(data.tangents[src * 4 + 1]);
+            ntan.push_back(data.tangents[src * 4 + 2]);
+            ntan.push_back(data.tangents[src * 4 + 3]);
+          } else {
+            ntan.push_back(1.0f);
+            ntan.push_back(0.0f);
+            ntan.push_back(0.0f);
+            ntan.push_back(1.0f);
+          }
+          if (hasUv2) {
+            nuv2.push_back(data.uv2s[src * 2 + 0]);
+            nuv2.push_back(data.uv2s[src * 2 + 1]);
+          }
+        }
+        uint32_t ibase = static_cast<uint32_t>(nidx.size());
+        for (unsigned int t = 0; t < ml.triangle_count * 3; ++t) {
+          nidx.push_back(vbase + meshletTris[ml.triangle_offset + t]);
+        }
+        MeshletRange range;
+        range.indexOffset = ibase;
+        range.indexCount = ml.triangle_count * 3;
+        range.apex[0] = bounds.cone_apex[0];
+        range.apex[1] = bounds.cone_apex[1];
+        range.apex[2] = bounds.cone_apex[2];
+        range.axis[0] = bounds.cone_axis[0];
+        range.axis[1] = bounds.cone_axis[1];
+        range.axis[2] = bounds.cone_axis[2];
+        range.cutoff = bounds.cone_cutoff;
+        range.center[0] = bounds.center[0];
+        range.center[1] = bounds.center[1];
+        range.center[2] = bounds.center[2];
+        range.radius = bounds.radius;
+        outRanges.push_back(range);
+      }
+    }
+    MeshPartData part;
+    part.indexOffset = partBase;
+    part.indexCount = static_cast<uint32_t>(nidx.size()) - partBase;
+    part.material = w.mat;
+    nparts.push_back(part);
+  }
+  if (npos.empty()) {
+    return false;
+  }
+  data.positions = npos;
+  data.normals = nnrm;
+  data.uvs = nuv;
+  data.tangents = ntan;
+  data.uv2s = nuv2;
+  data.indices = nidx;
+  data.parts = nparts;
+  ComputeAABB(data.positions, data.aabbMin, data.aabbMax);
+  return true;
+}
+bool MeshletRangeVisible(const float world[16], const MeshletRange& range, const float planes[6][4], const float camPos[3]) {
+  if (world == nullptr || planes == nullptr || camPos == nullptr) {
+    return true;
+  }
+  float sx = std::sqrt(world[0] * world[0] + world[1] * world[1] + world[2] * world[2]);
+  float sy = std::sqrt(world[4] * world[4] + world[5] * world[5] + world[6] * world[6]);
+  float sz = std::sqrt(world[8] * world[8] + world[9] * world[9] + world[10] * world[10]);
+  float smax = sx > sy ? sx : sy;
+  smax = smax > sz ? smax : sz;
+  if (smax < 1e-9f) {
+    smax = 1.0f;
+  }
+  float cx = range.center[0] * world[0] + range.center[1] * world[4] + range.center[2] * world[8] + world[12];
+  float cy = range.center[0] * world[1] + range.center[1] * world[5] + range.center[2] * world[9] + world[13];
+  float cz = range.center[0] * world[2] + range.center[1] * world[6] + range.center[2] * world[10] + world[14];
+  float cr = range.radius * smax;
+  for (int p = 0; p < 6; ++p) {
+    if (planes[p][0] * cx + planes[p][1] * cy + planes[p][2] * cz + planes[p][3] < -cr) {
+      return false;
+    }
+  }
+  float ax = range.axis[0] * world[0] + range.axis[1] * world[4] + range.axis[2] * world[8];
+  float ay = range.axis[0] * world[1] + range.axis[1] * world[5] + range.axis[2] * world[9];
+  float az = range.axis[0] * world[2] + range.axis[1] * world[6] + range.axis[2] * world[10];
+  float alen = std::sqrt(ax * ax + ay * ay + az * az);
+  if (alen < 1e-9f || range.cutoff >= 0.9999f) {
+    return true;
+  }
+  ax /= alen;
+  ay /= alen;
+  az /= alen;
+  float px = range.apex[0] * world[0] + range.apex[1] * world[4] + range.apex[2] * world[8] + world[12];
+  float py = range.apex[0] * world[1] + range.apex[1] * world[5] + range.apex[2] * world[9] + world[13];
+  float pz = range.apex[0] * world[2] + range.apex[1] * world[6] + range.apex[2] * world[10] + world[14];
+  float vx = camPos[0] - px;
+  float vy = camPos[1] - py;
+  float vz = camPos[2] - pz;
+  float vlen = std::sqrt(vx * vx + vy * vy + vz * vz);
+  if (vlen < 1e-9f) {
+    return true;
+  }
+  float d = (vx * ax + vy * ay + vz * az) / vlen;
+  return d < range.cutoff;
 }
 }

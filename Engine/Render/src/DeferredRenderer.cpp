@@ -117,7 +117,7 @@ void FillMatConstants(const DeferredMaterial& use, float lodFade, MatConstants& 
   mc.extG[0] = use.sheenColor[0];
   mc.extG[1] = use.sheenColor[1];
   mc.extG[2] = use.sheenColor[2];
-  mc.extG[3] = 0.0f;
+  mc.extG[3] = use.vtResidentMip;
   uint32_t row = 0;
   if (rows < 256) {
     row = rows++;
@@ -254,6 +254,7 @@ DeferredRenderer::DeferredRenderer()
   , camLightMask(0xFFFFFFFFu)
   , spotCookie(0)
   , spotCookieOn(false)
+  , cookieArrayTex(0)
   , linkTable(0)
   , neutralBlack(0)
   , neutralAniso(0)
@@ -278,6 +279,7 @@ DeferredRenderer::DeferredRenderer()
   , decalPS(0)
   , decalMatsPS(0)
   , decalCB(0)
+  , decalAtlasTex(0)
   , decalVB(0)
   , decalIB(0)
   , shadowAtlas(0)
@@ -339,6 +341,9 @@ DeferredRenderer::DeferredRenderer()
   , ssrTemporalPS(0)
   , ssrCB(0)
   , ssrTCB(0)
+  , hzbPS(0)
+  , hzbCB(0)
+  , hzbA{ 0, 0, 0, 0, 0 }
   , ssrA(0)
   , ssrTmp(0)
   , ssrHist(0)
@@ -421,6 +426,13 @@ DeferredRenderer::DeferredRenderer()
   , lightGridCS(0)
   , cullCB(0)
   , gridBuf(0)
+  , cullInstCS(0)
+  , instCullCB(0)
+  , cullInBuf(0)
+  , cullOutBuf(0)
+  , cullArgsBuf(0)
+  , cullBufCap(0)
+  , gpuDriven(false)
   , computeAvailable(false)
   , gpuCullParity(false)
   , forwardPlus(true)
@@ -702,6 +714,11 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (ssrTemporalPS == 0) {
     return false;
   }
+  std::string hzbPath = dir + "/HzbPS.hlsl";
+  hzbPS = LoadPixelShader(hzbPath.c_str());
+  if (hzbPS == 0) {
+    return false;
+  }
   contactPS = LoadPixelShader(contactPath.c_str());
   if (contactPS == 0) {
     return false;
@@ -870,6 +887,17 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   float cullInit[84] = { 0.0f };
   cullCB = rhi->CreateConstantBuffer(sizeof(cullInit), &cullInit);
   gridBuf = rhi->CreateStructBuffer(144, 4, nullptr);
+  std::string cullInstPath = dir + "/CullInstancesCS.hlsl";
+  cullInstCS = rhi->CreateComputeShaderFromFile(cullInstPath.c_str(), "main");
+  float instCullInit[32] = { 0.0f };
+  instCullCB = rhi->CreateConstantBuffer(sizeof(instCullInit), &instCullInit);
+  if (instCullCB == 0) {
+    return false;
+  }
+  cullArgsBuf = rhi->CreateIndirectArgs();
+  if (cullArgsBuf == 0) {
+    return false;
+  }
   clusterTex = rhi->CreateTexture2D(16, 9, 1, RHITextureFormat::RGBA8_UNORM);
   computeAvailable = lightGridCS != 0 && cullCB != 0 && gridBuf != 0 && clusterTex != 0;
   ddgiTex = rhi->CreateTexture3D(8, 4, 8, RHITextureFormat::RGBA16F);
@@ -951,6 +979,11 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   float ssrTInit[24] = { 0.0f };
   ssrTCB = rhi->CreateConstantBuffer(sizeof(ssrTInit), &ssrTInit);
   if (ssrTCB == 0) {
+    return false;
+  }
+  float hzbInit[8] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+  hzbCB = rhi->CreateConstantBuffer(sizeof(hzbInit), &hzbInit);
+  if (hzbCB == 0) {
     return false;
   }
   PostConstants pc;
@@ -1056,7 +1089,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (decalVB == 0 || decalIB == 0) {
     return false;
   }
-  float decalInit[32] = { 0.0f };
+  float decalInit[40] = { 0.0f };
   decalCB = rhi->CreateConstantBuffer(sizeof(decalInit), &decalInit);
   if (decalCB == 0) {
     return false;
@@ -1260,6 +1293,10 @@ void DeferredRenderer::Shutdown() {
     rhi->DestroyConstantBuffer(ssrCB);
     ssrCB = 0;
   }
+  if (hzbCB != 0) {
+    rhi->DestroyConstantBuffer(hzbCB);
+    hzbCB = 0;
+  }
   if (ssrTCB != 0) {
     rhi->DestroyConstantBuffer(ssrTCB);
     ssrTCB = 0;
@@ -1328,6 +1365,23 @@ void DeferredRenderer::Shutdown() {
   if (gridBuf != 0) {
     rhi->DestroyStructBuffer(gridBuf);
     gridBuf = 0;
+  }
+  if (cullInBuf != 0) {
+    rhi->DestroyStructBuffer(cullInBuf);
+    cullInBuf = 0;
+  }
+  if (cullOutBuf != 0) {
+    rhi->DestroyStructBuffer(cullOutBuf);
+    cullOutBuf = 0;
+  }
+  if (cullArgsBuf != 0) {
+    rhi->DestroyStructBuffer(cullArgsBuf);
+    cullArgsBuf = 0;
+  }
+  cullBufCap = 0;
+  if (instCullCB != 0) {
+    rhi->DestroyConstantBuffer(instCullCB);
+    instCullCB = 0;
   }
   computeAvailable = false;
   clusterReady = false;
@@ -1489,6 +1543,9 @@ void DeferredRenderer::SetCameraLightMask(uint32_t mask) {
 void DeferredRenderer::SetSpotCookie(RHITexture tex) {
   spotCookie = tex;
 }
+void DeferredRenderer::SetCookieArray(RHITexture tex) {
+  cookieArrayTex = tex;
+}
 void DeferredRenderer::SetSpotCookieOn(bool on) {
   spotCookieOn = on;
 }
@@ -1539,8 +1596,8 @@ void DeferredRenderer::SetDebugView(int mode) {
   if (mode < 0) {
     mode = 0;
   }
-  if (mode > 17) {
-    mode = 17;
+  if (mode > 18) {
+    mode = 18;
   }
   debugView = mode;
 }
@@ -1667,6 +1724,31 @@ void DeferredRenderer::SetGpuCulling(bool on) {
   if (!gpuCullOn) {
     gpuCullParity = false;
   }
+}
+void DeferredRenderer::SetGpuDriven(bool on) {
+  gpuDriven = on && cullInstCS != 0 && instCullCB != 0 && cullArgsBuf != 0;
+}
+uint32_t DeferredRenderer::GpuDrivenDraws() const {
+  return stats.gpuDrivenDraws;
+}
+void DeferredRenderer::SetStaticBatchInfo(uint32_t batches, uint32_t savedDraws) {
+  stats.staticBatches += batches;
+  stats.staticSavedDraws += savedDraws;
+}
+bool DeferredRenderer::GetFrustumPlanes(float planes[6][4]) const {
+  if (planes == nullptr || !frustumValid) {
+    return false;
+  }
+  std::memcpy(planes, frustumPlanes, sizeof(frustumPlanes));
+  return true;
+}
+bool DeferredRenderer::CullSphereVisible(const float planes[6][4], const float c[3], float radius) {
+  for (int p = 0; p < 6; ++p) {
+    if (planes[p][0] * c[0] + planes[p][1] * c[1] + planes[p][2] * c[2] + planes[p][3] < -radius) {
+      return false;
+    }
+  }
+  return true;
 }
 void DeferredRenderer::SetForwardPlus(bool on) {
   forwardPlus = on;
@@ -3791,6 +3873,13 @@ void DeferredRenderer::DrawObject(const float world[16]) {
   gi.mat = material;
   gi.lodFade = 0.0f;
   gi.matHash = MatHash(material);
+  gi.hasBounds = false;
+  gi.bmin[0] = -1.0f;
+  gi.bmin[1] = -1.0f;
+  gi.bmin[2] = -1.0f;
+  gi.bmax[0] = 1.0f;
+  gi.bmax[1] = 1.0f;
+  gi.bmax[2] = 1.0f;
   geoQueue.push_back(gi);
 }
 void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat, float lodFade, const float* aabbMin, const float* aabbMax) {
@@ -3828,6 +3917,22 @@ void DeferredRenderer::DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuff
   gi.mat = use;
   gi.lodFade = lodFade;
   gi.matHash = MatHash(use);
+  gi.hasBounds = (aabbMin != nullptr && aabbMax != nullptr);
+  if (gi.hasBounds) {
+    gi.bmin[0] = aabbMin[0];
+    gi.bmin[1] = aabbMin[1];
+    gi.bmin[2] = aabbMin[2];
+    gi.bmax[0] = aabbMax[0];
+    gi.bmax[1] = aabbMax[1];
+    gi.bmax[2] = aabbMax[2];
+  } else {
+    gi.bmin[0] = -1.0f;
+    gi.bmin[1] = -1.0f;
+    gi.bmin[2] = -1.0f;
+    gi.bmax[0] = 1.0f;
+    gi.bmax[1] = 1.0f;
+    gi.bmax[2] = 1.0f;
+  }
   geoQueue.push_back(gi);
 }
 uint64_t DeferredRenderer::MatHash(const DeferredMaterial& mat) {
@@ -3904,6 +4009,10 @@ void DeferredRenderer::SetGeoMaterial(const DeferredMaterial& use, float lodFade
   rhi->SetPixelTexture2D(15, irH);
   rhi->SetPixelTexture2D(16, detA);
   rhi->SetPixelTexture2D(17, detN);
+  RHITexture vtt = (use.texFlags & 134217728u) != 0 && use.vtTable != 0 ? use.vtTable : neutralBlack;
+  RHITexture vtl = (use.texFlags & 134217728u) != 0 && use.vtTail != 0 ? use.vtTail : neutralBlack;
+  rhi->SetPixelTexture2D(18, vtt);
+  rhi->SetPixelTexture2D(19, vtl);
   rhi->SetPixelSampler(0, geoSampler);
   rhi->SetPixelSampler(1, geoSampler);
   rhi->SetPixelSampler(2, geoSampler);
@@ -3980,6 +4089,10 @@ void DeferredRenderer::DrawGeoInstanced(uint64_t key, const std::vector<size_t>&
     for (size_t i : indices) {
       DrawGeoSingle(geoQueue[i]);
     }
+    return;
+  }
+  if (gpuDriven && !captureMode && cullInstCS != 0 && instCullCB != 0 && cullArgsBuf != 0) {
+    DrawGeoGpuDriven(indices);
     return;
   }
   const GeoBatchItem& first = geoQueue[indices[0]];
@@ -4072,6 +4185,98 @@ void DeferredRenderer::DrawGeoInstanced(uint64_t key, const std::vector<size_t>&
   stats.geometryTris += static_cast<uint64_t>(first.count / 3) * static_cast<uint64_t>(indices.size());
   ++stats.instancedDraws;
 }
+void DeferredRenderer::DrawGeoGpuDriven(const std::vector<size_t>& indices) {
+  if (rhi == nullptr || indices.empty()) {
+    return;
+  }
+  const GeoBatchItem& first = geoQueue[indices[0]];
+  uint32_t n = static_cast<uint32_t>(indices.size());
+  if (cullBufCap < n) {
+    if (cullInBuf != 0) {
+      rhi->DestroyStructBuffer(cullInBuf);
+      cullInBuf = 0;
+    }
+    if (cullOutBuf != 0) {
+      rhi->DestroyStructBuffer(cullOutBuf);
+      cullOutBuf = 0;
+    }
+    uint32_t cap = n < 64 ? 64 : n;
+    cullInBuf = rhi->CreateStructBuffer(cap, 64, nullptr);
+    cullOutBuf = rhi->CreateStructBuffer(cap, 64, nullptr);
+    cullBufCap = (cullInBuf != 0 && cullOutBuf != 0) ? cap : 0;
+  }
+  if (cullBufCap < n || cullInBuf == 0 || cullOutBuf == 0) {
+    for (size_t i : indices) {
+      DrawGeoSingle(geoQueue[i]);
+    }
+    return;
+  }
+  std::vector<unsigned char> bytes(static_cast<size_t>(n) * 64);
+  for (uint32_t k = 0; k < n; ++k) {
+    std::memcpy(bytes.data() + static_cast<size_t>(k) * 64, geoQueue[indices[k]].world, 64);
+  }
+  if (!rhi->UpdateStructBuffer(cullInBuf, bytes.data(), bytes.size())) {
+    for (size_t i : indices) {
+      DrawGeoSingle(geoQueue[i]);
+    }
+    return;
+  }
+  uint32_t args[5] = { first.count, 0, first.start, 0, 0 };
+  rhi->UpdateStructBuffer(cullArgsBuf, args, sizeof(args));
+  float cx = (first.bmin[0] + first.bmax[0]) * 0.5f;
+  float cy = (first.bmin[1] + first.bmax[1]) * 0.5f;
+  float cz = (first.bmin[2] + first.bmax[2]) * 0.5f;
+  float dx = first.bmax[0] - first.bmin[0];
+  float dy = first.bmax[1] - first.bmin[1];
+  float dz = first.bmax[2] - first.bmin[2];
+  float br = std::sqrt(dx * dx + dy * dy + dz * dz) * 0.5f;
+  if (!first.hasBounds || br <= 0.0f) {
+    br = 1000000.0f;
+  }
+  float cb[32];
+  for (int p = 0; p < 6; ++p) {
+    cb[p * 4 + 0] = frustumPlanes[p][0];
+    cb[p * 4 + 1] = frustumPlanes[p][1];
+    cb[p * 4 + 2] = frustumPlanes[p][2];
+    cb[p * 4 + 3] = frustumPlanes[p][3];
+  }
+  cb[24] = cx;
+  cb[25] = cy;
+  cb[26] = cz;
+  cb[27] = br;
+  cb[28] = static_cast<float>(n);
+  cb[29] = static_cast<float>(first.count);
+  cb[30] = static_cast<float>(first.start);
+  cb[31] = 0.0f;
+  rhi->UpdateConstantBuffer(instCullCB, &cb, sizeof(cb));
+  rhi->SetComputeConstantBuffer(0, instCullCB);
+  rhi->SetComputeSRV(0, cullInBuf);
+  rhi->SetComputeUAV(0, cullOutBuf);
+  rhi->SetComputeUAV(1, cullArgsBuf);
+  rhi->SetComputeShader(cullInstCS);
+  rhi->Dispatch((n + 63) / 64, 1, 1);
+  rhi->SetComputeUAV(0, 0);
+  rhi->SetComputeUAV(1, 0);
+  rhi->SetComputeShader(0);
+  SetGeoMaterial(first.mat, first.lodFade);
+  GeoConstants gc;
+  float identity[16] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+  std::memcpy(gc.world, identity, sizeof(gc.world));
+  std::memcpy(gc.view, lastView, sizeof(gc.view));
+  std::memcpy(gc.proj, lastProj, sizeof(gc.proj));
+  rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
+  rhi->SetVertexShader(geoVSInstanced);
+  rhi->SetInputLayout(instLayout);
+  rhi->SetPixelShader(geoPS);
+  rhi->SetVertexConstantBuffer(0, geoCB);
+  rhi->SetVertexBuffer(first.vb, 0);
+  rhi->SetIndexBuffer(first.ib);
+  rhi->SetInstanceBufferStruct(cullOutBuf);
+  rhi->DrawIndexedIndirect(cullArgsBuf);
+  stats.geometryDraws += n;
+  stats.geometryTris += static_cast<uint64_t>(first.count / 3) * static_cast<uint64_t>(n);
+  ++stats.gpuDrivenDraws;
+}
 void DeferredRenderer::FlushGeoQueue() {
   if (rhi == nullptr || geoQueue.empty()) {
     geoQueue.clear();
@@ -4121,7 +4326,40 @@ void DeferredRenderer::DrawDecal(const float world[16], const float invWorld[16]
   item.matMask = matMask < 0 ? 0 : (matMask > 15 ? 15 : matMask);
   item.matRough = matRough < 0.0f ? 0.0f : (matRough > 1.0f ? 1.0f : matRough);
   item.matMetal = matMetal < 0.0f ? 0.0f : (matMetal > 1.0f ? 1.0f : matMetal);
+  item.atlasRect[0] = 0.0f;
+  item.atlasRect[1] = 0.0f;
+  item.atlasRect[2] = 1.0f;
+  item.atlasRect[3] = 1.0f;
+  item.useAtlas = false;
   decalDraws.push_back(item);
+}
+void DeferredRenderer::DrawDecalAtlas(const float world[16], const float invWorld[16], const float size[3], float fade, const float rect[4], int matMask, float matRough, float matMetal) {
+  if (!begun || world == nullptr || invWorld == nullptr || size == nullptr || rect == nullptr || decalAtlasTex == 0) {
+    return;
+  }
+  if (fade <= 0.0f || size[0] <= 0.0f || size[1] <= 0.0f || size[2] <= 0.0f) {
+    return;
+  }
+  DecalDrawItem item;
+  std::memcpy(item.world, world, sizeof(item.world));
+  std::memcpy(item.invWorld, invWorld, sizeof(item.invWorld));
+  item.size[0] = size[0];
+  item.size[1] = size[1];
+  item.size[2] = size[2];
+  item.fade = fade > 1.0f ? 1.0f : fade;
+  item.tex = 0;
+  item.matMask = matMask < 0 ? 0 : (matMask > 15 ? 15 : matMask);
+  item.matRough = matRough < 0.0f ? 0.0f : (matRough > 1.0f ? 1.0f : matRough);
+  item.matMetal = matMetal < 0.0f ? 0.0f : (matMetal > 1.0f ? 1.0f : matMetal);
+  item.atlasRect[0] = rect[0];
+  item.atlasRect[1] = rect[1];
+  item.atlasRect[2] = rect[2];
+  item.atlasRect[3] = rect[3];
+  item.useAtlas = true;
+  decalDraws.push_back(item);
+}
+void DeferredRenderer::SetDecalAtlas(RHITexture tex) {
+  decalAtlasTex = tex;
 }
 void DeferredRenderer::RenderDecals(const float camPos[3]) {
   if (decalDraws.empty() || decalVB == 0 || decalIB == 0 || decalVS == 0 || decalPS == 0) {
@@ -4193,7 +4431,7 @@ void DeferredRenderer::RenderDecals(const float camPos[3]) {
     std::memcpy(gc.view, lastView, sizeof(gc.view));
     std::memcpy(gc.proj, lastProj, sizeof(gc.proj));
     rhi->UpdateConstantBuffer(geoCB, &gc, sizeof(gc));
-    float dc[32];
+    float dc[40];
     dc[0] = d.invWorld[0];
     dc[1] = d.invWorld[1];
     dc[2] = d.invWorld[2];
@@ -4230,8 +4468,22 @@ void DeferredRenderer::RenderDecals(const float camPos[3]) {
     dc[29] = 0.0f;
     dc[30] = 0.0f;
     dc[31] = 0.0f;
+    dc[32] = d.atlasRect[0];
+    dc[33] = d.atlasRect[1];
+    dc[34] = d.atlasRect[2];
+    dc[35] = d.atlasRect[3];
+    dc[36] = (d.useAtlas && decalAtlasTex != 0) ? 1.0f : 0.0f;
+    dc[37] = 0.0f;
+    dc[38] = 0.0f;
+    dc[39] = 0.0f;
     rhi->UpdateConstantBuffer(decalCB, &dc, sizeof(dc));
-    rhi->SetPixelTexture2D(0, d.tex);
+    if (d.useAtlas && decalAtlasTex != 0) {
+      rhi->SetPixelTexture2D(0, 0);
+      rhi->SetPixelTexture2D(2, decalAtlasTex);
+    } else {
+      rhi->SetPixelTexture2D(0, d.tex);
+      rhi->SetPixelTexture2D(2, 0);
+    }
     if ((d.matMask & 1) != 0) {
       rhi->SetPixelShader(decalPS);
       rhi->SetRenderTargets(1, &gAlbedo, gDepth);
@@ -4364,8 +4616,59 @@ void DeferredRenderer::RunUvPass() {
   NoteFullscreen();
   rhi->EndEvent();
 }
-void DeferredRenderer::RunDebugPass(const float camPos[3]) {
-  if (debugA == 0 || debugPS == 0 || debugCB == 0) {
+void DeferredRenderer::BuildHzb(const float camPos[3]) {
+  if (rhi == nullptr || hzbPS == 0 || hzbCB == 0 || hzbA[0] == 0) {
+    return;
+  }
+  rhi->BeginEvent("Hzb");
+  rhi->SetVertexShader(lightVS);
+  rhi->SetPixelShader(hzbPS);
+  rhi->SetPixelSampler(0, sampler);
+  float hc[8];
+  hc[0] = 0.0f;
+  hc[1] = 0.0f;
+  hc[2] = 0.0f;
+  hc[3] = 0.0f;
+  hc[4] = camPos != nullptr ? camPos[0] : 0.0f;
+  hc[5] = camPos != nullptr ? camPos[1] : 0.0f;
+  hc[6] = camPos != nullptr ? camPos[2] : 0.0f;
+  hc[7] = 1.0f;
+  int pw = w;
+  int ph = h;
+  for (int hi = 0; hi < 5; ++hi) {
+    if (hzbA[hi] == 0) {
+      break;
+    }
+    if (hi > 0) {
+      hc[0] = 1.0f;
+      hc[1] = 1.0f / static_cast<float>(pw > 0 ? pw : 1);
+      hc[2] = 1.0f / static_cast<float>(ph > 0 ? ph : 1);
+      hc[3] = 0.0f;
+    }
+    rhi->UpdateConstantBuffer(hzbCB, &hc, sizeof(hc));
+    rhi->SetPixelConstantBuffer(0, hzbCB);
+    if (hi == 0) {
+      rhi->SetPixelTexture(0, gPosition);
+    } else {
+      rhi->SetPixelTexture(0, hzbA[hi - 1]);
+    }
+    rhi->SetRenderTargets(1, &hzbA[hi], 0);
+    RHIViewport vp;
+    vp.x = 0.0f;
+    vp.y = 0.0f;
+    vp.w = static_cast<float>(pw);
+    vp.h = static_cast<float>(ph);
+    vp.minD = 0.0f;
+    vp.maxD = 1.0f;
+    rhi->SetViewport(vp);
+    NoteFullscreen();
+    pw /= 2;
+    ph /= 2;
+  }
+  rhi->SetPixelTexture(0, 0);
+  rhi->EndEvent();
+}
+void DeferredRenderer::RunDebugPass(const float camPos[3]) { if (debugA == 0 || debugPS == 0 || debugCB == 0) {
     return;
   }
   if (debugView == 15) {
@@ -4427,8 +4730,9 @@ void DeferredRenderer::RunDebugPass(const float camPos[3]) {
   rhi->SetPixelTexture(8, overdrawA);
   rhi->SetPixelTexture(9, uvA);
   rhi->SetPixelTexture(10, gLight);
+  rhi->SetPixelTexture(11, hzbA[2] != 0 ? hzbA[2] : gPosition);
   NoteFullscreen();
-  for (uint32_t s = 0; s <= 10; ++s) {
+  for (uint32_t s = 0; s <= 11; ++s) {
     rhi->SetPixelTexture(s, 0);
   }
   rhi->EndEvent();
@@ -4625,6 +4929,9 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
       ssaoVP[cc * 4 + rr] = s;
     }
   }
+  if (!captureMode && toTexture && hzbPS != 0 && hzbA[0] != 0) {
+    BuildHzb(camPos);
+  }
   if (!captureMode && toTexture && ssrOn && ssrA != 0 && ssrPS != 0) {
     SsrConstants sc;    std::memcpy(sc.viewProj, ssaoVP, sizeof(sc.viewProj));
     sc.camPos[0] = camPos[0];
@@ -4658,11 +4965,19 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetPixelTexture(0, gPosition);
     rhi->SetPixelTexture(1, gNormalRough);
     rhi->SetPixelTexture(2, gAlbedo);
+    rhi->SetPixelTexture(3, hzbA[0] != 0 ? hzbA[0] : gPosition);
+    rhi->SetPixelTexture(4, hzbA[1] != 0 ? hzbA[1] : gPosition);
+    rhi->SetPixelTexture(5, hzbA[2] != 0 ? hzbA[2] : gPosition);
+    rhi->SetPixelTexture(6, hzbA[3] != 0 ? hzbA[3] : gPosition);
     NoteFullscreen();
     ssrValid = true;
     rhi->SetPixelTexture(0, 0);
     rhi->SetPixelTexture(1, 0);
     rhi->SetPixelTexture(2, 0);
+    rhi->SetPixelTexture(3, 0);
+    rhi->SetPixelTexture(4, 0);
+    rhi->SetPixelTexture(5, 0);
+    rhi->SetPixelTexture(6, 0);
     if (doTemporal) {
       float st[24] = { 0.0f };
       std::memcpy(&st[0], ssaoVP, sizeof(float) * 16);
@@ -4872,7 +5187,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   lc.counts[0] = static_cast<float>(total);
   lc.counts[1] = static_cast<float>(attenMode);
   lc.counts[2] = 0.0f;
-  lc.counts[3] = (spotCookieOn && spotCookie != 0) ? 1.0f : 0.0f;
+  lc.counts[3] = (spotCookieOn && cookieArrayTex != 0) ? 2.0f : ((spotCookieOn && spotCookie != 0) ? 1.0f : 0.0f);
   lc.camFwd[0] = mainCam.camFwd[0];
   lc.camFwd[1] = mainCam.camFwd[1];
   lc.camFwd[2] = mainCam.camFwd[2];
@@ -5115,7 +5430,9 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->UpdateTextureMip(linkTable, 0, 256, 1, 256 * 4, linkPx, sizeof(linkPx));
     rhi->SetPixelTexture2D(24, linkTable);
   }
-  if (spotCookieOn && spotCookie != 0) {
+  if (spotCookieOn && cookieArrayTex != 0) {
+    rhi->SetPixelTexture2D(27, cookieArrayTex);
+  } else if (spotCookieOn && spotCookie != 0) {
     rhi->SetPixelTexture2D(23, spotCookie);
   }
   if (shadowMapsValid) {
@@ -5798,7 +6115,20 @@ bool DeferredRenderer::CreateTargets() {
   debugA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   overdrawA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
   uvA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA8_UNORM);
-  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 &&   fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && bentA != 0 && ssrA != 0 && ssrTmp != 0 && ssrHist != 0 && ssrHistB != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0 && taaSharpA != 0 && lumA != 0 && lumB != 0 && expA != 0 && expB != 0 && godA != 0 && godHalfA != 0 && godDepthA != 0 && debugA != 0 && overdrawA != 0 && uvA != 0;
+  int hzbW = w;
+  int hzbH = h;
+  for (int hi = 0; hi < 5; ++hi) {
+    if (hzbW < 1) {
+      hzbW = 1;
+    }
+    if (hzbH < 1) {
+      hzbH = 1;
+    }
+    hzbA[hi] = rhi->CreateRenderTarget(hzbW, hzbH, RHIFormat::RGBA16F);
+    hzbW /= 2;
+    hzbH /= 2;
+  }
+  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 &&   fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && bentA != 0 && ssrA != 0 && ssrTmp != 0 && ssrHist != 0 && ssrHistB != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0 && taaSharpA != 0 && lumA != 0 && lumB != 0 && expA != 0 && expB != 0 && godA != 0 && godHalfA != 0 && godDepthA != 0 && debugA != 0 && overdrawA != 0 && uvA != 0 && hzbA[0] != 0 && hzbA[1] != 0 && hzbA[2] != 0 && hzbA[3] != 0 && hzbA[4] != 0;
 }
 void DeferredRenderer::DestroyTargets() {
   if (rhi == nullptr) {
@@ -5977,6 +6307,12 @@ void DeferredRenderer::DestroyTargets() {
   if (uvA != 0) {
     rhi->DestroyRenderTarget(uvA);
     uvA = 0;
+  }
+  for (int hi = 0; hi < 5; ++hi) {
+    if (hzbA[hi] != 0) {
+      rhi->DestroyRenderTarget(hzbA[hi]);
+      hzbA[hi] = 0;
+    }
   }
 }
 }

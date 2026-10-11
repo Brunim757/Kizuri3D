@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <functional>
 #include <filesystem>
+#include <map>
 namespace Kizuri {
 uint32_t ResolveMaterialSlot(AssetDatabase& assets, const std::string& guid, uint32_t bit, RHITexture& out) {
   out = 0;
@@ -196,6 +197,30 @@ void FillDeferredFromEntity(AssetDatabase& assets, const MaterialData& m, Deferr
   }
   if (m.hasSpecular) {
     flags |= 65536u;
+  }
+  partMat.vtTable = 0;
+  partMat.vtTail = 0;
+  partMat.vtResidentMip = 99.0f;
+  partMat.vtGuid.clear();
+  if (m.vtAlbedo && !m.albedoTex.empty()) {
+    VtBundle bundle;
+    const TextureRecord* vtRec = assets.GetTexByGuid(m.albedoTex);
+    const TextureAssetData* vtData = (vtRec != nullptr && vtRec->loaded) ? &vtRec->data : nullptr;
+    if (assets.GetVirtualBundle(m.albedoTex, bundle) && bundle.valid) {
+      flags |= 134217728u;
+      partMat.albedoTex = bundle.physical;
+      partMat.vtTable = bundle.table;
+      partMat.vtTail = bundle.tail;
+      partMat.vtResidentMip = bundle.residentMip;
+      partMat.vtGuid = m.albedoTex;
+    } else if (vtData != nullptr && assets.CreateVirtualTexture(vtData, m.albedoTex) >= 0 && assets.GetVirtualBundle(m.albedoTex, bundle) && bundle.valid) {
+      flags |= 134217728u;
+      partMat.albedoTex = bundle.physical;
+      partMat.vtTable = bundle.table;
+      partMat.vtTail = bundle.tail;
+      partMat.vtResidentMip = bundle.residentMip;
+      partMat.vtGuid = m.albedoTex;
+    }
   }
   partMat.texFlags = flags;
 }
@@ -472,8 +497,281 @@ void EditorApp::RenderScene() {
   renderer.EndObjectsToTexture(cpos);
   rhi->Clear(0.03f, 0.03f, 0.04f, 1.0f);
 }
-void EditorApp::SubmitSceneDraws(const float cpos[3]) {
-  renderer.ClearLights();
+static uint64_t StaticMixHash(uint64_t h, const void* data, size_t bytes) {
+  const unsigned char* p = reinterpret_cast<const unsigned char*>(data);
+  for (size_t i = 0; i < bytes; ++i) {
+    h ^= static_cast<uint64_t>(p[i]);
+    h *= 1099511628211ull;
+  }
+  return h;
+}
+static uint64_t StaticMatSig(const DeferredMaterial& m) {
+  uint64_t h = 1469598103934665603ull;
+  h = StaticMixHash(h, &m.texFlags, sizeof(m.texFlags));
+  h = StaticMixHash(h, m.albedo, sizeof(float) * 3);
+  h = StaticMixHash(h, &m.alpha, sizeof(m.alpha));
+  h = StaticMixHash(h, &m.roughness, sizeof(m.roughness));
+  h = StaticMixHash(h, &m.metallic, sizeof(m.metallic));
+  h = StaticMixHash(h, m.emissive, sizeof(float) * 3);
+  h = StaticMixHash(h, &m.emissiveStrength, sizeof(m.emissiveStrength));
+  h = StaticMixHash(h, &m.alphaMode, sizeof(m.alphaMode));
+  h = StaticMixHash(h, &m.alphaCutoff, sizeof(m.alphaCutoff));
+  h = StaticMixHash(h, &m.unlit, sizeof(m.unlit));
+  h = StaticMixHash(h, &m.doubleSided, sizeof(m.doubleSided));
+  const RHITexture slots[20] = { m.albedoTex, m.normalTex, m.ormTex, m.heightTex, m.lightmapTex, m.emissiveTex, m.specularTex, m.specularColorTex, m.clearcoatTex, m.clearcoatRoughnessTex, m.clearcoatNormalTex, m.sheenColorTex, m.sheenRoughnessTex, m.anisotropyTex, m.iridescenceTex, m.iridescenceThicknessTex, m.transmissionTex, m.thicknessTex, m.detailAlbedoTex, m.detailNormalTex };
+  h = StaticMixHash(h, slots, sizeof(slots));
+  return h == 0 ? 1 : h;
+}
+static void StaticHex16(uint64_t v, char out[17]) {
+  static const char* digits = "0123456789ABCDEF";
+  for (int i = 15; i >= 0; --i) {
+    out[i] = digits[v & 15ull];
+    v >>= 4;
+  }
+  out[16] = 0;
+}
+void EditorApp::DrawMeshRanges(const float world[16], const MeshRecord* rec, uint32_t partOff, uint32_t partCount, const DeferredMaterial* mat, float fade, const float* aabbMin, const float* aabbMax, const float* camPos) {
+  if (!viewMeshletCull || rec == nullptr || rec->meshlets.size() < 2 || partCount == 0) {
+    if (rec != nullptr) {
+      renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, partOff, partCount, mat, fade, aabbMin, aabbMax);
+    }
+    return;
+  }
+  float planes[6][4];
+  if (!renderer.GetFrustumPlanes(planes)) {
+    renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, partOff, partCount, mat, fade, aabbMin, aabbMax);
+    return;
+  }
+  uint32_t partEnd = partOff + partCount;
+  uint32_t visCount = 0;
+  uint32_t totalCount = 0;
+  for (size_t r = 0; r < rec->meshlets.size(); ++r) {
+    const MeshletRange& range = rec->meshlets[r];
+    uint32_t s = partOff > range.indexOffset ? partOff : range.indexOffset;
+    uint32_t re = range.indexOffset + range.indexCount;
+    uint32_t e = partEnd < re ? partEnd : re;
+    if (e <= s) {
+      continue;
+    }
+    ++totalCount;
+    if (MeshletRangeVisible(world, range, planes, camPos)) {
+      ++visCount;
+    }
+  }
+  if (visCount == totalCount) {
+    renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, partOff, partCount, mat, fade, aabbMin, aabbMax);
+    return;
+  }
+  for (size_t r = 0; r < rec->meshlets.size(); ++r) {
+    const MeshletRange& range = rec->meshlets[r];
+    uint32_t s = partOff > range.indexOffset ? partOff : range.indexOffset;
+    uint32_t re = range.indexOffset + range.indexCount;
+    uint32_t e = partEnd < re ? partEnd : re;
+    if (e <= s) {
+      continue;
+    }
+    if (!MeshletRangeVisible(world, range, planes, camPos)) {
+      continue;
+    }
+    renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, s, e - s, mat, fade, aabbMin, aabbMax);
+  }
+}
+std::unordered_set<EntityId, EntityIdHash> EditorApp::SubmitStaticBatches(const float cpos[3]) {
+  (void)cpos;
+  std::unordered_set<EntityId, EntityIdHash> done;
+  if (!viewStaticBatch) {
+    if (!lastStaticKey.empty()) {
+      assets.DiscardBatchMeshes();
+      lastStaticKey.clear();
+      lastStaticBuckets.clear();
+    }
+    renderer.SetStaticBatchInfo(0, 0);
+    return done;
+  }
+  struct Entry {
+    EntityId id;
+    float world[16];
+    const MeshAssetData* data;
+    uint32_t off;
+    uint32_t count;
+    DeferredMaterial mat;
+    uint64_t sig;
+  };
+  std::map<uint64_t, std::vector<Entry>> buckets;
+  std::map<uint64_t, DeferredMaterial> bucketMats;
+  uint64_t keyH = 1469598103934665603ull;
+  std::vector<EntityId> all = scene.All();
+  for (size_t i = 0; i < all.size(); ++i) {
+    const Entity* e = scene.Get(all[i]);
+    if (e == nullptr || !e->isStatic || !e->hasMesh || e->meshGuid.empty() || e->hasLightmap || e->hasLod) {
+      continue;
+    }
+    float world[16];
+    ComposeMatrix(e->transform, world);
+    const MeshRecord* rec = assets.GetByGuid(e->meshGuid);
+    if (rec == nullptr || !rec->loaded) {
+      continue;
+    }
+    keyH = StaticMixHash(keyH, &e->id.index, sizeof(e->id.index));
+    keyH = StaticMixHash(keyH, &e->id.generation, sizeof(e->id.generation));
+    keyH = StaticMixHash(keyH, world, sizeof(world));
+    keyH = StaticMixHash(keyH, e->meshGuid.data(), e->meshGuid.size());
+    if (rec->data.parts.empty()) {
+      Entry en;
+      en.id = e->id;
+      std::memcpy(en.world, world, sizeof(en.world));
+      en.data = &rec->data;
+      en.off = 0;
+      en.count = static_cast<uint32_t>(rec->data.indices.size());
+      en.mat = renderer.DefaultMaterial();
+      en.sig = StaticMatSig(en.mat) ^ 0x9E3779B97F4A7C15ull;
+      keyH = StaticMixHash(keyH, &en.off, sizeof(en.off));
+      keyH = StaticMixHash(keyH, &en.count, sizeof(en.count));
+      keyH = StaticMixHash(keyH, &en.sig, sizeof(en.sig));
+      buckets[en.sig].push_back(en);
+      if (bucketMats.find(en.sig) == bucketMats.end()) {
+        bucketMats[en.sig] = en.mat;
+      }
+    } else {
+      for (size_t p = 0; p < rec->data.parts.size(); ++p) {
+        const MeshPartData& part = rec->data.parts[p];
+        if (part.indexCount == 0 || static_cast<size_t>(part.indexOffset) + static_cast<size_t>(part.indexCount) > rec->data.indices.size()) {
+          continue;
+        }
+        DeferredMaterial partMat;
+        const DeferredMaterial* useMat = nullptr;
+        const MaterialData* pm = nullptr;
+        for (size_t k = 0; k < e->partMaterials.size(); ++k) {
+          if (e->partMaterials[k].part == static_cast<uint32_t>(p)) {
+            pm = &e->partMaterials[k].material;
+            break;
+          }
+        }
+        if (pm != nullptr) {
+          FillDeferredFromEntity(assets, *pm, partMat);
+          useMat = &partMat;
+        } else if (e->hasMaterial) {
+          FillDeferredFromEntity(assets, e->material, partMat);
+          useMat = &partMat;
+        } else if (part.material < rec->data.materials.size()) {
+          uint32_t matIdx = part.material;
+          if (e->variantIndex >= 0) {
+            for (size_t vi = 0; vi < rec->data.variantAssigns.size(); ++vi) {
+              const MeshVariantAssign& va = rec->data.variantAssigns[vi];
+              if (va.part == static_cast<uint32_t>(p) && static_cast<int>(va.variant) == e->variantIndex && va.material < rec->data.materials.size()) {
+                matIdx = va.material;
+                break;
+              }
+            }
+          }
+          FillDeferredFromMesh(assets, rec->data.materials[matIdx], partMat);
+          useMat = &partMat;
+        }
+        if (useMat == nullptr || useMat->transmission > 0.0f || useMat->alphaMode == 2) {
+          continue;
+        }
+        Entry en;
+        en.id = e->id;
+        std::memcpy(en.world, world, sizeof(en.world));
+        en.data = &rec->data;
+        en.off = part.indexOffset;
+        en.count = part.indexCount;
+        en.mat = *useMat;
+        en.sig = StaticMatSig(en.mat);
+        keyH = StaticMixHash(keyH, &en.off, sizeof(en.off));
+        keyH = StaticMixHash(keyH, &en.count, sizeof(en.count));
+        keyH = StaticMixHash(keyH, &en.sig, sizeof(en.sig));
+        buckets[en.sig].push_back(en);
+        if (bucketMats.find(en.sig) == bucketMats.end()) {
+          bucketMats[en.sig] = en.mat;
+        }
+      }
+    }
+  }
+  char keyBuf[17];
+  StaticHex16(keyH == 0 ? 1 : keyH, keyBuf);
+  std::string key = keyBuf;
+  if (key != lastStaticKey) {
+    assets.DiscardBatchMeshes();
+    lastStaticBuckets.clear();
+    for (std::map<uint64_t, std::vector<Entry>>::iterator bi = buckets.begin(); bi != buckets.end(); ++bi) {
+      if (bi->second.size() < 2) {
+        continue;
+      }
+      std::vector<StaticMergePart> refs;
+      for (size_t r = 0; r < bi->second.size(); ++r) {
+        StaticMergePart ref;
+        ref.data = bi->second[r].data;
+        ref.indexOffset = bi->second[r].off;
+        ref.indexCount = bi->second[r].count;
+        std::memcpy(ref.world, bi->second[r].world, sizeof(ref.world));
+        refs.push_back(ref);
+      }
+      MeshAssetData merged;
+      if (!BuildMergedMesh(refs, merged)) {
+        continue;
+      }
+      char gb[32];
+      gb[0] = 'b';
+      gb[1] = 'a';
+      gb[2] = 't';
+      gb[3] = 'c';
+      gb[4] = 'h';
+      gb[5] = ':';
+      gb[6] = '/';
+      gb[7] = '/';
+      StaticHex16(bi->first, gb + 8);
+      gb[24] = 0;
+      assets.UpsertBatchMesh(gb, merged);
+      if (!assets.EnsureMeshGpu(gb, 4194304)) {
+        continue;
+      }
+      const MeshRecord* mr = assets.GetByGuid(gb);
+      if (mr == nullptr || !mr->gpuReady) {
+        continue;
+      }
+      StaticBucketDraw bd;
+      bd.guid = gb;
+      bd.mat = bucketMats[bi->first];
+      bd.bmin[0] = merged.aabbMin[0];
+      bd.bmin[1] = merged.aabbMin[1];
+      bd.bmin[2] = merged.aabbMin[2];
+      bd.bmax[0] = merged.aabbMax[0];
+      bd.bmax[1] = merged.aabbMax[1];
+      bd.bmax[2] = merged.aabbMax[2];
+      for (size_t r = 0; r < bi->second.size(); ++r) {
+        bd.ids.push_back(bi->second[r].id);
+      }
+      lastStaticBuckets.push_back(bd);
+    }
+    lastStaticKey = key;
+  }
+  float ident[16] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+  uint32_t drawn = 0;
+  uint32_t saved = 0;
+  for (size_t b = 0; b < lastStaticBuckets.size(); ++b) {
+    const StaticBucketDraw& bd = lastStaticBuckets[b];
+    const MeshRecord* mr = assets.GetByGuid(bd.guid);
+    if (mr == nullptr || !mr->gpuReady) {
+      continue;
+    }
+    if (!bd.mat.vtGuid.empty()) {
+      float bdx = (bd.bmin[0] + bd.bmax[0]) * 0.5f - cpos[0];
+      float bdy = (bd.bmin[1] + bd.bmax[1]) * 0.5f - cpos[1];
+      float bdz = (bd.bmin[2] + bd.bmax[2]) * 0.5f - cpos[2];
+      assets.UpdateVirtualTexture(bd.mat.vtGuid, sqrtf(bdx * bdx + bdy * bdy + bdz * bdz));
+    }
+    renderer.DrawObjectEx(ident, mr->gpuVB, mr->gpuIB, 0, mr->gpuCount, &bd.mat, 0.0f, bd.bmin, bd.bmax);
+    for (size_t r = 0; r < bd.ids.size(); ++r) {
+      done.insert(bd.ids[r]);
+    }
+    ++drawn;
+    saved += static_cast<uint32_t>(bd.ids.size()) - 1;
+  }
+  renderer.SetStaticBatchInfo(drawn, saved);
+  return done;
+}
+void EditorApp::SubmitSceneDraws(const float cpos[3]) { renderer.ClearLights();
   renderer.SetFallbackLight(!soloLightId.IsValid());
   renderer.ClearFogVolumes();
   {
@@ -520,6 +818,43 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
     }
   }
   std::vector<EntityId> lightIds = scene.All();
+  {
+    size_t pointCount = 0;
+    for (size_t i = 0; i < lightIds.size(); ++i) {
+      const Entity* ce = scene.Get(lightIds[i]);
+      if (ce != nullptr && ce->hasLight && ce->light.type == static_cast<int>(LightType::Point)) {
+        ++pointCount;
+      }
+    }
+    std::vector<const TextureAssetData*> cookieSlices(16, nullptr);
+    std::string cookieKey = viewCookieGuid + "|";
+    size_t spotOrd = 0;
+    for (size_t i = 0; i < lightIds.size(); ++i) {
+      const Entity* ce = scene.Get(lightIds[i]);
+      if (ce == nullptr || !ce->hasLight || ce->light.type != static_cast<int>(LightType::Spot)) {
+        continue;
+      }
+      size_t slice = pointCount + spotOrd;
+      ++spotOrd;
+      if (slice >= 16) {
+        continue;
+      }
+      std::string cg = ce->light.cookieGuid.empty() ? viewCookieGuid : ce->light.cookieGuid;
+      cookieKey += cg + "|";
+      if (!cg.empty()) {
+        const TextureRecord* ctr = assets.GetTexByGuid(cg);
+        if (ctr != nullptr) {
+          cookieKey += (ctr->loaded ? "1|" : "0|");
+          cookieSlices[slice] = ctr->loaded ? &ctr->data : nullptr;
+        }
+      }
+    }
+    if (cookieKey != lastCookieKey) {
+      lastCookieKey = cookieKey;
+      RHITexture arr = assets.BuildCookieArray(cookieSlices);
+      renderer.SetCookieArray(arr);
+    }
+  }
   for (size_t i = 0; i < lightIds.size(); ++i) {
     const Entity* e = scene.Get(lightIds[i]);
     if (e == nullptr || !e->hasLight) {
@@ -608,9 +943,13 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
   pinkMat.roughness = 1.0f;
   pinkMat.metallic = 0.0f;
   std::vector<EntityId> ids = scene.All();
+  std::unordered_set<EntityId, EntityIdHash> batchedIds = SubmitStaticBatches(cpos);
   for (size_t i = 0; i < ids.size(); ++i) {
     const Entity* e = scene.Get(ids[i]);
     if (e == nullptr) {
+      continue;
+    }
+    if (batchedIds.find(e->id) != batchedIds.end()) {
       continue;
     }
     float world[16];
@@ -691,7 +1030,7 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
         rec = assets.GetByGuid(drawGuids[li]);
           if (rec != nullptr && rec->gpuReady) {
             if (rec->data.parts.empty()) {
-              renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, 0, rec->gpuCount, nullptr, drawFades[li], rec->data.aabbMin, rec->data.aabbMax);
+              DrawMeshRanges(world, rec, 0, rec->gpuCount, nullptr, drawFades[li], rec->data.aabbMin, rec->data.aabbMax, cpos);
           } else {
           for (size_t p = 0; p < rec->data.parts.size(); ++p) {
             const MeshPartData& part = rec->data.parts[p];
@@ -736,7 +1075,13 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
                 partMat.texFlags |= 16u;
               }
             }
-            renderer.DrawObjectEx(world, rec->gpuVB, rec->gpuIB, part.indexOffset, part.indexCount, useMat, drawFades[li], rec->data.aabbMin, rec->data.aabbMax);
+            if (useMat != nullptr && !useMat->vtGuid.empty()) {
+              float vdx = world[12] - cpos[0];
+              float vdy = world[13] - cpos[1];
+              float vdz = world[14] - cpos[2];
+              assets.UpdateVirtualTexture(useMat->vtGuid, sqrtf(vdx * vdx + vdy * vdy + vdz * vdz));
+            }
+            DrawMeshRanges(world, rec, part.indexOffset, part.indexCount, useMat, drawFades[li], rec->data.aabbMin, rec->data.aabbMax, cpos);
           }
         }
         anyDrawn = true;
@@ -750,6 +1095,33 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
         fallback = &pinkMat;
       }
       renderer.DrawObjectEx(world, defaultVB, defaultIB, 0, defaultCount, fallback);
+    }
+  }
+  {
+    std::string decalKey;
+    std::vector<const TextureAssetData*> decalTexs;
+    lastDecalGuids.clear();
+    for (size_t i = 0; i < ids.size(); ++i) {
+      const Entity* ce = scene.Get(ids[i]);
+      if (ce == nullptr || !ce->hasDecal || ce->decal.texGuid.empty()) {
+        continue;
+      }
+      decalKey += ce->decal.texGuid + "|";
+      lastDecalGuids.push_back(ce->decal.texGuid);
+      const TextureRecord* ctr = assets.GetTexByGuid(ce->decal.texGuid);
+      if (ctr != nullptr) {
+        decalKey += (ctr->loaded ? "1|" : "0|");
+      }
+      decalTexs.push_back((ctr != nullptr && ctr->loaded) ? &ctr->data : nullptr);
+      if (decalTexs.size() >= 16) {
+        break;
+      }
+    }
+    if (decalKey != lastDecalKey) {
+      lastDecalKey = decalKey;
+      lastDecalRects.clear();
+      RHITexture atlas = decalTexs.empty() ? 0 : assets.BuildDecalAtlas(decalTexs, lastDecalRects);
+      renderer.SetDecalAtlas(atlas);
     }
   }
   for (size_t i = 0; i < ids.size(); ++i) {
@@ -786,7 +1158,19 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
     if (!InvertMatrix4(dworld, dinv)) {
       continue;
     }
-    renderer.DrawDecal(dworld, dinv, e->decal.size, fade, dtex, e->decal.matMask, e->decal.matRough, e->decal.matMetal);
+    size_t decalRectIdx = lastDecalGuids.size();
+    for (size_t gi = 0; gi < lastDecalGuids.size(); ++gi) {
+      if (lastDecalGuids[gi] == e->decal.texGuid) {
+        decalRectIdx = gi;
+        break;
+      }
+    }
+    if (decalRectIdx * 4 + 3 < lastDecalRects.size()) {
+      float rect[4] = { lastDecalRects[decalRectIdx * 4 + 0], lastDecalRects[decalRectIdx * 4 + 1], lastDecalRects[decalRectIdx * 4 + 2], lastDecalRects[decalRectIdx * 4 + 3] };
+      renderer.DrawDecalAtlas(dworld, dinv, e->decal.size, fade, rect, e->decal.matMask, e->decal.matRough, e->decal.matMetal);
+    } else {
+      renderer.DrawDecal(dworld, dinv, e->decal.size, fade, dtex, e->decal.matMask, e->decal.matRough, e->decal.matMetal);
+    }
   }
   for (auto it = decalAge.begin(); it != decalAge.end();) {
     if (!scene.Has(it->first)) {
@@ -1638,6 +2022,19 @@ void EditorApp::DrawSettings() {
       if (ImGui::Checkbox("Occlusion Culling", &viewOcc)) {
         renderer.SetOcclusionCulling(viewOcc);
       }
+      if (ImGui::Checkbox("GPU Driven", &viewGpuDriven)) {
+        renderer.SetGpuDriven(viewGpuDriven);
+      }
+      ImGui::Checkbox("Static Batching", &viewStaticBatch);
+      ImGui::Checkbox("Meshlet Culling", &viewMeshletCull);
+      ImGui::Combo("Proc Mode", &viewProcMode, "Checker\0Noise\0Gradient\0Flat Normal\0");
+      ImGui::SliderInt("Proc Size", &viewProcSize, 16, 512);
+      if (ImGui::Button("Create Procedural")) {
+        viewProcGuid = assets.CreateProceduralTexture(viewProcMode, viewProcSize, viewProcSize);
+      }
+      if (!viewProcGuid.empty()) {
+        ImGui::TextWrapped("%s", viewProcGuid.c_str());
+      }
       if (ImGui::Checkbox("Shadow Auto Res", &viewShadowAuto)) {
         renderer.SetShadowAutoRes(viewShadowAuto);
       }
@@ -1695,8 +2092,8 @@ void EditorApp::DrawSettings() {
           renderer.SetTessellation(true, viewTessFactor, viewTessDisp);
         }
       }
-      int dv = viewDebug < 0 ? 0 : (viewDebug > 17 ? 17 : viewDebug);
-      if (ImGui::Combo("View", &dv, "Final\0Wireframe\0Unlit\0Albedo+AO\0Normal\0Roughness\0Metallic\0AO\0Emissive\0Depth\0Motion\0ShadowMap\0Probe\0Lightmap\0MatID\0Overdraw\0UV\0Custom\0")) {
+      int dv = viewDebug < 0 ? 0 : (viewDebug > 18 ? 18 : viewDebug);
+      if (ImGui::Combo("View", &dv, "Final\0Wireframe\0Unlit\0Albedo+AO\0Normal\0Roughness\0Metallic\0AO\0Emissive\0Depth\0Motion\0ShadowMap\0Probe\0Lightmap\0MatID\0Overdraw\0UV\0Custom\0HZB\0")) {
         viewDebug = dv;
         renderer.SetDebugView(dv);
       }
@@ -1853,6 +2250,10 @@ void EditorApp::DrawInspector() {
   if (selection.Count() > 1) {
     ImGui::Text("%llu selected", (unsigned long long)selection.Count());
   }
+  bool stat = e->isStatic;
+  if (ImGui::Checkbox("Static", &stat)) {
+    edits.PushStatic(e->id, stat);
+  }
   ImGui::Separator();
   ImGui::Text("Transform");
   Transform t = e->transform;
@@ -1965,6 +2366,29 @@ void EditorApp::DrawInspector() {
       }
       if (ImGui::DragFloat("Falloff", &light.falloff, 0.01f, 0.01f, 0.5f)) {
         lightChanged = true;
+      }
+      {
+        std::vector<std::string> ctg = assets.AllTexGuids();
+        std::string citems = "Default";
+        int ccur = 0;
+        for (size_t cti = 0; cti < ctg.size(); ++cti) {
+          const TextureRecord* ctr = assets.GetTexByGuid(ctg[cti]);
+          std::string cfn = (ctr != nullptr) ? std::filesystem::path(ctr->sourcePath).filename().string() : ctg[cti];
+          if (cfn.empty()) {
+            cfn = ctg[cti];
+          }
+          citems += std::string("\0") + cfn;
+          if (ctg[cti] == light.cookieGuid) {
+            ccur = static_cast<int>(cti) + 1;
+          }
+        }
+        if (ImGui::Combo("Cookie", &ccur, citems.c_str())) {
+          light.cookieGuid.clear();
+          if (ccur >= 1 && static_cast<size_t>(ccur - 1) < ctg.size()) {
+            light.cookieGuid = ctg[static_cast<size_t>(ccur - 1)];
+          }
+          lightChanged = true;
+        }
       }
     }
     bool showShadow = light.castShadow;
@@ -2748,6 +3172,11 @@ bool EditorApp::DrawMaterialScalars(MaterialData& mat) {
         matChanged = true;
       }
       if (ImGui::SliderFloat("SSS Intensity", &mat.sssIntensity, 0.0f, 1.0f)) {
+        matChanged = true;
+      }
+    }
+    if (ImGui::CollapsingHeader("Virtual Texture")) {
+      if (ImGui::Checkbox("Virtualize Albedo", &mat.vtAlbedo)) {
         matChanged = true;
       }
     }

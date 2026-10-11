@@ -147,6 +147,14 @@ public:
   virtual void SetComputeUAV(uint32_t slot, RHIStructBuffer buf) = 0;
   virtual void Dispatch(uint32_t x, uint32_t y, uint32_t z) = 0;
   virtual bool ReadStructBuffer(RHIStructBuffer buf, void* dst, size_t bytes) = 0;
+  virtual RHIStructBuffer CreateIndirectArgs() = 0;
+  virtual void DrawIndexedIndirect(RHIStructBuffer argsBuf) = 0;
+  virtual void ClearStructBufferUint(RHIStructBuffer buf, uint32_t v) = 0;
+  virtual bool UpdateStructBuffer(RHIStructBuffer buf, const void* data, size_t bytes) = 0;
+  virtual void SetInstanceBufferStruct(RHIStructBuffer buf) = 0;
+  virtual RHITexture CreateTextureArray(int w, int h, int slices, int mipLevels, RHITextureFormat fmt) = 0;
+  virtual bool UpdateTextureArraySlice(RHITexture tex, int slice, int mip, int w, int h, uint32_t rowPitch, const void* data, size_t bytes) = 0;
+  virtual bool UpdateTextureRegion(RHITexture tex, int mip, int x, int y, int w, int h, uint32_t rowPitch, const void* data, size_t bytes) = 0;
   virtual void SetPixelTexture2D(uint32_t slot, RHITexture tex) = 0;
   virtual void SetPixelTexture3D(uint32_t slot, RHITexture3D tex) = 0;
   virtual RHISampler CreateSamplerLinear() = 0;

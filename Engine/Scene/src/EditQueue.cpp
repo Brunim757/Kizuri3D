@@ -57,6 +57,15 @@ void EditQueue::PushLod(EntityId target, const LodData& value) {
   e.value = value;
   lodEdits.push_back(e);
 }
+void EditQueue::PushStatic(EntityId target, bool value) {
+  if (!target.IsValid()) {
+    return;
+  }
+  StaticEdit e;
+  e.target = target;
+  e.value = value;
+  staticEdits.push_back(e);
+}
 void EditQueue::PushLightmap(EntityId target, const LightmapData& value) {
   if (!target.IsValid()) {
     return;
@@ -144,7 +153,7 @@ bool FogEqual(const FogData& a, const FogData& b) {
   return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.density == b.density && a.color[0] == b.color[0] && a.color[1] == b.color[1] && a.color[2] == b.color[2];
 }
 size_t EditQueue::Pending() const {
-  return edits.size() + lightEdits.size() + materialEdits.size() + partMaterialEdits.size() + decalEdits.size() + lodEdits.size() + lightmapEdits.size() + probeEdits.size() + postEdits.size() + fogEdits.size();
+  return edits.size() + lightEdits.size() + materialEdits.size() + partMaterialEdits.size() + decalEdits.size() + lodEdits.size() + lightmapEdits.size() + probeEdits.size() + postEdits.size() + fogEdits.size() + staticEdits.size();
 }
 size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
   size_t applied = 0;
@@ -302,6 +311,30 @@ size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
     }
   }
   lodEdits.clear();
+  for (size_t i = 0; i < staticEdits.size(); ++i) {
+    bool last = true;
+    for (size_t j = i + 1; j < staticEdits.size(); ++j) {
+      if (staticEdits[j].target == staticEdits[i].target) {
+        last = false;
+        break;
+      }
+    }
+    if (!last) {
+      continue;
+    }
+    const Entity* e = scene.Get(staticEdits[i].target);
+    if (e == nullptr) {
+      continue;
+    }
+    if (e->isStatic == staticEdits[i].value) {
+      continue;
+    }
+    std::unique_ptr<Command> cmd(new SetStaticCmd(staticEdits[i].target, e->isStatic, staticEdits[i].value));
+    if (undo.Execute(std::move(cmd), scene)) {
+      ++applied;
+    }
+  }
+  staticEdits.clear();
   for (size_t i = 0; i < lightmapEdits.size(); ++i) {
     bool last = true;
     for (size_t j = i + 1; j < lightmapEdits.size(); ++j) {
@@ -411,5 +444,6 @@ void EditQueue::Clear() {
   probeEdits.clear();
   postEdits.clear();
   fogEdits.clear();
+  staticEdits.clear();
 }
 }

@@ -32,6 +32,7 @@ void MakeDefaultLight(LightData& l) {
   l.areaH = 1.0f;
   l.linkMask = 255;
   l.layer = 1;
+  l.cookieGuid.clear();
 }
 void MakeDefaultMaterial(MaterialData& m) {
   m.albedo[0] = 1.0f;

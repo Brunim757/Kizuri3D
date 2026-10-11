@@ -37,6 +37,8 @@ Texture2D IriTex : register(t14);
 Texture2D IriThickTex : register(t15);
 Texture2D DetailTex : register(t16);
 Texture2D DetailNormalTex : register(t17);
+Texture2D VtTable : register(t18);
+Texture2D VtTail : register(t19);
 SamplerState GeoSamp : register(s0);
 struct PSIn
 {
@@ -115,9 +117,25 @@ PSOut main(PSIn pin)
     float3 alb = Albedo.rgb;
     float alpha = Albedo.a;
     if ((flags & 1u) != 0u) {
-        float4 albT = AlbedoTex.Sample(GeoSamp, pov);
-        alb *= albT.rgb;
-        alpha *= albT.a;
+        if ((flags & 134217728u) != 0u) {
+            float2 vtPage = floor(pov * 64.0);
+            float2 vtFrac = frac(pov * 64.0);
+            float4 ve = VtTable.Load(int3((int) min(vtPage.x, 63.0), (int) min(vtPage.y, 63.0), 0));
+            if (ve.b > 0.5 && abs(ve.a * 255.0 - ExtG.w) < 0.5) {
+                float2 phys = (ve.rg * 255.0 * 32.0 + vtFrac * 32.0) / 1024.0;
+                float4 vtT = AlbedoTex.SampleLevel(GeoSamp, phys, 0);
+                alb *= vtT.rgb;
+                alpha *= vtT.a;
+            } else {
+                float4 vtT = VtTail.SampleLevel(GeoSamp, pov, 0);
+                alb *= vtT.rgb;
+                alpha *= vtT.a;
+            }
+        } else {
+            float4 albT = AlbedoTex.Sample(GeoSamp, pov);
+            alb *= albT.rgb;
+            alpha *= albT.a;
+        }
     }
     if (ExtB.x > 0.5 && ExtB.x < 1.5 && alpha < ExtA.w) {
         discard;

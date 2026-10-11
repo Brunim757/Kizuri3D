@@ -43,6 +43,7 @@ struct LightData {
   float areaH;
   int linkMask;
   int layer;
+  std::string cookieGuid;
 };
 struct UvXformData {
   float offsetU = 0.0f;
@@ -112,6 +113,7 @@ struct MaterialData {
   bool layerHeightBlend = false;
   float sssColor[3] = { 0.85f, 0.35f, 0.25f };
   float sssIntensity = 0.0f;
+  bool vtAlbedo = false;
 };
 struct DecalData {
   float size[3];
@@ -177,6 +179,7 @@ struct Entity {
   bool hasFog;
   EntityId parent;
   std::vector<EntityId> children;
+  bool isStatic = false;
 };
 class Scene {
 public:
