@@ -343,6 +343,55 @@ public:
     misses = shaderCacheMiss;
     permutations = static_cast<uint64_t>(shaderPermCounts.size());
   }
+  void GetPoolStats(uint64_t& hits, uint64_t& misses) const override {
+    hits = poolHits;
+    misses = poolMiss;
+  }
+  uint64_t LiveTargetCount() const override {
+    return static_cast<uint64_t>(targets.size());
+  }
+  RHIGpuFence CreateGpuFence() override {
+    D3D11_QUERY_DESC qd;
+    qd.Query = D3D11_QUERY_EVENT;
+    qd.MiscFlags = 0;
+    ComPtr<ID3D11Query> query;
+    if (FAILED(device->CreateQuery(&qd, query.GetAddressOf()))) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    fences[id] = query;
+    return id;
+  }
+  void DestroyGpuFence(RHIGpuFence fence) override {
+    fences.erase(fence);
+  }
+  void SignalGpuFence(RHIGpuFence fence) override {
+    auto it = fences.find(fence);
+    if (it == fences.end()) {
+      return;
+    }
+    context->End(it->second.Get());
+  }
+  bool WaitGpuFence(RHIGpuFence fence, uint32_t timeoutMs) override {
+    auto it = fences.find(fence);
+    if (it == fences.end()) {
+      return false;
+    }
+    uint32_t waited = 0;
+    for (;;) {
+      HRESULT hr = context->GetData(it->second.Get(), nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH);
+      if (hr == S_OK) {
+        return true;
+      }
+      if (waited >= timeoutMs) {
+        context->Flush();
+        hr = context->GetData(it->second.Get(), nullptr, 0, 0);
+        return hr == S_OK;
+      }
+      Sleep(1);
+      ++waited;
+    }
+  }
   RHIBuffer CreateBuffer(uint64_t size, uint32_t stride, bool isIndex, const void* initialData) override {
     if (size == 0 || size > 256 * 1024 * 1024) {
       return 0;
@@ -885,6 +934,7 @@ public:
         uint64_t id = nextId++;
         targets[id] = std::move(*it);
         pool.erase(it);
+        ++poolHits;
         return id;
       }
     }
@@ -950,6 +1000,7 @@ public:
     }
     uint64_t id = nextId++;
     targets[id] = res;
+    ++poolMiss;
     return id;
   }
   void DestroyRenderTarget(RHIRenderTarget rt) override {
@@ -2166,10 +2217,13 @@ private:
   std::unordered_map<uint64_t, TargetRes> targets;
   std::list<TargetRes> pool;
   std::unordered_map<uint64_t, Tstamp> tstamps;
+  std::unordered_map<uint64_t, ComPtr<ID3D11Query>> fences;
   std::unordered_map<uint64_t, std::vector<unsigned char>> shaderCache;
   std::unordered_map<std::string, uint32_t> shaderPermCounts;
   uint64_t shaderCacheHits = 0;
   uint64_t shaderCacheMiss = 0;
+  uint64_t poolHits = 0;
+  uint64_t poolMiss = 0;
   std::unordered_map<uint64_t, OccQuery> occQueries;
   std::unordered_map<uint64_t, ComPtr<ID3D11SamplerState>> samplers;
   std::unordered_map<uint64_t, ShadowCubeRes> cubes;

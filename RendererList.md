@@ -308,13 +308,13 @@ Sem Ray Tracing
 - [x] Material ID system
 - [x] Material table
 - [x] Forward pass para transmissivos
-- [ ] Render graph
-- [ ] Resource lifetime tracking
-- [ ] Transient render targets
+- [x] Render graph
+- [x] Resource lifetime tracking
+- [x] Transient render targets
 - [x] Render target pooling
 - [x] Async resource loading
-- [ ] GPU synchronization
-- [ ] CPU/GPU frame pacing
+- [x] GPU synchronization
+- [x] CPU/GPU frame pacing
 - [ ] Multi-threaded command preparation
 - [ ] Render thread
 - [ ] Worker threads

@@ -12,6 +12,7 @@
 #include "Kizuri/Camera.h"
 #include "Kizuri/MeshLoader.h"
 #include "Kizuri/DeferredRenderer.h"
+#include "Kizuri/QualityPreset.h"
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -73,6 +74,8 @@ struct EditorApp {
   int viewProcMode;
   int viewProcSize;
   std::string viewProcGuid;
+  bool viewTempUpsample;
+  float viewTargetFps;
   struct StaticBucketDraw {
     std::string guid;
     DeferredMaterial mat;
@@ -145,6 +148,9 @@ struct EditorApp {
   float viewGodDecay;
   float viewGodIntensity;
   int viewQuality;
+  Kizuri::QualitySettings customQs;
+  void ApplyCustomQuality();
+  void SnapshotCustomQuality();
   int viewDebug;
   EntityId soloLightId;
   bool viewShowBounds;

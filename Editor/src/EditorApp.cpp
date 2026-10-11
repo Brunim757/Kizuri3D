@@ -58,6 +58,8 @@ EditorApp::EditorApp()
   , viewMeshletCull(true)
   , viewProcMode(0)
   , viewProcSize(256)
+  , viewTempUpsample(false)
+  , viewTargetFps(0.0f)
   , viewShadowAuto(false)
   , viewShadowFilter(0)
   , viewVsmQuality(1)
@@ -946,10 +948,31 @@ void EditorApp::LoadEditorSettings() {
     return;
   }
   viewQuality = static_cast<int>(cfg.GetInt("quality", viewQuality));
-  if (viewQuality < 0 || viewQuality > 3) {
+  if (viewQuality < 0 || viewQuality > 4) {
     viewQuality = 2;
   }
-  Kizuri::QualitySettings qs = Kizuri::ApplyQualityPreset(static_cast<Kizuri::QualityLevel>(viewQuality));
+  customQs.ssao = cfg.GetBool("cq_ssao", customQs.ssao);
+  customQs.aoMode = static_cast<int>(cfg.GetInt("cq_aoMode", customQs.aoMode));
+  customQs.ssr = cfg.GetBool("cq_ssr", customQs.ssr);
+  customQs.ssrTemporal = cfg.GetBool("cq_ssrTemporal", customQs.ssrTemporal);
+  customQs.contact = cfg.GetBool("cq_contact", customQs.contact);
+  customQs.ssgi = cfg.GetBool("cq_ssgi", customQs.ssgi);
+  customQs.dof = cfg.GetBool("cq_dof", customQs.dof);
+  customQs.motionBlur = cfg.GetBool("cq_motion", customQs.motionBlur);
+  customQs.fxaa = cfg.GetBool("cq_fxaa", customQs.fxaa);
+  customQs.taa = cfg.GetBool("cq_taa", customQs.taa);
+  customQs.taaSharp = static_cast<float>(cfg.GetFloat("cq_taaSharp", customQs.taaSharp));
+  customQs.fog = cfg.GetBool("cq_fog", customQs.fog);
+  customQs.bloom = static_cast<float>(cfg.GetFloat("cq_bloom", customQs.bloom));
+  customQs.renderScale = static_cast<float>(cfg.GetFloat("cq_scale", customQs.renderScale));
+  customQs.shadowFilter = static_cast<int>(cfg.GetInt("cq_shadowFilter", customQs.shadowFilter));
+  customQs.vsmQuality = static_cast<int>(cfg.GetInt("cq_vsm", customQs.vsmQuality));
+  customQs.shadowRange = static_cast<float>(cfg.GetFloat("cq_range", customQs.shadowRange));
+  customQs.dynRes = cfg.GetBool("cq_dynres", customQs.dynRes);
+  customQs.occ = cfg.GetBool("cq_occ", customQs.occ);
+  customQs.shadowAuto = cfg.GetBool("cq_shadowAuto", customQs.shadowAuto);
+  customQs.godRays = cfg.GetBool("cq_god", customQs.godRays);
+  Kizuri::QualitySettings qs = viewQuality == 4 ? customQs : Kizuri::ApplyQualityPreset(static_cast<Kizuri::QualityLevel>(viewQuality));
   viewSsao = qs.ssao;
   viewAoMode = qs.aoMode;
   viewSsr = qs.ssr;
@@ -983,6 +1006,27 @@ void EditorApp::SaveEditorSettings() {
   cfg.SetInt("quality", viewQuality);
   cfg.SetFloat("exposure", viewExposure);
   cfg.SetFloat("envIntensity", viewEnv);
+  cfg.SetBool("cq_ssao", customQs.ssao);
+  cfg.SetInt("cq_aoMode", customQs.aoMode);
+  cfg.SetBool("cq_ssr", customQs.ssr);
+  cfg.SetBool("cq_ssrTemporal", customQs.ssrTemporal);
+  cfg.SetBool("cq_contact", customQs.contact);
+  cfg.SetBool("cq_ssgi", customQs.ssgi);
+  cfg.SetBool("cq_dof", customQs.dof);
+  cfg.SetBool("cq_motion", customQs.motionBlur);
+  cfg.SetBool("cq_fxaa", customQs.fxaa);
+  cfg.SetBool("cq_taa", customQs.taa);
+  cfg.SetFloat("cq_taaSharp", customQs.taaSharp);
+  cfg.SetBool("cq_fog", customQs.fog);
+  cfg.SetFloat("cq_bloom", customQs.bloom);
+  cfg.SetFloat("cq_scale", customQs.renderScale);
+  cfg.SetInt("cq_shadowFilter", customQs.shadowFilter);
+  cfg.SetInt("cq_vsm", customQs.vsmQuality);
+  cfg.SetFloat("cq_range", customQs.shadowRange);
+  cfg.SetBool("cq_dynres", customQs.dynRes);
+  cfg.SetBool("cq_occ", customQs.occ);
+  cfg.SetBool("cq_shadowAuto", customQs.shadowAuto);
+  cfg.SetBool("cq_god", customQs.godRays);
   cfg.Save(settingsFilePath);
 }
 std::string EditorApp::ReadLastScene() {

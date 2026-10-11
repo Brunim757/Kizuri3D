@@ -1942,9 +1942,70 @@ void EditorApp::DrawSettings() {
       ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Render")) {
-      int q = viewQuality < 0 ? 2 : (viewQuality > 3 ? 3 : viewQuality);
-      if (ImGui::Combo("Quality", &q, "Low\0Medium\0High\0Ultra\0")) {
+void EditorApp::ApplyCustomQuality() {
+  const Kizuri::QualitySettings& qs = customQs;
+  viewSsao = qs.ssao;
+  viewAoMode = qs.aoMode;
+  viewSsr = qs.ssr;
+  viewSsrTemporal = qs.ssrTemporal;
+  viewContact = qs.contact;
+  viewSsgi = qs.ssgi;
+  viewDof = qs.dof;
+  viewMotion = qs.motionBlur;
+  viewFxaa = qs.fxaa;
+  viewTaa = qs.taa;
+  viewTaaSharp = qs.taaSharp;
+  viewFog = qs.fog;
+  viewBloom = qs.bloom;
+  viewScale = qs.renderScale;
+  viewShadowFilter = qs.shadowFilter;
+  viewVsmQuality = qs.vsmQuality;
+  viewShadowRange = qs.shadowRange;
+  viewDynRes = qs.dynRes;
+  viewOcc = qs.occ;
+  viewShadowAuto = qs.shadowAuto;
+  viewGodRays = qs.godRays;
+  renderer.SetAoMode(viewAoMode);
+  renderer.SetShadowFilter(viewShadowFilter);
+  renderer.SetVsmQuality(viewVsmQuality);
+  renderer.SetShadowRange(viewShadowRange);
+  renderer.SetTaa(viewTaa);
+  renderer.SetTaaSharpening(viewTaaSharp);
+  renderer.SetSsrTemporal(viewSsrTemporal, viewSsrTemporalBlend);
+  renderer.SetDynamicResolution(viewDynRes, viewDynTarget, 0.5f, 1.0f);
+  renderer.SetOcclusionCulling(viewOcc);
+  renderer.SetShadowAutoRes(viewShadowAuto);
+  renderer.SetGodRays(viewGodRays, viewGodDensity, viewGodDecay, viewGodIntensity);
+}
+void EditorApp::SnapshotCustomQuality() {
+  customQs.ssao = viewSsao;
+  customQs.aoMode = viewAoMode;
+  customQs.ssr = viewSsr;
+  customQs.ssrTemporal = viewSsrTemporal;
+  customQs.contact = viewContact;
+  customQs.ssgi = viewSsgi;
+  customQs.dof = viewDof;
+  customQs.motionBlur = viewMotion;
+  customQs.fxaa = viewFxaa;
+  customQs.taa = viewTaa;
+  customQs.taaSharp = viewTaaSharp;
+  customQs.fog = viewFog;
+  customQs.bloom = viewBloom;
+  customQs.renderScale = viewScale;
+  customQs.shadowFilter = viewShadowFilter;
+  customQs.vsmQuality = viewVsmQuality;
+  customQs.shadowRange = viewShadowRange;
+  customQs.dynRes = viewDynRes;
+  customQs.occ = viewOcc;
+  customQs.shadowAuto = viewShadowAuto;
+  customQs.godRays = viewGodRays;
+}
+      int q = viewQuality < 0 ? 2 : (viewQuality > 4 ? 4 : viewQuality);
+      if (ImGui::Combo("Quality", &q, "Low\0Medium\0High\0Ultra\0Custom\0")) {
         viewQuality = q;
+        if (q == 4) {
+          ApplyCustomQuality();
+        } else {
         Kizuri::QualitySettings qs = Kizuri::ApplyQualityPreset(static_cast<Kizuri::QualityLevel>(q));
         viewSsao = qs.ssao;
         viewAoMode = qs.aoMode;
@@ -1980,6 +2041,14 @@ void EditorApp::DrawSettings() {
         renderer.SetOcclusionCulling(viewOcc);
         renderer.SetShadowAutoRes(viewShadowAuto);
         renderer.SetGodRays(viewGodRays, viewGodDensity, viewGodDecay, viewGodIntensity);
+        }
+      }
+      if (ImGui::Button("Save Custom")) {
+        SnapshotCustomQuality();
+        SaveEditorSettings();
+        if (viewQuality == 4) {
+          ApplyCustomQuality();
+        }
       }
       ImGui::SliderFloat("Render Scale", &viewScale, 0.5f, 1.0f);
       ImGui::SliderFloat("Sharpness", &viewSharp, 0.0f, 1.0f);
@@ -2032,6 +2101,12 @@ void EditorApp::DrawSettings() {
       }
       if (ImGui::Checkbox("GPU Driven", &viewGpuDriven)) {
         renderer.SetGpuDriven(viewGpuDriven);
+      }
+      if (ImGui::Checkbox("Temporal Upsampling", &viewTempUpsample)) {
+        renderer.SetTemporalUpsampling(viewTempUpsample);
+      }
+      if (ImGui::SliderFloat("Target FPS", &viewTargetFps, 0.0f, 240.0f)) {
+        renderer.SetTargetFrameRate(viewTargetFps);
       }
       ImGui::Checkbox("Static Batching", &viewStaticBatch);
       ImGui::Checkbox("Meshlet Culling", &viewMeshletCull);

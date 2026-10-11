@@ -1,5 +1,6 @@
 #pragma once
 #include "Kizuri/RHI.h"
+#include "Kizuri/FramePacer.h"
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -329,6 +330,11 @@ public:
   void SetAmbientProbe(float r, float g, float b);
   void SetSssRadius(float radius);
   float SssRadius() const { return sssRadius; }
+  void SetTemporalUpsampling(bool on);
+  bool IsTemporalUpsampling() const { return temporalUpsampling; }
+  float RenderScale() const { return renderScale; }
+  void SetTargetFrameRate(float fps) { framePacer.SetTargetFps(fps); }
+  float TargetFrameRate() const { return framePacer.TargetFps(); }
   void SetEnvProbes(int count, const RHITexture* cubes, const float (*boxMin)[4], const float (*boxMax)[4]);
   void DrawObject(const float world[16]);
   void DrawObjectEx(const float world[16], RHIBuffer vb, RHIBuffer ib, uint32_t start, uint32_t count, const DeferredMaterial* mat, float lodFade = 0.0f, const float* aabbMin = nullptr, const float* aabbMax = nullptr);
@@ -568,6 +574,7 @@ public:
   int outH;
   float renderScale;
   float fsrSharpness;
+  bool temporalUpsampling;
   RHIPixelShader ssaoPS;
   RHIPixelShader ssaoBlurPS;
   RHIPixelShader gtaoPS;
@@ -691,6 +698,7 @@ public:
   RHIStructBuffer cullArgsBuf;
   uint32_t cullBufCap;
   bool gpuDriven;
+  FramePacer framePacer;
   bool computeAvailable;
   bool gpuCullParity;
   bool forwardPlus;
@@ -719,6 +727,7 @@ public:
   std::vector<std::string> shaderErrors;
   void RunDebugPass(const float camPos[3]);
   void BuildHzb(const float camPos[3]);
+  void HzbDispatchLevel(int hi, RHIRenderTarget src, int pw, int ph, const float hc[8]);
   void RunSsssBlur();
   void RunOverdrawPass();
   void RunUvPass();

@@ -87,6 +87,28 @@ public:
     misses = 0;
     permutations = 0;
   }
+  void GetPoolStats(uint64_t& hits, uint64_t& misses) const override {
+    hits = poolHits;
+    misses = poolMiss;
+  }
+  uint64_t LiveTargetCount() const override {
+    return static_cast<uint64_t>(targets.size());
+  }
+  RHIGpuFence CreateGpuFence() override {
+    uint64_t id = nextId++;
+    shaders[id] = 1;
+    return id;
+  }
+  void DestroyGpuFence(RHIGpuFence fence) override {
+    shaders.erase(fence);
+  }
+  void SignalGpuFence(RHIGpuFence fence) override {
+    (void)fence;
+  }
+  bool WaitGpuFence(RHIGpuFence fence, uint32_t timeoutMs) override {
+    (void)timeoutMs;
+    return shaders.find(fence) != shaders.end();
+  }
   RHIBuffer CreateBuffer(uint64_t size, uint32_t stride, bool isIndex, const void* initialData) override {
     RHIBuffer id = CreateBufferEmpty(size, stride, isIndex);
     if (id != 0 && initialData != nullptr) {
@@ -332,6 +354,7 @@ public:
         pool.erase(it);
         uint64_t id = nextId++;
         targets[id] = t;
+        ++poolHits;
         return id;
       }
     }
@@ -341,6 +364,7 @@ public:
     t.h = th;
     t.fmt = fmt;
     targets[id] = t;
+    ++poolMiss;
     return id;
   }
   void DestroyRenderTarget(RHIRenderTarget rt) override {
@@ -750,6 +774,8 @@ private:
   uint64_t nextId;
   uint64_t total;
   uint64_t discarded;
+  uint64_t poolHits = 0;
+  uint64_t poolMiss = 0;
   struct NullBuffer {
     std::vector<unsigned char> bytes;
   };

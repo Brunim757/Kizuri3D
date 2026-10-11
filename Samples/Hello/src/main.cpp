@@ -22,6 +22,8 @@
 #include "Kizuri/Shadows.h"
 #include "Kizuri/QualityPreset.h"
 #include "Kizuri/DeferredRenderer.h"
+#include "Kizuri/RenderGraph.h"
+#include "Kizuri/FramePacer.h"
 #include "Kizuri/Scene.h"
 #include "Kizuri/MultiSelection.h"
 #include "Kizuri/Log.h"
@@ -1712,8 +1714,186 @@ bool TestAssetVersion() { unsigned char bad[16] = { 'K', 'Z', 'M', 'H', 0, 0, 0,
   }
   return back.guid == "ver-1" && back.positions.size() == 9 && back.indices.size() == 3;
 }
-bool TestScanIdempotent() {
-  namespace fs = std::filesystem;
+bool TestGpuFence() {
+  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  Kizuri::RHIDesc desc;
+  desc.windowHandle = nullptr;
+  desc.width = 64;
+  desc.height = 64;
+  desc.vsync = false;
+  rhi->Initialize(desc);
+  Kizuri::RHIGpuFence fence = rhi->CreateGpuFence();
+  if (fence == 0) {
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  rhi->SignalGpuFence(fence);
+  bool ok = rhi->WaitGpuFence(fence, 100);
+  rhi->DestroyGpuFence(fence);
+  ok = ok && !rhi->WaitGpuFence(fence, 0);
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestPoolReuse() {
+  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+  Kizuri::RHIDesc desc;
+  desc.windowHandle = nullptr;
+  desc.width = 64;
+  desc.height = 64;
+  desc.vsync = false;
+  rhi->Initialize(desc);
+  if (rhi->LiveTargetCount() != 0) {
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  Kizuri::RHIRenderTarget a = rhi->CreateRenderTarget(64, 64, Kizuri::RHIFormat::RGBA8_UNORM);
+  if (a == 0 || rhi->LiveTargetCount() != 1) {
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  rhi->DestroyRenderTarget(a);
+  if (rhi->LiveTargetCount() != 0) {
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  Kizuri::RHIRenderTarget b = rhi->CreateRenderTarget(64, 64, Kizuri::RHIFormat::RGBA8_UNORM);
+  uint64_t hits = 0;
+  uint64_t misses = 0;
+  rhi->GetPoolStats(hits, misses);
+  bool ok = b != 0 && hits == 1 && misses == 1 && rhi->LiveTargetCount() == 1;
+  rhi->DestroyRenderTarget(b);
+  ok = ok && rhi->LiveTargetCount() == 0;
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestFramePacer() {
+  Kizuri::FramePacer pacer;
+  if (pacer.TargetFps() != 0.0f) {
+    return false;
+  }
+  pacer.SetTargetFps(0.0f);
+  pacer.Wait();
+  if (pacer.LastWaitMs() != 0.0) {
+    return false;
+  }
+  pacer.SetTargetFps(60.0f);
+  if (pacer.TargetFps() != 60.0f) {
+    return false;
+  }
+  pacer.SetTargetFps(-5.0f);
+  return pacer.TargetFps() == 0.0f;
+}
+bool TestRenderGraph() {
+  Kizuri::RenderGraph graph;
+  int a = graph.AddResource("A", 64, 64, 0);
+  int b = graph.AddResource("B", 64, 64, 0);
+  int c = graph.AddResource("C", 32, 32, 1);
+  if (a != 0 || b != 1 || c != 2) {
+    return false;
+  }
+  std::vector<int> exec;
+  std::vector<int> noReads;
+  std::vector<int> readsA;
+  readsA.push_back(a);
+  std::vector<int> writesA;
+  writesA.push_back(a);
+  std::vector<int> readsB;
+  readsB.push_back(b);
+  std::vector<int> writesB;
+  writesB.push_back(b);
+  std::vector<int> readsC;
+  readsC.push_back(c);
+  std::vector<int> writesC;
+  writesC.push_back(c);
+  graph.AddPass("p1", noReads, writesA, [&exec]() { exec.push_back(1); });
+  graph.AddPass("p2", readsA, writesB, [&exec]() { exec.push_back(2); });
+  graph.AddPass("p3", readsB, writesC, [&exec]() { exec.push_back(3); });
+  if (!graph.Compile()) {
+    return false;
+  }
+  if (graph.PassCount() != 3 || graph.ResourceCount() != 3 || graph.TransientCount() != 3) {
+    return false;
+  }
+  graph.Execute();
+  if (exec.size() != 3 || exec[0] != 1 || exec[1] != 2 || exec[2] != 3) {
+    return false;
+  }
+  Kizuri::RenderGraph sharing;
+  int s0 = sharing.AddResource("S0", 64, 64, 0);
+  int s1 = sharing.AddResource("S1", 64, 64, 0);
+  int s2 = sharing.AddResource("S2", 32, 32, 0);
+  std::vector<int> w0;
+  w0.push_back(s0);
+  std::vector<int> r0;
+  r0.push_back(s0);
+  std::vector<int> w1;
+  w1.push_back(s1);
+  std::vector<int> w2;
+  w2.push_back(s2);
+  std::vector<int> r2;
+  r2.push_back(s2);
+  sharing.AddPass("q1", noReads, w0, []() {});
+  sharing.AddPass("q2", r0, w2, []() {});
+  sharing.AddPass("q3", r2, w1, []() {});
+  if (!sharing.Compile()) {
+    return false;
+  }
+  if (sharing.BackingOf(s0) != sharing.BackingOf(s1)) {
+    return false;
+  }
+  Kizuri::RenderGraph broken;
+  std::vector<int> bad;
+  bad.push_back(99);
+  broken.AddPass("bad", noReads, bad, []() {});
+  if (broken.Compile()) {
+    return false;
+  }
+  return true;
+}
+bool TestTemporalUpsampling() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  renderer.SetTemporalUpsampling(true);
+  if (!renderer.IsTemporalUpsampling() || renderer.RenderScale() != 0.67f) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 5 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  bool ok = renderer.GetStats().lightingDraws == 1;
+  renderer.SetTemporalUpsampling(false);
+  ok = ok && !renderer.IsTemporalUpsampling() && renderer.RenderScale() == 1.0f;
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestScanIdempotent() { namespace fs = std::filesystem;
   fs::path dir = fs::temp_directory_path() / "kzscanidem_test";
   std::error_code ec;
   fs::remove_all(dir, ec);
@@ -8671,6 +8851,11 @@ int main() {
   failures += Check("SssKinds", TestSssKinds());
   failures += Check("SsssBlur", TestSsssBlur());
   failures += Check("ScanIdempotent", TestScanIdempotent());
+  failures += Check("PoolReuse", TestPoolReuse());
+  failures += Check("GpuFence", TestGpuFence());
+  failures += Check("FramePacer", TestFramePacer());
+  failures += Check("RenderGraph", TestRenderGraph());
+  failures += Check("TemporalUpsampling", TestTemporalUpsampling());
   failures += Check("VirtualTexture", TestVirtualTexture());
   failures += Check("LensDirt", TestLensDirt());
   failures += Check("RHI-Null", TestRHINull());

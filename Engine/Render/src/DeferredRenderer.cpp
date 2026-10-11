@@ -1,5 +1,6 @@
 #include "Kizuri/DeferredRenderer.h"
 #include "Kizuri/Shadows.h"
+#include "Kizuri/RenderGraph.h"
 #define A_CPU 1
 #include "ffx_a.h"
 #include "ffx_fsr1.h"
@@ -317,6 +318,7 @@ DeferredRenderer::DeferredRenderer()
   , outW(0)
   , outH(0)
   , renderScale(1.0f)
+  , temporalUpsampling(false)
   , fsrSharpness(0.5f)
   , ssaoPS(0)
   , ssaoBlurPS(0)
@@ -1140,6 +1142,12 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
 void DeferredRenderer::Shutdown() {
   if (rhi == nullptr) {
     return;
+  }
+  RHIGpuFence fence = rhi->CreateGpuFence();
+  if (fence != 0) {
+    rhi->SignalGpuFence(fence);
+    rhi->WaitGpuFence(fence, 5000);
+    rhi->DestroyGpuFence(fence);
   }
   DestroyTargets();
   if (brdfLut != 0) {
@@ -3105,8 +3113,7 @@ bool DeferredRenderer::Resize(int nw, int nh) {
   InvalidateTaa();
   return true;
 }
-void DeferredRenderer::SetFsr(float scale, float sharpness) {
-  float s = scale;
+void DeferredRenderer::SetFsr(float scale, float sharpness) { float s = scale;
   if (s < 0.5f) {
     s = 0.5f;
   }
@@ -3142,6 +3149,15 @@ void DeferredRenderer::SetFsr(float scale, float sharpness) {
     DestroyTargets();
     CreateTargets();
     InvalidateTaa();
+  }
+}
+void DeferredRenderer::SetTemporalUpsampling(bool on) {
+  temporalUpsampling = on;
+  if (on) {
+    SetTaa(true);
+    SetFsr(0.67f, fsrSharpness);
+  } else {
+    SetFsr(1.0f, fsrSharpness);
   }
 }
 void DeferredRenderer::SetViewOffset(float x, float y) {
@@ -4634,6 +4650,32 @@ void DeferredRenderer::RunUvPass() {
   NoteFullscreen();
   rhi->EndEvent();
 }
+void DeferredRenderer::HzbDispatchLevel(int hi, RHIRenderTarget src, int pw, int ph, const float hc[8]) {
+  if (rhi == nullptr || hzbPS == 0 || hzbCB == 0 || hzbA[hi] == 0 || hc == nullptr) {
+    return;
+  }
+  float level[8];
+  std::memcpy(level, hc, sizeof(level));
+  if (hi > 0) {
+    level[0] = 1.0f;
+    level[1] = 1.0f / static_cast<float>(pw > 0 ? pw : 1);
+    level[2] = 1.0f / static_cast<float>(ph > 0 ? ph : 1);
+    level[3] = 0.0f;
+  }
+  rhi->UpdateConstantBuffer(hzbCB, &level, sizeof(level));
+  rhi->SetPixelConstantBuffer(0, hzbCB);
+  rhi->SetPixelTexture(0, src);
+  rhi->SetRenderTargets(1, &hzbA[hi], 0);
+  RHIViewport vp;
+  vp.x = 0.0f;
+  vp.y = 0.0f;
+  vp.w = static_cast<float>(pw);
+  vp.h = static_cast<float>(ph);
+  vp.minD = 0.0f;
+  vp.maxD = 1.0f;
+  rhi->SetViewport(vp);
+  NoteFullscreen();
+}
 void DeferredRenderer::BuildHzb(const float camPos[3]) {
   if (rhi == nullptr || hzbPS == 0 || hzbCB == 0 || hzbA[0] == 0) {
     return;
@@ -4651,37 +4693,47 @@ void DeferredRenderer::BuildHzb(const float camPos[3]) {
   hc[5] = camPos != nullptr ? camPos[1] : 0.0f;
   hc[6] = camPos != nullptr ? camPos[2] : 0.0f;
   hc[7] = 1.0f;
+  RenderGraph graph;
+  int gpos = graph.AddExternalResource("gPosition");
+  int levels[5];
+  for (int hi = 0; hi < 5; ++hi) {
+    char nm[16];
+    nm[0] = 'h';
+    nm[1] = 'z';
+    nm[2] = 'b';
+    nm[3] = static_cast<char>('0' + hi);
+    nm[4] = 0;
+    levels[hi] = graph.AddExternalResource(nm);
+  }
   int pw = w;
   int ph = h;
   for (int hi = 0; hi < 5; ++hi) {
     if (hzbA[hi] == 0) {
       break;
     }
-    if (hi > 0) {
-      hc[0] = 1.0f;
-      hc[1] = 1.0f / static_cast<float>(pw > 0 ? pw : 1);
-      hc[2] = 1.0f / static_cast<float>(ph > 0 ? ph : 1);
-      hc[3] = 0.0f;
-    }
-    rhi->UpdateConstantBuffer(hzbCB, &hc, sizeof(hc));
-    rhi->SetPixelConstantBuffer(0, hzbCB);
-    if (hi == 0) {
-      rhi->SetPixelTexture(0, gPosition);
-    } else {
-      rhi->SetPixelTexture(0, hzbA[hi - 1]);
-    }
-    rhi->SetRenderTargets(1, &hzbA[hi], 0);
-    RHIViewport vp;
-    vp.x = 0.0f;
-    vp.y = 0.0f;
-    vp.w = static_cast<float>(pw);
-    vp.h = static_cast<float>(ph);
-    vp.minD = 0.0f;
-    vp.maxD = 1.0f;
-    rhi->SetViewport(vp);
-    NoteFullscreen();
+    int src = hi == 0 ? gpos : levels[hi - 1];
+    std::vector<int> reads;
+    reads.push_back(src);
+    std::vector<int> writes;
+    writes.push_back(levels[hi]);
+    RHIRenderTarget srcTex = hi == 0 ? gPosition : hzbA[hi - 1];
+    int lw = pw;
+    int lh = ph;
+    char pn[16];
+    pn[0] = 'h';
+    pn[1] = 'z';
+    pn[2] = 'b';
+    pn[3] = static_cast<char>('0' + hi);
+    pn[4] = 0;
+    std::string pname = pn;
+    graph.AddPass(pname, reads, writes, [this, hi, srcTex, lw, lh, hc]() {
+      HzbDispatchLevel(hi, srcTex, lw, lh, hc);
+    });
     pw /= 2;
     ph /= 2;
+  }
+  if (graph.Compile()) {
+    graph.Execute();
   }
   rhi->SetPixelTexture(0, 0);
   rhi->EndEvent();
@@ -6116,6 +6168,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     }
     UpdateShadowAutoRes();
     rhi->BindBackbuffer();
+    framePacer.Wait();
   }
 }
 bool DeferredRenderer::IsReady() const {
