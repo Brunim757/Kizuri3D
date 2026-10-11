@@ -8,6 +8,7 @@
 #include <d3dcompiler.h>
 #include <wrl/client.h>
 #include <cstring>
+#include <string>
 #include <unordered_map>
 #include <vector>
 #include <list>
@@ -336,6 +337,11 @@ public:
   void GetCacheStats(uint64_t& t, uint64_t& d) const override {
     t = total;
     d = discarded;
+  }
+  void GetShaderCacheStats(uint64_t& hits, uint64_t& misses, uint64_t& permutations) const override {
+    hits = shaderCacheHits;
+    misses = shaderCacheMiss;
+    permutations = static_cast<uint64_t>(shaderPermCounts.size());
   }
   RHIBuffer CreateBuffer(uint64_t size, uint32_t stride, bool isIndex, const void* initialData) override {
     if (size == 0 || size > 256 * 1024 * 1024) {
@@ -2026,12 +2032,99 @@ private:
     if (n == 0) {
       return false;
     }
+    std::vector<unsigned char> srcBytes;
+    HANDLE hf = CreateFileW(wpath, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hf != INVALID_HANDLE_VALUE) {
+      LARGE_INTEGER fsize;
+      fsize.QuadPart = 0;
+      if (GetFileSizeEx(hf, &fsize) && fsize.QuadPart > 0 && fsize.QuadPart <= 4 * 1024 * 1024) {
+        srcBytes.resize(static_cast<size_t>(fsize.QuadPart));
+        DWORD got = 0;
+        if (!ReadFile(hf, srcBytes.data(), static_cast<DWORD>(srcBytes.size()), &got, nullptr) || got != srcBytes.size()) {
+          srcBytes.clear();
+        }
+      }
+      CloseHandle(hf);
+    }
+    uint64_t key = 1469598103934665603ull;
+    auto mixKey = [&key](const void* data, size_t bytes) {
+      const unsigned char* p = reinterpret_cast<const unsigned char*>(data);
+      for (size_t i = 0; i < bytes; ++i) {
+        key ^= static_cast<uint64_t>(p[i]);
+        key *= 1099511628211ull;
+      }
+    };
+    mixKey(target, std::strlen(target));
+    mixKey(entry, std::strlen(entry));
+    if (!srcBytes.empty()) {
+      mixKey(srcBytes.data(), srcBytes.size());
+    } else {
+      mixKey(path, std::strlen(path));
+    }
+    if (key == 0) {
+      key = 1;
+    }
+    auto mc = shaderCache.find(key);
+    if (mc != shaderCache.end() && !mc->second.empty() && mc->second.size() <= 4 * 1024 * 1024) {
+      ComPtr<ID3DBlob> cached;
+      if (SUCCEEDED(D3DCreateBlob(mc->second.size(), reinterpret_cast<ID3D10Blob**>(cached.GetAddressOf())))) {
+        std::memcpy(cached->GetBufferPointer(), mc->second.data(), mc->second.size());
+        outBlob = cached;
+        ++shaderCacheHits;
+        return true;
+      }
+      shaderCache.erase(mc);
+    }
+    wchar_t cachePath[1024];
+    cachePath[0] = 0;
+    DWORD tlen = GetTempPathW(1024, cachePath);
+    if (tlen > 0 && tlen < 1000) {
+      wchar_t fname[64];
+      swprintf_s(fname, L"kizuri_sc_%016llX.kzb", key);
+      wcscat_s(cachePath, L"kizuri_shadercache\\");
+      CreateDirectoryW(cachePath, nullptr);
+      wcscat_s(cachePath, fname);
+      HANDLE cf = CreateFileW(cachePath, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+      if (cf != INVALID_HANDLE_VALUE) {
+        LARGE_INTEGER csize;
+        csize.QuadPart = 0;
+        if (GetFileSizeEx(cf, &csize) && csize.QuadPart > 0 && csize.QuadPart <= 4 * 1024 * 1024) {
+          std::vector<unsigned char> cachedBytes(static_cast<size_t>(csize.QuadPart));
+          DWORD got = 0;
+          if (ReadFile(cf, cachedBytes.data(), static_cast<DWORD>(cachedBytes.size()), &got, nullptr) && got == cachedBytes.size()) {
+            ComPtr<ID3DBlob> cached;
+            if (SUCCEEDED(D3DCreateBlob(cachedBytes.size(), reinterpret_cast<ID3D10Blob**>(cached.GetAddressOf())))) {
+              std::memcpy(cached->GetBufferPointer(), cachedBytes.data(), cachedBytes.size());
+              shaderCache[key] = cachedBytes;
+              outBlob = cached;
+              ++shaderCacheHits;
+              CloseHandle(cf);
+              return true;
+            }
+          }
+        }
+        CloseHandle(cf);
+      }
+    }
     UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
     ComPtr<ID3DBlob> blob;
     ComPtr<ID3DBlob> errors;
     HRESULT hr = D3DCompileFromFile(wpath, nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, entry, target, flags, 0, blob.GetAddressOf(), errors.GetAddressOf());
     if (FAILED(hr)) {
       return false;
+    }
+    std::vector<unsigned char> compiled(static_cast<unsigned char*>(blob->GetBufferPointer()), static_cast<unsigned char*>(blob->GetBufferPointer()) + blob->GetBufferSize());
+    shaderCache[key] = compiled;
+    ++shaderCacheMiss;
+    std::string permKey = std::string(target) + "|" + entry + "|" + path;
+    ++shaderPermCounts[permKey];
+    if (cachePath[0] != 0) {
+      HANDLE wf = CreateFileW(cachePath, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+      if (wf != INVALID_HANDLE_VALUE) {
+        DWORD wrote = 0;
+        WriteFile(wf, compiled.data(), static_cast<DWORD>(compiled.size()), &wrote, nullptr);
+        CloseHandle(wf);
+      }
     }
     outBlob = blob;
     return true;
@@ -2073,6 +2166,10 @@ private:
   std::unordered_map<uint64_t, TargetRes> targets;
   std::list<TargetRes> pool;
   std::unordered_map<uint64_t, Tstamp> tstamps;
+  std::unordered_map<uint64_t, std::vector<unsigned char>> shaderCache;
+  std::unordered_map<std::string, uint32_t> shaderPermCounts;
+  uint64_t shaderCacheHits = 0;
+  uint64_t shaderCacheMiss = 0;
   std::unordered_map<uint64_t, OccQuery> occQueries;
   std::unordered_map<uint64_t, ComPtr<ID3D11SamplerState>> samplers;
   std::unordered_map<uint64_t, ShadowCubeRes> cubes;

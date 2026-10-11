@@ -82,6 +82,11 @@ public:
     t = total;
     d = discarded;
   }
+  void GetShaderCacheStats(uint64_t& hits, uint64_t& misses, uint64_t& permutations) const override {
+    hits = 0;
+    misses = 0;
+    permutations = 0;
+  }
   RHIBuffer CreateBuffer(uint64_t size, uint32_t stride, bool isIndex, const void* initialData) override {
     RHIBuffer id = CreateBufferEmpty(size, stride, isIndex);
     if (id != 0 && initialData != nullptr) {

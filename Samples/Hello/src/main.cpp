@@ -1568,8 +1568,71 @@ bool TestDecalAtlas() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
-bool TestVirtualTexture() {
-  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+bool TestAssetVersion() {
+  unsigned char bad[16] = { 'K', 'Z', 'M', 'H', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+  Kizuri::MeshAssetData out;
+  if (Kizuri::DecodeMeshMemory(bad, sizeof(bad), out)) {
+    return false;
+  }
+  unsigned char badMagic[16] = { 'X', 'Z', 'M', 'H', 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+  if (Kizuri::DecodeMeshMemory(badMagic, sizeof(badMagic), out)) {
+    return false;
+  }
+  Kizuri::MeshAssetData mesh;
+  mesh.guid = "ver-1";
+  mesh.positions = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
+  mesh.normals = { 0, 0, 1, 0, 0, 1, 0, 0, 1 };
+  mesh.uvs = { 0, 0, 1, 0, 0, 1 };
+  mesh.tangents = { 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1 };
+  mesh.indices = { 0, 1, 2 };
+  mesh.hasSource = false;
+  std::vector<unsigned char> bytes;
+  if (!Kizuri::EncodeMeshMemory(mesh, bytes)) {
+    return false;
+  }
+  Kizuri::MeshAssetData back;
+  if (!Kizuri::DecodeMeshMemory(bytes.data(), bytes.size(), back)) {
+    return false;
+  }
+  return back.guid == "ver-1" && back.positions.size() == 9 && back.indices.size() == 3;
+}
+bool TestScanIdempotent() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / "kzscanidem_test";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  Kizuri::MeshAssetData mesh;
+  mesh.guid = "idem-1";
+  mesh.positions = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
+  mesh.normals = { 0, 0, 1, 0, 0, 1, 0, 0, 1 };
+  mesh.uvs = { 0, 0, 1, 0, 0, 1 };
+  mesh.tangents = { 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1 };
+  mesh.indices = { 0, 1, 2 };
+  mesh.hasSource = false;
+  if (!Kizuri::EncodeMeshFile(mesh, (dir / "m.kzmesh").string())) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  Kizuri::AssetDatabase db;
+  db.SetAssetsDir(dir.string());
+  db.Scan();
+  db.DrainBlocking();
+  size_t done1 = db.DrainCompleted();
+  const Kizuri::MeshRecord* mr = db.GetByGuid("idem-1");
+  if (mr == nullptr || !mr->loaded) {
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  db.Scan();
+  db.DrainBlocking();
+  size_t done2 = db.DrainCompleted();
+  mr = db.GetByGuid("idem-1");
+  bool ok = mr != nullptr && mr->loaded && done2 == 0 && done1 > 0;
+  fs::remove_all(dir, ec);
+  return ok;
+}
+bool TestVirtualTexture() { Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
   Kizuri::RHIDesc desc;
   desc.windowHandle = nullptr;
   desc.width = 64;
@@ -8487,6 +8550,8 @@ int main() {
   failures += Check("CookieArray", TestCookieArray());
   failures += Check("Procedural", TestProcedural());
   failures += Check("DecalAtlas", TestDecalAtlas());
+  failures += Check("AssetVersion", TestAssetVersion());
+  failures += Check("ScanIdempotent", TestScanIdempotent());
   failures += Check("VirtualTexture", TestVirtualTexture());
   failures += Check("LensDirt", TestLensDirt());
   failures += Check("RHI-Null", TestRHINull());

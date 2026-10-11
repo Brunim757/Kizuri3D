@@ -411,16 +411,16 @@ Sem Ray Tracing
 - [x] glTF lights
 - [x] GPU instancing
 - [x] Asset dependency graph
-- [ ] Incremental importing
+- [x] Incremental importing
 - [x] Import cache
 - [x] Background importing
 - [x] Parallel import (textures + geometry)
 - [x] Asset hot reload
-- [ ] Asset versioning
-- [ ] Asset validation
-- [ ] Shader compilation cache
-- [ ] Texture processing cache
-- [ ] Mesh processing cache
+- [x] Asset versioning
+- [x] Asset validation
+- [x] Shader compilation cache
+- [x] Texture processing cache
+- [x] Mesh processing cache
 
 ---
 
