@@ -1761,7 +1761,11 @@ std::string AssetDatabase::CreateProceduralTexture(int mode, int w, int h) {
   md.format = DXGI_FORMAT_R8G8B8A8_UNORM;
   md.dimension = DirectX::TEX_DIMENSION_TEXTURE2D;
   DirectX::ScratchImage mipChain;
-  if (FAILED(DirectX::GenerateMipMaps(&srcImg, 1, md, DirectX::TEX_FILTER_DEFAULT, 0, mipChain))) {
+  DirectX::TEX_FILTER_FLAGS procFilter = static_cast<DirectX::TEX_FILTER_FLAGS>(DirectX::TEX_FILTER_DEFAULT | DirectX::TEX_FILTER_FORCE_NON_WIC);
+  if (mode != 3) {
+    procFilter = static_cast<DirectX::TEX_FILTER_FLAGS>(procFilter | DirectX::TEX_FILTER_SRGB);
+  }
+  if (FAILED(DirectX::GenerateMipMaps(&srcImg, 1, md, procFilter, 0, mipChain))) {
     return "";
   }
   TextureRecord rec;
