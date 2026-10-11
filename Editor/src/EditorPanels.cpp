@@ -166,6 +166,7 @@ void FillDeferredFromEntity(AssetDatabase& assets, const MaterialData& m, Deferr
   partMat.sssColor[1] = m.sssColor[1];
   partMat.sssColor[2] = m.sssColor[2];
   partMat.sssIntensity = m.sssIntensity;
+  partMat.sssKind = m.sssKind < 0 ? 0 : (m.sssKind > 3 ? 3 : m.sssKind);
   uint32_t flags = 0;
   flags |= ResolveMaterialSlot(assets, m.albedoTex, 1u, partMat.albedoTex);
   flags |= ResolveMaterialSlot(assets, m.normalTex, 2u, partMat.normalTex);
@@ -197,6 +198,13 @@ void FillDeferredFromEntity(AssetDatabase& assets, const MaterialData& m, Deferr
   }
   if (m.hasSpecular) {
     flags |= 65536u;
+  }
+  if (m.sssKind == 1) {
+    flags |= 16777216u;
+  } else if (m.sssKind == 2) {
+    flags |= 33554432u;
+  } else if (m.sssKind == 3) {
+    flags |= 67108864u;
   }
   partMat.vtTable = 0;
   partMat.vtTail = 0;
@@ -3168,6 +3176,11 @@ bool EditorApp::DrawMaterialScalars(MaterialData& mat) {
       }
     }
     if (ImGui::CollapsingHeader("Subsurface Scattering")) {
+      int kind = mat.sssKind < 0 ? 0 : (mat.sssKind > 3 ? 3 : mat.sssKind);
+      if (ImGui::Combo("SSS Kind", &kind, "Off\0Skin\0Hair\0Eye\0")) {
+        mat.sssKind = kind;
+        matChanged = true;
+      }
       if (ImGui::ColorEdit3("SSS Color", mat.sssColor)) {
         matChanged = true;
       }

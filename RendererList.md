@@ -290,13 +290,13 @@ Sem Ray Tracing
 14. Subsurface / Especializados
 
 - [x] Subsurface scattering
-- [ ] Screen-space SSS
-- [ ] Separable SSS
-- [ ] Skin material
-- [ ] Hair/fiber shading
-- [ ] Anisotropic hair
-- [ ] Eye shader
-- [ ] Cornea
+- [x] Screen-space SSS
+- [x] Separable SSS
+- [x] Skin material
+- [x] Hair/fiber shading
+- [x] Anisotropic hair
+- [x] Eye shader
+- [x] Cornea
 - [x] Subsurface materials
 - [x] Cloth/fabric shading
 
@@ -333,7 +333,7 @@ Sem Ray Tracing
 - [x] Texture memory statistics
 - [x] VRAM statistics
 - [x] Render target statistics
-- [ ] Shader permutation statistics
+- [x] Shader permutation statistics
 - [x] Dynamic resolution
 - [x] Resolution scaling
 - [x] Quality presets

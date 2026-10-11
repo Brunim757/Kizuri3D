@@ -174,6 +174,7 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
       std::fprintf(fp, "MATERIALLINK %d\n", m.linkMask);
       std::fprintf(fp, "MATDETAIL \"%s\" \"%s\" %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %d\n", EscapeName(m.detailAlbedoTex).c_str(), EscapeName(m.detailNormalTex).c_str(), m.detailTiling, m.layerWeight, m.layerAlbedo[0], m.layerAlbedo[1], m.layerAlbedo[2], m.layerRoughness, m.layerMetallic, m.layerHeight, m.layerHeightBlend ? 1 : 0);
       std::fprintf(fp, "MATSSS %.9g %.9g %.9g %.9g\n", m.sssColor[0], m.sssColor[1], m.sssColor[2], m.sssIntensity);
+      std::fprintf(fp, "MATSSSK %d\n", m.sssKind);
       std::fprintf(fp, "MATVT %d\n", m.vtAlbedo ? 1 : 0);
       if (e->variantIndex >= 0) {
         std::fprintf(fp, "VARIANT %d\n", e->variantIndex);
@@ -185,6 +186,7 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
       std::fprintf(fp, "PARTMATXF %u %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d\n", pm.part, pm.material.xforms[0].offsetU, pm.material.xforms[0].offsetV, pm.material.xforms[0].scaleU, pm.material.xforms[0].scaleV, pm.material.xforms[0].rotation, pm.material.xforms[0].uvSet, pm.material.xforms[1].offsetU, pm.material.xforms[1].offsetV, pm.material.xforms[1].scaleU, pm.material.xforms[1].scaleV, pm.material.xforms[1].rotation, pm.material.xforms[1].uvSet, pm.material.xforms[2].offsetU, pm.material.xforms[2].offsetV, pm.material.xforms[2].scaleU, pm.material.xforms[2].scaleV, pm.material.xforms[2].rotation, pm.material.xforms[2].uvSet, pm.material.xforms[3].offsetU, pm.material.xforms[3].offsetV, pm.material.xforms[3].scaleU, pm.material.xforms[3].scaleV, pm.material.xforms[3].rotation, pm.material.xforms[3].uvSet, pm.material.xforms[4].offsetU, pm.material.xforms[4].offsetV, pm.material.xforms[4].scaleU, pm.material.xforms[4].scaleV, pm.material.xforms[4].rotation, pm.material.xforms[4].uvSet);
       std::fprintf(fp, "PARTMATDTL %u \"%s\" \"%s\" %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %d\n", pm.part, EscapeName(pm.material.detailAlbedoTex).c_str(), EscapeName(pm.material.detailNormalTex).c_str(), pm.material.detailTiling, pm.material.layerWeight, pm.material.layerAlbedo[0], pm.material.layerAlbedo[1], pm.material.layerAlbedo[2], pm.material.layerRoughness, pm.material.layerMetallic, pm.material.layerHeight, pm.material.layerHeightBlend ? 1 : 0);
       std::fprintf(fp, "PARTMATSSS %u %.9g %.9g %.9g %.9g\n", pm.part, pm.material.sssColor[0], pm.material.sssColor[1], pm.material.sssColor[2], pm.material.sssIntensity);
+      std::fprintf(fp, "PARTMATSSSK %u %d\n", pm.part, pm.material.sssKind);
       std::fprintf(fp, "PARTMATVT %u %d\n", pm.part, pm.material.vtAlbedo ? 1 : 0);
     }
     if (e->hasDecal) {
@@ -610,6 +612,16 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
         }
         continue;
       }
+      if (field == "MATSSSK") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        long vv = 0;
+        if (!ParseInt(s, pos, vv)) {
+          failed = true;
+          break;
+        }
+        current->material.sssKind = vv < 0 ? 0 : (vv > 3 ? 3 : static_cast<int>(vv));
+        continue;
+      }
       if (field == "MATVT") {
         size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
         long vv = 0;
@@ -834,6 +846,35 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
           pm->material.sssColor[2] = dv[2];
           pm->material.sssIntensity = dv[3];
         }
+        continue;
+      }
+      if (field == "PARTMATSSSK") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        long pv = -1;
+        if (!ParseInt(s, pos, pv) || pv < 0) {
+          failed = true;
+          break;
+        }
+        PartMaterial* pm = nullptr;
+        for (size_t pi = 0; pi < current->partMaterials.size(); ++pi) {
+          if (current->partMaterials[pi].part == static_cast<uint32_t>(pv)) {
+            pm = &current->partMaterials[pi];
+            break;
+          }
+        }
+        if (pm == nullptr) {
+          PartMaterial fresh;
+          fresh.part = static_cast<uint32_t>(pv);
+          MakeDefaultMaterial(fresh.material);
+          current->partMaterials.push_back(fresh);
+          pm = &current->partMaterials.back();
+        }
+        long vv = 0;
+        if (!ParseInt(s, pos, vv)) {
+          failed = true;
+          break;
+        }
+        pm->material.sssKind = vv < 0 ? 0 : (vv > 3 ? 3 : static_cast<int>(vv));
         continue;
       }
       if (field == "PARTMATVT") {

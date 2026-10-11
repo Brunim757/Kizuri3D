@@ -169,6 +169,21 @@ float3 ShadeSssFwd(float3 N, float3 L, float3 lightColor, float3 albedo, float3 
     float prof = w * w * (3.0 - 2.0 * w);
     return albedo * tint * (lightColor * (prof * amt));
 }
+float3 ShadeHairFwd(float3 N, float3 T, float3 V, float3 L, float3 lightColor, float3 tint, float amt, float shift)
+{
+    if (amt < 0.001 || dot(T, T) < 1e-6) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    float3 Tn = normalize(T - N * dot(N, T));
+    float3 H = normalize(L + V);
+    float th = dot(Tn, H);
+    float sinTH = sqrt(max(0.0, 1.0 - th * th));
+    float3 T2 = normalize(Tn + N * shift);
+    float th2 = dot(T2, H);
+    float sinTH2 = sqrt(max(0.0, 1.0 - th2 * th2));
+    float spec = pow(sinTH, 80.0) + pow(sinTH2, 24.0) * 0.5;
+    return tint * (lightColor * (spec * amt));
+}
 float4 main(PSIn pin) : SV_Target
 {
     uint flags = (uint) Params.z;
@@ -233,8 +248,14 @@ float4 main(PSIn pin) : SV_Target
     float3 V = normalize(CamPos.xyz - pin.wpos);
     float3 Lsun = normalize(-LightDir.xyz);
     float sssWrapF = clamp(AmbientProbe.a * 0.5, 0.0, 2.0);
+    float isSkinF = ((flags & 16777216u) != 0u) ? 1.0 : 0.0;
+    float isHairF = ((flags & 33554432u) != 0u) ? 1.0 : 0.0;
+    float isEyeF = ((flags & 67108864u) != 0u) ? 1.0 : 0.0;
+    float sssAmtF = SssPrm.a * (1.0 + isSkinF * 0.5);
+    float3 fwdTan = normalize(pin.wtan.xyz - n * dot(n, pin.wtan.xyz) + 1e-6);
     float3 col = ShadeFwd(n, V, Lsun, LightColor.rgb, alb, rough, metal, F0);
-    col += ShadeSssFwd(n, Lsun, LightColor.rgb, alb, SssPrm.rgb, SssPrm.a, sssWrapF);
+    col += ShadeSssFwd(n, Lsun, LightColor.rgb, alb, SssPrm.rgb, sssAmtF, sssWrapF);
+    col += ShadeHairFwd(n, fwdTan, V, Lsun, LightColor.rgb, SssPrm.rgb, isHairF * sssAmtF, 0.15);
     int count = (int) Counts.x;
     if (count > 16) {
         count = 16;
@@ -253,7 +274,8 @@ float4 main(PSIn pin) : SV_Target
         if (kind > 1.5) {
             float3 Ld = normalize(-LightA[i].xyz);
             col += ShadeFwd(n, V, Ld, LightC[i].rgb, alb, rough, metal, F0);
-            col += ShadeSssFwd(n, Ld, LightC[i].rgb, alb, SssPrm.rgb, SssPrm.a, sssWrapF);
+            col += ShadeSssFwd(n, Ld, LightC[i].rgb, alb, SssPrm.rgb, sssAmtF, sssWrapF);
+            col += ShadeHairFwd(n, fwdTan, V, Ld, LightC[i].rgb, SssPrm.rgb, isHairF * sssAmtF, 0.15);
         } else {
             float3 toLight = LightA[i].xyz - pin.wpos;
             float dist = length(toLight);
@@ -266,11 +288,22 @@ float4 main(PSIn pin) : SV_Target
                 spot = smoothstep(LightC[i].a, LightC[i].a + LightD[i].x, cosT);
             }
             col += ShadeFwd(n, V, L, LightC[i].rgb, alb, rough, metal, F0) * att * spot;
-            col += ShadeSssFwd(n, L, LightC[i].rgb, alb, SssPrm.rgb, SssPrm.a, sssWrapF) * att * spot;
+            col += ShadeSssFwd(n, L, LightC[i].rgb, alb, SssPrm.rgb, sssAmtF, sssWrapF) * att * spot;
+            col += ShadeHairFwd(n, fwdTan, V, L, LightC[i].rgb, SssPrm.rgb, isHairF * sssAmtF, 0.15) * att * spot;
         }
     }
     float sint2 = max(SkySun.w, 1e-3);
     float3 hemi = SkyGradient(n, normalize(SkySun.xyz), SkyColor.rgb, sint2);
+    if (isSkinF > 0.5) {
+        float rimF = pow(1.0 - saturate(dot(n, V)), 3.0);
+        col += SssPrm.rgb * (rimF * sssAmtF * 0.35) * LightColor.rgb;
+    }
+    if (isEyeF > 0.5) {
+        float3 HeF = normalize(Lsun + V);
+        float egF = pow(saturate(dot(n, HeF)), 400.0) * 2.0;
+        float fresF = pow(1.0 - saturate(dot(n, V)), 5.0);
+        col += (egF + fresF * 0.3) * sssAmtF * LightColor.rgb;
+    }
     col += alb * hemi * 0.5;
     float3 R = reflect(-V, n);
     float3 cubeEnv = EnvTX.SampleLevel(GeoSamp, R, clamp(rough, 0.0, 1.0) * 6.0).rgb * GradeInfo.z;

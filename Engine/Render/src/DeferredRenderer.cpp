@@ -141,9 +141,9 @@ void FillMatConstants(const DeferredMaterial& use, float lodFade, MatConstants& 
     if (linkTablePx != nullptr) {
       unsigned char* lx = linkTablePx + static_cast<size_t>(row) * 4;
       lx[0] = static_cast<unsigned char>(use.linkGroup & 0xFFu);
-      lx[1] = 0;
-      lx[2] = 0;
-      lx[3] = 255;
+      lx[1] = use.sssKind == 1 ? 255 : 0;
+      lx[2] = use.sssKind == 2 ? 255 : 0;
+      lx[3] = use.sssKind == 3 ? 255 : 0;
     }
   }
   outRow = row;
@@ -343,6 +343,10 @@ DeferredRenderer::DeferredRenderer()
   , ssrTCB(0)
   , hzbPS(0)
   , hzbCB(0)
+  , sssBlurPS(0)
+  , sssBlurCB(0)
+  , sssBlurA(0)
+  , sssBlurB(0)
   , hzbA{ 0, 0, 0, 0, 0 }
   , ssrA(0)
   , ssrTmp(0)
@@ -719,6 +723,16 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   if (hzbPS == 0) {
     return false;
   }
+  std::string sssBlurPath = dir + "/SssBlurPS.hlsl";
+  sssBlurPS = LoadPixelShader(sssBlurPath.c_str());
+  if (sssBlurPS == 0) {
+    return false;
+  }
+  float sssBlurInit[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+  sssBlurCB = rhi->CreateConstantBuffer(sizeof(sssBlurInit), &sssBlurInit);
+  if (sssBlurCB == 0) {
+    return false;
+  }
   contactPS = LoadPixelShader(contactPath.c_str());
   if (contactPS == 0) {
     return false;
@@ -1048,7 +1062,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
     linkPx[li * 4] = 255;
     linkPx[li * 4 + 1] = 0;
     linkPx[li * 4 + 2] = 0;
-    linkPx[li * 4 + 3] = 255;
+    linkPx[li * 4 + 3] = 0;
   }
   if (!rhi->UpdateTextureMip(linkTable, 0, 256, 1, 256 * 4, linkPx, sizeof(linkPx))) {
     return false;
@@ -1296,6 +1310,10 @@ void DeferredRenderer::Shutdown() {
   if (hzbCB != 0) {
     rhi->DestroyConstantBuffer(hzbCB);
     hzbCB = 0;
+  }
+  if (sssBlurCB != 0) {
+    rhi->DestroyConstantBuffer(sssBlurCB);
+    sssBlurCB = 0;
   }
   if (ssrTCB != 0) {
     rhi->DestroyConstantBuffer(ssrTCB);
@@ -4668,6 +4686,60 @@ void DeferredRenderer::BuildHzb(const float camPos[3]) {
   rhi->SetPixelTexture(0, 0);
   rhi->EndEvent();
 }
+void DeferredRenderer::RunSsssBlur() {
+  if (rhi == nullptr || sssBlurPS == 0 || sssBlurCB == 0 || sssBlurA == 0 || sssBlurB == 0 || gLight == 0 || gF0 == 0) {
+    return;
+  }
+  bool active = false;
+  for (uint32_t r = 0; r < matTableRows && r < 256; ++r) {
+    if (matTablePx[(static_cast<size_t>(256) + r) * 4 + 3] > 1) {
+      active = true;
+      break;
+    }
+  }
+  if (!active) {
+    return;
+  }
+  rhi->BeginEvent("SSSS");
+  float radiusPx = sssRadius * 3.0f;
+  if (radiusPx < 1.0f) {
+    radiusPx = 1.0f;
+  }
+  if (radiusPx > 24.0f) {
+    radiusPx = 24.0f;
+  }
+  RHIViewport vp;
+  vp.x = 0.0f;
+  vp.y = 0.0f;
+  vp.w = static_cast<float>(w);
+  vp.h = static_cast<float>(h);
+  vp.minD = 0.0f;
+  vp.maxD = 1.0f;
+  rhi->SetViewport(vp);
+  rhi->SetVertexShader(lightVS);
+  rhi->SetPixelShader(sssBlurPS);
+  rhi->SetPixelSampler(0, sampler);
+  float cbx[4] = { radiusPx / static_cast<float>(w > 0 ? w : 1), 0.0f, 0.0f, 0.0f };
+  rhi->UpdateConstantBuffer(sssBlurCB, &cbx, sizeof(cbx));
+  rhi->SetPixelConstantBuffer(0, sssBlurCB);
+  rhi->SetPixelTexture(0, gLight);
+  rhi->SetPixelTexture(1, gF0);
+  rhi->SetPixelTexture2D(2, matTable);
+  rhi->SetRenderTargets(1, &sssBlurA, 0);
+  NoteFullscreen();
+  float cby[4] = { 0.0f, radiusPx / static_cast<float>(h > 0 ? h : 1), 0.0f, 0.0f };
+  rhi->UpdateConstantBuffer(sssBlurCB, &cby, sizeof(cby));
+  rhi->SetPixelConstantBuffer(0, sssBlurCB);
+  rhi->SetPixelTexture(0, sssBlurA);
+  rhi->SetPixelTexture(1, gF0);
+  rhi->SetPixelTexture2D(2, matTable);
+  rhi->SetRenderTargets(1, &gLight, 0);
+  NoteFullscreen();
+  rhi->SetPixelTexture(0, 0);
+  rhi->SetPixelTexture(1, 0);
+  rhi->SetPixelTexture2D(2, 0);
+  rhi->EndEvent();
+}
 void DeferredRenderer::RunDebugPass(const float camPos[3]) { if (debugA == 0 || debugPS == 0 || debugCB == 0) {
     return;
   }
@@ -5524,6 +5596,9 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   rhi->SetPixelTexture2D(19, 0);
   rhi->SetPixelTexture(20, 0);
   if (toTexture && !captureMode) {
+    RunSsssBlur();
+  }
+  if (toTexture && !captureMode) {
     auto fwdStart = std::chrono::steady_clock::now();
     RenderForwardPass(camPos);
     stats.msForward = ElapsedMs(fwdStart, std::chrono::steady_clock::now());
@@ -6128,7 +6203,9 @@ bool DeferredRenderer::CreateTargets() {
     hzbW /= 2;
     hzbH /= 2;
   }
-  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 &&   fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && bentA != 0 && ssrA != 0 && ssrTmp != 0 && ssrHist != 0 && ssrHistB != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0 && taaSharpA != 0 && lumA != 0 && lumB != 0 && expA != 0 && expB != 0 && godA != 0 && godHalfA != 0 && godDepthA != 0 && debugA != 0 && overdrawA != 0 && uvA != 0 && hzbA[0] != 0 && hzbA[1] != 0 && hzbA[2] != 0 && hzbA[3] != 0 && hzbA[4] != 0;
+  sssBlurA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA16F);
+  sssBlurB = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA16F);
+  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 &&   fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && bentA != 0 && ssrA != 0 && ssrTmp != 0 && ssrHist != 0 && ssrHistB != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0 && taaSharpA != 0 && lumA != 0 && lumB != 0 && expA != 0 && expB != 0 && godA != 0 && godHalfA != 0 && godDepthA != 0 && debugA != 0 && overdrawA != 0 && uvA != 0 && hzbA[0] != 0 && hzbA[1] != 0 && hzbA[2] != 0 && hzbA[3] != 0 && hzbA[4] != 0 && sssBlurA != 0 && sssBlurB != 0;
 }
 void DeferredRenderer::DestroyTargets() {
   if (rhi == nullptr) {
@@ -6313,6 +6390,14 @@ void DeferredRenderer::DestroyTargets() {
       rhi->DestroyRenderTarget(hzbA[hi]);
       hzbA[hi] = 0;
     }
+  }
+  if (sssBlurA != 0) {
+    rhi->DestroyRenderTarget(sssBlurA);
+    sssBlurA = 0;
+  }
+  if (sssBlurB != 0) {
+    rhi->DestroyRenderTarget(sssBlurB);
+    sssBlurB = 0;
   }
 }
 }

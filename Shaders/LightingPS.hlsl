@@ -251,6 +251,21 @@ float3 ShadeSss(float3 N, float3 L, float3 lightColor, float3 albedo, float3 tin
     float prof = w * w * (3.0 - 2.0 * w);
     return albedo * tint * (lightColor * (prof * amt));
 }
+float3 ShadeHair(float3 N, float3 T, float3 V, float3 L, float3 lightColor, float3 tint, float amt, float shift)
+{
+    if (amt < 0.001 || dot(T, T) < 1e-6) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    float3 Tn = normalize(T - N * dot(N, T));
+    float3 H = normalize(L + V);
+    float th = dot(Tn, H);
+    float sinTH = sqrt(max(0.0, 1.0 - th * th));
+    float3 T2 = normalize(Tn + N * shift);
+    float th2 = dot(T2, H);
+    float sinTH2 = sqrt(max(0.0, 1.0 - th2 * th2));
+    float spec = pow(sinTH, 80.0) + pow(sinTH2, 24.0) * 0.5;
+    return tint * (lightColor * (spec * amt));
+}
 float BlockerSearch2D(float2 uv, float recvDist, float nearZ, float farZ, float searchUV)
 {
     float range = max(farZ - nearZ, 1e-4);
@@ -686,7 +701,11 @@ float4 main(PSIn pin) : SV_Target
     float4 matInfo = MatTable.Load(int3((int) matID, 0, 0));
     float4 sssInfo = MatTable.Load(int3((int) matID, 1, 0));
     float3 sssTint = sssInfo.rgb;
-    float sssAmt = sssInfo.a;
+    float4 linkInfo = LinkTX.Load(int3((int) matID, 0, 0));
+    float isSkin = linkInfo.g > 0.5 ? 1.0 : 0.0;
+    float isHair = linkInfo.b > 0.5 ? 1.0 : 0.0;
+    float isEye = linkInfo.a > 0.5 ? 1.0 : 0.0;
+    float sssAmt = sssInfo.a * (1.0 + isSkin * 0.5);
     float sssWrap = clamp(AmbientProbe.a * 0.5, 0.0, 2.0);
     float unlitF = matInfo.r;
     float4 f0Full = F0TX.Sample(LinearSampler, pin.uv);
@@ -711,6 +730,7 @@ float4 main(PSIn pin) : SV_Target
     if (unlitF < 0.5) {
     col = ShadeOne(N, V, Lsun, LightColor.rgb, albedo, roughness, metallic, specF0, lb);
     col += ShadeSss(N, Lsun, LightColor.rgb, albedo, sssTint, sssAmt, sssWrap);
+    col += ShadeHair(N, lb.anisoT, V, Lsun, LightColor.rgb, sssTint, isHair * sssAmt, 0.15);
     int count = (int)Counts.x;
     if (count > 16) {
         count = 16;
@@ -746,6 +766,7 @@ float4 main(PSIn pin) : SV_Target
             float ratt = ApplyAttenuation(rdist, rrange) * saturate(dot(-Lr, Rn) * 0.5 + 0.5);
             col += ShadeOne(N, V, Lr, LightC[i].rgb, albedo, roughness, metallic, specF0, lb) * ratt;
             col += ShadeSss(N, Lr, LightC[i].rgb, albedo, sssTint, sssAmt, sssWrap) * ratt;
+            col += ShadeHair(N, lb.anisoT, V, Lr, LightC[i].rgb, sssTint, isHair * sssAmt, 0.15) * ratt;
         } else if (kind > 1.5) {
             float3 Ld = normalize(-LightA[i].xyz);
             float dirShadow = 1.0;
@@ -760,6 +781,7 @@ float4 main(PSIn pin) : SV_Target
             }
             col += ShadeOne(N, V, Ld, LightC[i].rgb, albedo, roughness, metallic, specF0, lb) * dirShadow;
             col += ShadeSss(N, Ld, LightC[i].rgb, albedo, sssTint, sssAmt, sssWrap) * dirShadow;
+            col += ShadeHair(N, lb.anisoT, V, Ld, LightC[i].rgb, sssTint, isHair * sssAmt, 0.15) * dirShadow;
         } else {
             float3 toLight = LightA[i].xyz - wpos;
             float dist = length(toLight);
@@ -803,6 +825,7 @@ float4 main(PSIn pin) : SV_Target
             }
             col += ShadeOne(N, V, L, LightC[i].rgb, albedo, roughness, metallic, specF0, lb) * att * spot * lightShadow * cookie;
             col += ShadeSss(N, L, LightC[i].rgb, albedo, sssTint, sssAmt, sssWrap) * att * spot * lightShadow * cookie;
+            col += ShadeHair(N, lb.anisoT, V, L, LightC[i].rgb, sssTint, isHair * sssAmt, 0.15) * att * spot * lightShadow * cookie;
         }
     }
     float ao = 1.0;
@@ -811,6 +834,16 @@ float4 main(PSIn pin) : SV_Target
     }
     ao *= ContactTX.Sample(LinearSampler, pin.uv).r;
     col *= ao;
+    if (isSkin > 0.5) {
+        float rim = pow(1.0 - saturate(dot(N, V)), 3.0);
+        col += sssTint * (rim * sssAmt * 0.35) * LightColor.rgb;
+    }
+    if (isEye > 0.5) {
+        float3 He = normalize(Lsun + V);
+        float eg = pow(saturate(dot(N, He)), 400.0) * 2.0;
+        float fres = pow(1.0 - saturate(dot(N, V)), 5.0);
+        col += (eg + fres * 0.3) * sssAmt * LightColor.rgb;
+    }
     float sint2 = max(SkySun.w, 1e-3);
     float3 hemi = SkyGradient(N, normalize(SkySun.xyz), SkyColor.rgb, sint2);
     float3 difEnv = hemi * 0.5;

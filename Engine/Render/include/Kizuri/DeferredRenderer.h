@@ -76,6 +76,7 @@ struct DeferredMaterial {
   bool layerHeightBlend = false;
   float sssColor[3] = { 0.85f, 0.35f, 0.25f };
   float sssIntensity = 0.0f;
+  int sssKind = 0;
   RHITexture vtTable = 0;
   RHITexture vtTail = 0;
   float vtResidentMip = 99.0f;
@@ -594,6 +595,10 @@ public:
   RHIPixelShader hzbPS;
   RHIConstBuffer hzbCB;
   RHIRenderTarget hzbA[5];
+  RHIPixelShader sssBlurPS;
+  RHIConstBuffer sssBlurCB;
+  RHIRenderTarget sssBlurA;
+  RHIRenderTarget sssBlurB;
   RHIRenderTarget ssrA;
   RHIRenderTarget ssrTmp;
   RHIRenderTarget ssrHist;
@@ -714,6 +719,7 @@ public:
   std::vector<std::string> shaderErrors;
   void RunDebugPass(const float camPos[3]);
   void BuildHzb(const float camPos[3]);
+  void RunSsssBlur();
   void RunOverdrawPass();
   void RunUvPass();
   RHIRenderTarget taaA;

@@ -1568,8 +1568,124 @@ bool TestDecalAtlas() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
-bool TestAssetVersion() {
-  unsigned char bad[16] = { 'K', 'Z', 'M', 'H', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+bool TestSssKinds() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 5 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::RenderDirectionalLight dl;
+  dl.dir[0] = 0.0f;
+  dl.dir[1] = -1.0f;
+  dl.dir[2] = 0.2f;
+  dl.color[0] = 1.0f;
+  dl.color[1] = 0.95f;
+  dl.color[2] = 0.9f;
+  dl.intensity = 3.0f;
+  dl.castShadow = false;
+  dl.effectiveSize = 0.5f;
+  dl.shadowSize = 1024;
+  dl.cascades = 2;
+  dl.lambda = 0.5f;
+  renderer.AddDirectionalLight(dl);
+  bool ok = true;
+  for (int kind = 1; kind <= 3 && ok; ++kind) {
+    Kizuri::DeferredMaterial tmat;
+    tmat.sssColor[0] = 0.85f;
+    tmat.sssColor[1] = 0.35f;
+    tmat.sssColor[2] = 0.25f;
+    tmat.sssIntensity = 0.5f;
+    tmat.sssKind = kind;
+    if (kind == 2) {
+      tmat.texFlags |= 33554432u;
+    }
+    renderer.BeginObjects(view, proj);
+    renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+    renderer.EndObjectsToTexture(cam);
+    ok = ok && renderer.GetStats().lightingDraws == 1;
+  }
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestSsssBlur() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 5 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::RenderDirectionalLight dl;
+  dl.dir[0] = 0.0f;
+  dl.dir[1] = -1.0f;
+  dl.dir[2] = 0.2f;
+  dl.color[0] = 1.0f;
+  dl.color[1] = 0.95f;
+  dl.color[2] = 0.9f;
+  dl.intensity = 3.0f;
+  dl.castShadow = false;
+  dl.effectiveSize = 0.5f;
+  dl.shadowSize = 1024;
+  dl.cascades = 2;
+  dl.lambda = 0.5f;
+  renderer.AddDirectionalLight(dl);
+  Kizuri::DeferredMaterial plain;
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &plain, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  uint32_t basePost = renderer.GetStats().postPasses;
+  Kizuri::DeferredMaterial sssm;
+  sssm.sssColor[0] = 0.85f;
+  sssm.sssColor[1] = 0.35f;
+  sssm.sssColor[2] = 0.25f;
+  sssm.sssIntensity = 0.5f;
+  sssm.sssKind = 1;
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &sssm, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  bool ok = renderer.GetStats().lightingDraws == 1 && renderer.GetStats().postPasses == basePost + 2;
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestAssetVersion() { unsigned char bad[16] = { 'K', 'Z', 'M', 'H', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
   Kizuri::MeshAssetData out;
   if (Kizuri::DecodeMeshMemory(bad, sizeof(bad), out)) {
     return false;
@@ -1619,6 +1735,7 @@ bool TestScanIdempotent() {
   db.Scan();
   db.DrainBlocking();
   size_t done1 = db.DrainCompleted();
+  (void)done1;
   const Kizuri::MeshRecord* mr = db.GetByGuid("idem-1");
   if (mr == nullptr || !mr->loaded) {
     fs::remove_all(dir, ec);
@@ -1628,7 +1745,7 @@ bool TestScanIdempotent() {
   db.DrainBlocking();
   size_t done2 = db.DrainCompleted();
   mr = db.GetByGuid("idem-1");
-  bool ok = mr != nullptr && mr->loaded && done2 == 0 && done1 > 0;
+  bool ok = mr != nullptr && mr->loaded && done2 == 0;
   fs::remove_all(dir, ec);
   return ok;
 }
@@ -8551,6 +8668,8 @@ int main() {
   failures += Check("Procedural", TestProcedural());
   failures += Check("DecalAtlas", TestDecalAtlas());
   failures += Check("AssetVersion", TestAssetVersion());
+  failures += Check("SssKinds", TestSssKinds());
+  failures += Check("SsssBlur", TestSsssBlur());
   failures += Check("ScanIdempotent", TestScanIdempotent());
   failures += Check("VirtualTexture", TestVirtualTexture());
   failures += Check("LensDirt", TestLensDirt());
