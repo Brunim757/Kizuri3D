@@ -315,9 +315,9 @@ Sem Ray Tracing
 - [x] Async resource loading
 - [x] GPU synchronization
 - [x] CPU/GPU frame pacing
-- [ ] Multi-threaded command preparation
-- [ ] Render thread
-- [ ] Worker threads
+- [x] Multi-threaded command preparation
+- [x] Render thread
+- [x] Worker threads
 - [x] GPU profiling
 - [x] CPU profiling
 
@@ -341,7 +341,7 @@ Sem Ray Tracing
 - [x] Medium
 - [x] High
 - [x] Ultra
-- [ ] Custom
+- [x] Custom
 - [x] Automatic quality scaling
 
 ---
@@ -426,20 +426,20 @@ Sem Ray Tracing
 
 20. Futuro / Experimental
 
-- [ ] Advanced temporal reconstruction
+- [x] Advanced temporal reconstruction
 - [x] Advanced volumetric reconstruction
 - [x] Advanced GI sem Ray Tracing
 - [x] Probe-based dynamic GI
 - [x] Irradiance fields
 - [x] DDGI-like techniques compatíveis com o renderer
-- [ ] Advanced virtual texturing
-- [ ] GPU scene management
-- [ ] GPU occlusion culling
-- [ ] Advanced LOD selection
-- [ ] Procedural material systems
-- [ ] Node-based material editor
-- [ ] Shader graph
-- [ ] Compute-based post processing
+- [x] Advanced virtual texturing
+- [x] GPU scene management
+- [x] GPU occlusion culling
+- [x] Advanced LOD selection
+- [x] Procedural material systems
+- [x] Node-based material editor
+- [x] Shader graph
+- [x] Compute-based post processing
 
 ---
 
