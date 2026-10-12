@@ -415,7 +415,9 @@ std::string EditorApp::FindAsset(const char* name) {
   return name;
 }
 bool EditorApp::Initialize() {
+  initError.clear();
   if (!window.Create(L"Kizuri3D Editor", 1600, 900)) {
+    initError = "Janela Win32 nao criada.";
     return false;
   }
   window.SetMessageHook([this](void* hwnd, unsigned int msg, unsigned long long wParam, long long lParam) -> long long {
@@ -440,6 +442,7 @@ bool EditorApp::Initialize() {
   desc.vsync = true;
   rhi = CreateRHI(RHI_API::D3D11);
   if (rhi == nullptr || !rhi->Initialize(desc)) {
+    initError = "DirectX 11 nao inicializado (device, driver ou Feature Level).";
     return false;
   }
   IMGUI_CHECKVERSION();
@@ -468,6 +471,12 @@ bool EditorApp::Initialize() {
   std::string shaderDir = FindShaderDir();
   if (!renderer.Initialize(rhi, window.Width(), window.Height(), shaderDir.c_str())) {
     log.Add(LogLevel::Error, "Deferred renderer init failed");
+    std::vector<std::string> shaderErrors;
+    renderer.TakeShaderErrors(shaderErrors);
+    initError = "Renderer nao inicializado. Shaders em: " + shaderDir;
+    if (!shaderErrors.empty()) {
+      initError += " Primeiro erro: " + shaderErrors[0];
+    }
     return false;
   }
   if (cubeReady) {
@@ -512,6 +521,7 @@ bool EditorApp::Initialize() {
   try {
     assets.Scan();
   } catch (...) {
+    initError = "Varredura de Assets falhou (pasta Assets corrompida ou sem permissao).";
     return false;
   }
   {

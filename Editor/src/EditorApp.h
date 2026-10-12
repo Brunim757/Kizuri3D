@@ -212,6 +212,8 @@ struct EditorApp {
   std::string tmpAutosaveDir;
   std::string sessionFilePath;
   std::string settingsFilePath;
+  std::string initError;
+  const std::string& LastInitError() const { return initError; }
   void LoadEditorSettings();
   void SaveEditorSettings();
   std::string pendingRestoreMain;

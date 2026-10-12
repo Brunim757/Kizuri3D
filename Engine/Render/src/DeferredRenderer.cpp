@@ -661,6 +661,9 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   std::string bloomBlurPath = dir + "/BloomBlurPS.hlsl";
   std::string bloomBlurCSPath = dir + "/BloomBlurCS.hlsl";
   bloomBlurCS = rhi->CreateComputeShaderFromFile(bloomBlurCSPath.c_str(), "main");
+  if (bloomBlurCS == 0) {
+    shaderErrors.push_back(std::string("Compute shader failed: ") + bloomBlurCSPath);
+  }
   std::string bloomAddPath = dir + "/BloomAddPS.hlsl";
   std::string fsrEasuPath = dir + "/FsrEasuPS.hlsl";
   std::string fsrRcasPath = dir + "/FsrRcasPS.hlsl";
@@ -914,20 +917,20 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   }
   std::string gridCSPath = dir + "/LightGridCS.hlsl";
   lightGridCS = rhi->CreateComputeShaderFromFile(gridCSPath.c_str(), "main");
+  if (lightGridCS == 0) {
+    shaderErrors.push_back(std::string("Compute shader failed: ") + gridCSPath);
+  }
   float cullInit[84] = { 0.0f };
   cullCB = rhi->CreateConstantBuffer(sizeof(cullInit), &cullInit);
   gridBuf = rhi->CreateStructBuffer(144, 4, nullptr);
   std::string cullInstPath = dir + "/CullInstancesCS.hlsl";
   cullInstCS = rhi->CreateComputeShaderFromFile(cullInstPath.c_str(), "main");
+  if (cullInstCS == 0) {
+    shaderErrors.push_back(std::string("Compute shader failed: ") + cullInstPath);
+  }
   float instCullInit[56] = { 0.0f };
   instCullCB = rhi->CreateConstantBuffer(sizeof(instCullInit), &instCullInit);
-  if (instCullCB == 0) {
-    return false;
-  }
   cullArgsBuf = rhi->CreateIndirectArgs();
-  if (cullArgsBuf == 0) {
-    return false;
-  }
   clusterTex = rhi->CreateTexture2D(16, 9, 1, RHITextureFormat::RGBA8_UNORM);
   computeAvailable = lightGridCS != 0 && cullCB != 0 && gridBuf != 0 && clusterTex != 0;
   ddgiTex = rhi->CreateTexture3D(8, 4, 8, RHITextureFormat::RGBA16F);
@@ -6410,7 +6413,7 @@ bool DeferredRenderer::CreateTargets() {
   }
   sssBlurA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA16F);
   sssBlurB = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA16F);
-  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && bloomUavA != 0 && bloomUavB != 0 &&   fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && bentA != 0 && ssrA != 0 && ssrTmp != 0 && ssrHist != 0 && ssrHistB != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0 && taaSharpA != 0 && lumA != 0 && lumB != 0 && expA != 0 && expB != 0 && godA != 0 && godHalfA != 0 && godDepthA != 0 && debugA != 0 && overdrawA != 0 && uvA != 0 && hzbA[0] != 0 && hzbA[1] != 0 && hzbA[2] != 0 && hzbA[3] != 0 && hzbA[4] != 0 && sssBlurA != 0 && sssBlurB != 0;
+  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 &&   fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && bentA != 0 && ssrA != 0 && ssrTmp != 0 && ssrHist != 0 && ssrHistB != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0 && taaSharpA != 0 && lumA != 0 && lumB != 0 && expA != 0 && expB != 0 && godA != 0 && godHalfA != 0 && godDepthA != 0 && debugA != 0 && overdrawA != 0 && uvA != 0 && hzbA[0] != 0 && hzbA[1] != 0 && hzbA[2] != 0 && hzbA[3] != 0 && hzbA[4] != 0 && sssBlurA != 0 && sssBlurB != 0;
 }
 void DeferredRenderer::DestroyTargets() {
   if (rhi == nullptr) {
