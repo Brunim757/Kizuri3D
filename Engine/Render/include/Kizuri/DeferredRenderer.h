@@ -268,6 +268,8 @@ public:
   void SetClustered(bool on);
   void SetGpuCulling(bool on);
   void SetGpuDriven(bool on);
+  void SetShadowMultithread(bool on);
+  bool IsShadowMultithread() const { return mtShadows; }
   bool IsGpuDriven() const { return gpuDriven; }
   uint32_t GpuDrivenDraws() const;
   void SetStaticBatchInfo(uint32_t batches, uint32_t savedDraws);
@@ -832,8 +834,6 @@ public:
   void RenderShadowMaps();
   void RecordShadowMaps();
   void ShadowThreadLoop();
-  void SetShadowMultithread(bool on);
-  bool IsShadowMultithread() const { return mtShadows; }
   void RenderDecals(const float camPos[3]);
   void SetupGeometryPass();
   void RenderInternal(const float view[16], const float proj[16], const float camPos[3], bool toTexture);
