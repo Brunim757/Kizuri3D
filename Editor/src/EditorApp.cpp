@@ -149,6 +149,8 @@ EditorApp::EditorApp()
   , renameActive(false)
   , renameTarget(EntityId::Invalid())
   , titleDirtyShown(false)
+  , fpsSmooth(60.0)
+  , fpsTick(0.0)
   , pendingAction(0)
   , openDialogQueued(false)
   , saveDialogQueued(false)
@@ -593,6 +595,20 @@ int EditorApp::Run() {
     PumpAssets();
     RawInputPoll::Poll();
     frameDt = dt;
+    if (dt > 0.0001f) {
+      double inst = 1.0 / static_cast<double>(dt);
+      if (inst > 1000.0) {
+        inst = 1000.0;
+      }
+      fpsSmooth += (inst - fpsSmooth) * 0.1;
+    }
+    fpsTick += dt;
+    if (fpsTick >= 0.5) {
+      fpsTick = 0.0;
+      char fpsBuf[64];
+      std::snprintf(fpsBuf, sizeof(fpsBuf), "%.0f FPS", fpsSmooth);
+      fpsShown = fpsBuf;
+    }
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
@@ -853,11 +869,12 @@ void EditorApp::DrawMenuBar() {
 }
 void EditorApp::RefreshTitle() {
   bool dirty = scene.IsDirty();
-  if (dirty == titleDirtyShown && currentPath == titlePathShown) {
+  if (dirty == titleDirtyShown && currentPath == titlePathShown && fpsShown == titleFpsShown) {
     return;
   }
   titleDirtyShown = dirty;
   titlePathShown = currentPath;
+  titleFpsShown = fpsShown;
   std::string name = currentPath.empty() ? "Untitled" : currentPath;
   size_t slash = name.find_last_of("/\\");
   if (slash != std::string::npos) {
@@ -866,7 +883,7 @@ void EditorApp::RefreshTitle() {
   if (dirty) {
     name += "*";
   }
-  std::string title = "Kizuri Editor - " + name;
+  std::string title = "Kizuri Editor - " + name + " - " + fpsShown;
   wchar_t wide[1024];
   int n = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, wide, 1023);
   if (n <= 0) {

@@ -1575,6 +1575,12 @@ void EditorApp::DrawViewport() {
   } else {
     ImGui::Dummy(ImVec2(iw, ih));
   }
+  {
+    const Kizuri::RenderStats& vst = renderer.GetStats();
+    char obuf[128];
+    std::snprintf(obuf, sizeof(obuf), "%s  CPU %.1f ms  GPU %.1f ms", fpsShown.c_str(), vst.msTotal, vst.gpuMs);
+    vdl->AddText(ImVec2(ipos.x + 8.0f, ipos.y + 8.0f), IM_COL32(235, 235, 245, 255), obuf);
+  }
   bool showButton = !gizmoHotLast;
   bool canvasHovered = false;
   if (showButton) {
@@ -2248,6 +2254,7 @@ void EditorApp::DrawSettings() {
         renderer.SetAutoBias(viewAutoBias);
       }
       const Kizuri::RenderStats& rst = renderer.GetStats();
+      ImGui::Text("%s", fpsShown.c_str());
       ImGui::Text("Draws geo %u shadow %u fwd %u decal %u", rst.geometryDraws, rst.shadowDraws, rst.forwardDraws, rst.decalDraws);
       ImGui::Text("Tris geo %llu shadow %llu fwd %llu", (unsigned long long)rst.geometryTris, (unsigned long long)rst.shadowTris, (unsigned long long)rst.forwardTris);
       ImGui::Text("Culled %u occluded %u post %u", rst.culledDraws, rst.occludedDraws, rst.postPasses);

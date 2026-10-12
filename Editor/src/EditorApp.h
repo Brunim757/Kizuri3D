@@ -202,6 +202,10 @@ struct EditorApp {
   std::string currentPath;
   bool titleDirtyShown;
   std::string titlePathShown;
+  std::string titleFpsShown;
+  std::string fpsShown;
+  double fpsSmooth;
+  double fpsTick;
   int pendingAction;
   bool openDialogQueued;
   bool saveDialogQueued;

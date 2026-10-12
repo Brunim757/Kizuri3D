@@ -85,7 +85,9 @@ float4 main(PSIn pin) : SV_Target
     float3 mn = mean - 1.25 * sigma;
     float3 mx = mean + 1.25 * sigma;
     float3 clipped = ClipAABB(hist, mn, mx);
-    float b = lerp(1.0, blend, useHist);
+    float2 motionPx = (puv - pin.uv) / max(px, float2(1e-6, 1e-6));
+    float adapt = saturate(length(motionPx) * 0.25);
+    float b = lerp(1.0, blend, useHist * (1.0 - adapt));
     float3 outc = lerp(curr, clipped, 1.0 - b);
     return float4(outc, cdepth);
 }

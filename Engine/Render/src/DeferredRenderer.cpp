@@ -6034,7 +6034,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
         sunU = cx / cw * 0.5f + 0.5f;
         sunV = 0.5f - cy / cw * 0.5f;
       }
-      float gc[16] = { sunU, sunV, godDensity, godIntensity, godDecay, 1.0f, 0.0f, 0.0f, camPos[0], camPos[1], camPos[2], 1.0f, mainCam.camFwd[0], mainCam.camFwd[1], mainCam.camFwd[2], 0.0f };
+      float gc[16] = { sunU, sunV, godDensity, godIntensity, godDecay, 1.0f, w > 0 ? 2.0f / static_cast<float>(w) : 0.0f, h > 0 ? 2.0f / static_cast<float>(h) : 0.0f, camPos[0], camPos[1], camPos[2], 1.0f, mainCam.camFwd[0], mainCam.camFwd[1], mainCam.camFwd[2], 0.0f };
       rhi->UpdateConstantBuffer(godCB, &gc, sizeof(gc));
       rhi->SetPixelConstantBuffer(0, godCB);
       rhi->SetPixelSampler(0, sampler);
