@@ -2153,6 +2153,16 @@ private:
       auto it = textures.find(tex);
       if (it != textures.end()) {
         v = it->second.srv.Get();
+      } else {
+        auto tit = targets.find(static_cast<RHIRenderTarget>(tex));
+        if (tit != targets.end()) {
+          v = tit->second.srv.Get();
+        } else {
+          auto cit = cubes.find(static_cast<RHIRenderTarget>(tex));
+          if (cit != cubes.end()) {
+            v = cit->second.srv.Get();
+          }
+        }
       }
     }
     Ctx()->CSSetShaderResources(slot, 1, &v);
@@ -2423,6 +2433,7 @@ private:
     RHITextureFormat fmt = RHITextureFormat::RGBA8_UNORM;
   };
   std::unordered_map<uint64_t, Tex3DEntry> tex3ds;
+};
 IRHI* CreateD3D11RHI() {
   return new D3D11RHI();
 }
