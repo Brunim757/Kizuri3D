@@ -2,6 +2,7 @@
 #include "Kizuri/Assets/Guid.h"
 #include "Kizuri/Path.h"
 #include <meshoptimizer.h>
+#include <cmath>
 namespace Kizuri {
 namespace {
 bool SimplifyRange(const uint32_t* indices, size_t count, const float* positions, size_t vertexCount, size_t targetCount, float targetError, std::vector<uint32_t>& simplified) {
@@ -144,6 +145,43 @@ void SelectAutoLod(float dist, float nearDist, float farDist, int& tierA, int& t
     tierA = 1;
     tierB = 2;
     fadeB = (dist - (b2 - hw)) / (hw * 2.0f);
+    return;
+  }
+  tierA = 2;
+}
+void SelectAutoLodCoverage(float dist, float radius, float screenH, float fovY, int& tierA, int& tierB, float& fadeB) {
+  tierA = 0;
+  tierB = -1;
+  fadeB = 0.0f;
+  if (dist <= 0.0f || radius <= 0.0f || screenH <= 0.0f || fovY <= 0.0f) {
+    return;
+  }
+  float halfTan = tanf(fovY * 0.5f);
+  if (halfTan <= 0.0f) {
+    return;
+  }
+  float c = radius / (dist * halfTan);
+  const float hiFull = 0.35f;
+  const float hiBlend = 0.25f;
+  const float loFull = 0.12f;
+  const float loBlend = 0.08f;
+  if (c >= hiFull) {
+    return;
+  }
+  if (c >= hiBlend) {
+    tierA = 0;
+    tierB = 1;
+    fadeB = (hiFull - c) / (hiFull - hiBlend);
+    return;
+  }
+  if (c >= loFull) {
+    tierA = 1;
+    return;
+  }
+  if (c >= loBlend) {
+    tierA = 1;
+    tierB = 2;
+    fadeB = (loFull - c) / (loFull - loBlend);
     return;
   }
   tierA = 2;

@@ -77,6 +77,12 @@ struct EditorApp {
   bool viewTempUpsample;
   float viewTargetFps;
   bool viewMtShadows;
+  int nodeDragId;
+  float nodeDragDX;
+  float nodeDragDY;
+  int nodeLinkFrom;
+  bool nodeShowHlsl;
+  int nodeSelected;
   struct StaticBucketDraw {
     std::string guid;
     DeferredMaterial mat;
@@ -237,6 +243,7 @@ struct EditorApp {
   void DrawMaterialSlot(Entity* e, const char* label, int slot);
   void DrawMaterialSlotFor(Entity* e, const char* label, int slot, bool isPart, uint32_t part);
   bool DrawMaterialScalars(MaterialData& mat);
+  bool DrawMaterialNodes(MaterialData& mat);
   void DrawPartMaterials(Entity* e);
   void DrawDecalSection(Entity* e);
   void DrawLightGizmo();

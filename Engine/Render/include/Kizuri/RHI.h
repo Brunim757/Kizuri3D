@@ -105,6 +105,10 @@ public:
   virtual bool BeginCommandList() = 0;
   virtual bool EndCommandList() = 0;
   virtual void ExecuteCommandList() = 0;
+  virtual void SetComputeTexture(uint32_t slot, RHITexture tex) = 0;
+  virtual RHITexture CreateUavTexture(int w, int h, RHITextureFormat fmt) = 0;
+  virtual void SetComputeUAVTexture(uint32_t slot, RHITexture tex) = 0;
+  virtual void SetComputeSampler(uint32_t slot, RHISampler sampler) = 0;
   virtual RHIBuffer CreateBuffer(uint64_t size, uint32_t stride, bool isIndex, const void* initialData) = 0;
   virtual RHIBuffer CreateBufferEmpty(uint64_t size, uint32_t stride, bool isIndex) = 0;
   virtual bool UpdateBufferRange(RHIBuffer buf, uint64_t offset, const void* data, size_t bytes) = 0;

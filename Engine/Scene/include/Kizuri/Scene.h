@@ -53,8 +53,29 @@ struct UvXformData {
   float rotation = 0.0f;
   int uvSet = 0;
 };
-struct MaterialData {
-  float albedo[3];
+struct MaterialNode {
+  int id = -1;
+  int type = 0;
+  int inA = -1;
+  int inB = -1;
+  int inC = -1;
+  float color[3] = { 1.0f, 1.0f, 1.0f };
+  float value = 0.0f;
+  std::string texGuid;
+  float posX = 0.0f;
+  float posY = 0.0f;
+};
+struct MaterialGraph {
+  std::vector<MaterialNode> nodes;
+  int outAlbedo = -1;
+  int outRoughness = -1;
+  int outMetallic = -1;
+  int outEmissive = -1;
+  int nextId = 0;
+};
+bool EvaluateMaterialGraph(const MaterialGraph& graph, float outAlbedo[3], float& outRoughness, float& outMetallic, float outEmissive[3], std::string& outAlbedoTex);
+void EmitMaterialGraphHlsl(const MaterialGraph& graph, std::string& outHlsl);
+struct MaterialData {  float albedo[3];
   float alpha = 1.0f;
   float metallic;
   float roughness;
@@ -115,6 +136,10 @@ struct MaterialData {
   float sssIntensity = 0.0f;
   int sssKind = 0;
   bool vtAlbedo = false;
+  bool triplanar = false;
+  float triplanarScale = 0.25f;
+  MaterialGraph graph;
+  bool useNodes = false;
 };
 struct DecalData {
   float size[3];

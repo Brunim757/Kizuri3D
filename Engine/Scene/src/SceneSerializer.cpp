@@ -176,6 +176,14 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
       std::fprintf(fp, "MATSSS %.9g %.9g %.9g %.9g\n", m.sssColor[0], m.sssColor[1], m.sssColor[2], m.sssIntensity);
       std::fprintf(fp, "MATSSSK %d\n", m.sssKind);
       std::fprintf(fp, "MATVT %d\n", m.vtAlbedo ? 1 : 0);
+      std::fprintf(fp, "MATTRI %d %.9g\n", m.triplanar ? 1 : 0, m.triplanarScale);
+      if (m.useNodes && !m.graph.nodes.empty()) {
+        for (size_t ni = 0; ni < m.graph.nodes.size(); ++ni) {
+          const MaterialNode& nd = m.graph.nodes[ni];
+          std::fprintf(fp, "MATNODE %d %d %d %d %d %.9g %.9g %.9g %.9g \"%s\" %.9g %.9g\n", nd.id, nd.type, nd.inA, nd.inB, nd.inC, nd.color[0], nd.color[1], nd.color[2], nd.value, EscapeName(nd.texGuid).c_str(), nd.posX, nd.posY);
+        }
+        std::fprintf(fp, "MATGRAPH %d %d %d %d\n", m.graph.outAlbedo, m.graph.outRoughness, m.graph.outMetallic, m.graph.outEmissive);
+      }
       if (e->variantIndex >= 0) {
         std::fprintf(fp, "VARIANT %d\n", e->variantIndex);
       }
@@ -630,6 +638,83 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
           break;
         }
         current->material.vtAlbedo = vv != 0;
+        continue;
+      }
+      if (field == "MATTRI") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        float dv[2] = { 0.0f, 0.25f };
+        if (!ParseFloats(s, pos, dv, 2)) {
+          failed = true;
+          break;
+        }
+        current->material.triplanar = dv[0] > 0.5f;
+        current->material.triplanarScale = dv[1] < 0.001f ? 0.001f : dv[1];
+        continue;
+      }
+      if (field == "MATNODE") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        long iv[5] = { -1, 0, -1, -1, -1 };
+        for (int k = 0; k < 5; ++k) {
+          if (!ParseInt(s, pos, iv[k])) {
+            failed = true;
+            break;
+          }
+        }
+        if (failed) {
+          break;
+        }
+        float dv[6] = { 1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f };
+        if (!ParseFloats(s, pos, dv, 6)) {
+          failed = true;
+          break;
+        }
+        std::string tguid;
+        if (!ParseQuoted(s, pos, tguid)) {
+          failed = true;
+          break;
+        }
+        float pv[2] = { 0.0f, 0.0f };
+        if (!ParseFloats(s, pos, pv, 2)) {
+          failed = true;
+          break;
+        }
+        MaterialNode nd;
+        nd.id = static_cast<int>(iv[0]);
+        nd.type = static_cast<int>(iv[1]) < 0 ? 0 : (static_cast<int>(iv[1]) > 5 ? 5 : static_cast<int>(iv[1]));
+        nd.inA = static_cast<int>(iv[2]);
+        nd.inB = static_cast<int>(iv[3]);
+        nd.inC = static_cast<int>(iv[4]);
+        nd.color[0] = dv[0];
+        nd.color[1] = dv[1];
+        nd.color[2] = dv[2];
+        nd.value = dv[3];
+        nd.texGuid = tguid;
+        nd.posX = pv[0];
+        nd.posY = pv[1];
+        current->material.graph.nodes.push_back(nd);
+        if (nd.id >= current->material.graph.nextId) {
+          current->material.graph.nextId = nd.id + 1;
+        }
+        current->material.useNodes = true;
+        continue;
+      }
+      if (field == "MATGRAPH") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        long ov[4] = { -1, -1, -1, -1 };
+        for (int k = 0; k < 4; ++k) {
+          if (!ParseInt(s, pos, ov[k])) {
+            failed = true;
+            break;
+          }
+        }
+        if (failed) {
+          break;
+        }
+        current->material.graph.outAlbedo = static_cast<int>(ov[0]);
+        current->material.graph.outRoughness = static_cast<int>(ov[1]);
+        current->material.graph.outMetallic = static_cast<int>(ov[2]);
+        current->material.graph.outEmissive = static_cast<int>(ov[3]);
+        current->material.useNodes = true;
         continue;
       }
       if (field == "VARIANT") {

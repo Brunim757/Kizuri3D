@@ -1,5 +1,6 @@
 #include "Kizuri/Scene.h"
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 namespace Kizuri {
 void MakeIdentityTransform(Transform& t) {
@@ -524,5 +525,179 @@ void Scene::RebaseWorld(double dx, double dy, double dz) {
   origin.GetOrigin(ox, oy, oz);
   origin.SetOrigin(ox + dx, oy + dy, oz + dz);
   dirty = true;
+}
+namespace {
+const MaterialNode* FindNode(const MaterialGraph& graph, int id) {
+  for (size_t i = 0; i < graph.nodes.size(); ++i) {
+    if (graph.nodes[i].id == id) {
+      return &graph.nodes[i];
+    }
+  }
+  return nullptr;
+}
+bool EvalNodeColor(const MaterialGraph& graph, int id, float out[3], int depth) {
+  if (depth > 16) {
+    return false;
+  }
+  const MaterialNode* n = FindNode(graph, id);
+  if (n == nullptr) {
+    return false;
+  }
+  if (n->type == 0) {
+    out[0] = n->color[0];
+    out[1] = n->color[1];
+    out[2] = n->color[2];
+    return true;
+  }
+  if (n->type == 2) {
+    out[0] = 1.0f;
+    out[1] = 1.0f;
+    out[2] = 1.0f;
+    return true;
+  }
+  float a[3] = { 0.0f, 0.0f, 0.0f };
+  float b[3] = { 0.0f, 0.0f, 0.0f };
+  if (n->type == 3 || n->type == 4 || n->type == 5) {
+    if (!EvalNodeColor(graph, n->inA, a, depth + 1)) {
+      a[0] = 1.0f;
+      a[1] = 1.0f;
+      a[2] = 1.0f;
+    }
+    if (!EvalNodeColor(graph, n->inB, b, depth + 1)) {
+      b[0] = 0.0f;
+      b[1] = 0.0f;
+      b[2] = 0.0f;
+    }
+  }
+  if (n->type == 1) {
+    out[0] = n->value;
+    out[1] = n->value;
+    out[2] = n->value;
+    return true;
+  }
+  if (n->type == 3) {
+    out[0] = a[0] * b[0];
+    out[1] = a[1] * b[1];
+    out[2] = a[2] * b[2];
+    return true;
+  }
+  if (n->type == 4) {
+    out[0] = a[0] + b[0];
+    out[1] = a[1] + b[1];
+    out[2] = a[2] + b[2];
+    return true;
+  }
+  if (n->type == 5) {
+    float t = n->value < 0.0f ? 0.0f : (n->value > 1.0f ? 1.0f : n->value);
+    float c[3] = { 0.0f, 0.0f, 0.0f };
+    if (n->inC >= 0) {
+      if (!EvalNodeColor(graph, n->inC, c, depth + 1)) {
+        c[0] = t;
+        c[1] = t;
+        c[2] = t;
+      }
+      t = (c[0] + c[1] + c[2]) / 3.0f;
+    }
+    out[0] = a[0] + (b[0] - a[0]) * t;
+    out[1] = a[1] + (b[1] - a[1]) * t;
+    out[2] = a[2] + (b[2] - a[2]) * t;
+    return true;
+  }
+  return false;
+}
+bool EmitNodeColor(const MaterialGraph& graph, int id, std::string& out, int depth) {
+  if (depth > 16) {
+    return false;
+  }
+  const MaterialNode* n = FindNode(graph, id);
+  if (n == nullptr) {
+    return false;
+  }
+  char buf[256];
+  if (n->type == 0) {
+    std::snprintf(buf, sizeof(buf), "float3(%.6g, %.6g, %.6g)", static_cast<double>(n->color[0]), static_cast<double>(n->color[1]), static_cast<double>(n->color[2]));
+    out = buf;
+    return true;
+  }
+  if (n->type == 1) {
+    std::snprintf(buf, sizeof(buf), "float3(%.6g, %.6g, %.6g)", static_cast<double>(n->value), static_cast<double>(n->value), static_cast<double>(n->value));
+    out = buf;
+    return true;
+  }
+  if (n->type == 2) {
+    out = "AlbedoTex.Sample(GeoSamp, pin.uv).rgb";
+    return true;
+  }
+  std::string a = "float3(1.0, 1.0, 1.0)";
+  std::string b = "float3(0.0, 0.0, 0.0)";
+  if (n->type == 3 || n->type == 4 || n->type == 5) {
+    if (!EmitNodeColor(graph, n->inA, a, depth + 1)) {
+      a = "float3(1.0, 1.0, 1.0)";
+    }
+    if (!EmitNodeColor(graph, n->inB, b, depth + 1)) {
+      b = "float3(0.0, 0.0, 0.0)";
+    }
+  }
+  if (n->type == 3) {
+    out = "(" + a + " * " + b + ")";
+    return true;
+  }
+  if (n->type == 4) {
+    out = "(" + a + " + " + b + ")";
+    return true;
+  }
+  if (n->type == 5) {
+    char tb[64];
+    float t = n->value < 0.0f ? 0.0f : (n->value > 1.0f ? 1.0f : n->value);
+    std::snprintf(tb, sizeof(tb), "%.6g", static_cast<double>(t));
+    out = "(lerp(" + a + ", " + b + ", " + tb + "))";
+    return true;
+  }
+  return false;
+}
+}
+bool EvaluateMaterialGraph(const MaterialGraph& graph, float outAlbedo[3], float& outRoughness, float& outMetallic, float outEmissive[3], std::string& outAlbedoTex) {
+  outAlbedoTex.clear();
+  if (graph.outAlbedo >= 0) {
+    const MaterialNode* n = FindNode(graph, graph.outAlbedo);
+    if (n != nullptr && n->type == 2 && !n->texGuid.empty()) {
+      outAlbedoTex = n->texGuid;
+    }
+    if (!EvalNodeColor(graph, graph.outAlbedo, outAlbedo, 0)) {
+      return false;
+    }
+  }
+  if (graph.outRoughness >= 0) {
+    float v[3] = { 0.5f, 0.5f, 0.5f };
+    if (EvalNodeColor(graph, graph.outRoughness, v, 0)) {
+      outRoughness = (v[0] + v[1] + v[2]) / 3.0f;
+    }
+  }
+  if (graph.outMetallic >= 0) {
+    float v[3] = { 0.0f, 0.0f, 0.0f };
+    if (EvalNodeColor(graph, graph.outMetallic, v, 0)) {
+      outMetallic = (v[0] + v[1] + v[2]) / 3.0f;
+    }
+  }
+  if (graph.outEmissive >= 0) {
+    EvalNodeColor(graph, graph.outEmissive, outEmissive, 0);
+  }
+  return true;
+}
+void EmitMaterialGraphHlsl(const MaterialGraph& graph, std::string& outHlsl) {
+  outHlsl.clear();
+  std::string expr;
+  if (graph.outAlbedo >= 0 && EmitNodeColor(graph, graph.outAlbedo, expr, 0)) {
+    outHlsl += "albedo = " + expr + ";\n";
+  }
+  if (graph.outRoughness >= 0 && EmitNodeColor(graph, graph.outRoughness, expr, 0)) {
+    outHlsl += "rough = (" + expr + ").r;\n";
+  }
+  if (graph.outMetallic >= 0 && EmitNodeColor(graph, graph.outMetallic, expr, 0)) {
+    outHlsl += "metal = (" + expr + ").r;\n";
+  }
+  if (graph.outEmissive >= 0 && EmitNodeColor(graph, graph.outEmissive, expr, 0)) {
+    outHlsl += "emi = " + expr + ";\n";
+  }
 }
 }

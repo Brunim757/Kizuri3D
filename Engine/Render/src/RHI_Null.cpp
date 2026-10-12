@@ -119,6 +119,26 @@ public:
   }
   void ExecuteCommandList() override {
   }
+  void SetComputeTexture(uint32_t slot, RHITexture tex) override {
+    (void)slot;
+    (void)tex;
+  }
+  RHITexture CreateUavTexture(int w, int h, RHITextureFormat fmt) override {
+    (void)w;
+    (void)h;
+    (void)fmt;
+    uint64_t id = nextId++;
+    shaders[id] = 1;
+    return id;
+  }
+  void SetComputeUAVTexture(uint32_t slot, RHITexture tex) override {
+    (void)slot;
+    (void)tex;
+  }
+  void SetComputeSampler(uint32_t slot, RHISampler sampler) override {
+    (void)slot;
+    (void)sampler;
+  }
   RHIBuffer CreateBuffer(uint64_t size, uint32_t stride, bool isIndex, const void* initialData) override {
     RHIBuffer id = CreateBufferEmpty(size, stride, isIndex);
     if (id != 0 && initialData != nullptr) {

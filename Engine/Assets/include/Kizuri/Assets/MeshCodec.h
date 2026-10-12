@@ -117,6 +117,7 @@ bool GenerateLodMesh(const MeshAssetData& src, float targetRatio, float targetEr
 std::string LodSiblingPath(const std::string& baseMeshPath, int tier);
 bool IsAutoLodPath(const std::string& path);
 void SelectAutoLod(float dist, float nearDist, float farDist, int& tierA, int& tierB, float& fadeB);
+void SelectAutoLodCoverage(float dist, float radius, float screenH, float fovY, int& tierA, int& tierB, float& fadeB);
 bool OptimizeVertexCache(MeshAssetData& data);
 struct MeshletRange {
   uint32_t indexOffset = 0;

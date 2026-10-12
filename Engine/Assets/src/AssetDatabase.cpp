@@ -1523,7 +1523,7 @@ int AssetDatabase::CreateVirtualTexture(const TextureAssetData* src, const std::
   if (e.pagesX * e.pagesY > 1024) {
     return -1;
   }
-  e.physical = gpuRhi->CreateTexture2D(1024, 1024, 1, RHITextureFormat::RGBA8_UNORM);
+  e.physical = gpuRhi->CreateTexture2D(2048, 1024, 1, RHITextureFormat::RGBA8_UNORM);
   e.tableTex = gpuRhi->CreateTexture2D(64, 64, 1, RHITextureFormat::RGBA8_UNORM);
   e.tailTex = gpuRhi->CreateTexture2D(64, 64, 1, RHITextureFormat::RGBA8_UNORM);
   if (e.physical == 0 || e.tableTex == 0 || e.tailTex == 0) {
@@ -1538,8 +1538,8 @@ int AssetDatabase::CreateVirtualTexture(const TextureAssetData* src, const std::
     }
     return -1;
   }
-  std::vector<unsigned char> black(static_cast<size_t>(1024) * 1024 * 4, 0);
-  gpuRhi->UpdateTextureMip(e.physical, 0, 1024, 1024, 4096, black.data(), black.size());
+  std::vector<unsigned char> black(static_cast<size_t>(2048) * 1024 * 4, 0);
+  gpuRhi->UpdateTextureMip(e.physical, 0, 2048, 1024, 8192, black.data(), black.size());
   e.tableCpu.assign(static_cast<size_t>(64) * 64 * 4, 0);
   gpuRhi->UpdateTextureMip(e.tableTex, 0, 64, 64, 256, e.tableCpu.data(), e.tableCpu.size());
   std::vector<unsigned char> tailRgba;
@@ -1641,12 +1641,24 @@ bool AssetDatabase::UpdateVirtualTexture(const std::string& texGuid, float dist,
     if (sy + sh > e.mipRgbaH) {
       sh = e.mipRgbaH - sy;
     }
-    std::vector<unsigned char> tile(static_cast<size_t>(32) * 32 * 4);
-    for (int y = 0; y < 32; ++y) {
-      int ryy = y * sh / 32;
-      for (int x = 0; x < 32; ++x) {
-        int rxx = x * sw / 32;
-        size_t di = (static_cast<size_t>(y) * 32 + x) * 4;
+    std::vector<unsigned char> tile(static_cast<size_t>(34) * 34 * 4);
+    for (int y = 0; y < 34; ++y) {
+      int ryy = (y - 1) * sw / 32;
+      if (ryy < 0) {
+        ryy = 0;
+      }
+      if (ryy >= sh) {
+        ryy = sh - 1;
+      }
+      for (int x = 0; x < 34; ++x) {
+        int rxx = (x - 1) * sw / 32;
+        if (rxx < 0) {
+          rxx = 0;
+        }
+        if (rxx >= sw) {
+          rxx = sw - 1;
+        }
+        size_t di = (static_cast<size_t>(y) * 34 + x) * 4;
         size_t si = (static_cast<size_t>(sy + ryy) * e.mipRgbaW + (sx + rxx)) * 4;
         tile[di + 0] = e.mipRgba[si + 0];
         tile[di + 1] = e.mipRgba[si + 1];
@@ -1654,12 +1666,14 @@ bool AssetDatabase::UpdateVirtualTexture(const std::string& texGuid, float dist,
         tile[di + 3] = e.mipRgba[si + 3];
       }
     }
-    if (!gpuRhi->UpdateTextureRegion(e.physical, 0, (p % 32) * 32, (p / 32) * 32, 32, 32, 128, tile.data(), tile.size())) {
+    int slotX = p % 60;
+    int slotY = p / 60;
+    if (!gpuRhi->UpdateTextureRegion(e.physical, 0, slotX * 34, slotY * 34, 34, 34, 136, tile.data(), tile.size())) {
       return false;
     }
     size_t ti = (static_cast<size_t>(py) * 64 + px) * 4;
-    e.tableCpu[ti + 0] = static_cast<unsigned char>(p % 32);
-    e.tableCpu[ti + 1] = static_cast<unsigned char>(p / 32);
+    e.tableCpu[ti + 0] = static_cast<unsigned char>(slotX);
+    e.tableCpu[ti + 1] = static_cast<unsigned char>(slotY);
     e.tableCpu[ti + 2] = 255;
     e.tableCpu[ti + 3] = static_cast<unsigned char>(want > 255 ? 255 : want);
     ++done;

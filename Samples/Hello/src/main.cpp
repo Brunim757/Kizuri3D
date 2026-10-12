@@ -1911,8 +1911,153 @@ bool TestRenderGraph() {
   }
   return true;
 }
-bool TestTemporalUpsampling() {
+bool TestLodCoverage() {
+  int tierA = -1;
+  int tierB = -1;
+  float fadeB = -1.0f;
+  Kizuri::SelectAutoLodCoverage(10.0f, 1.0f, 1080.0f, 1.0471976f, tierA, tierB, fadeB);
+  if (tierA != 1 || tierB != -1) {
+    return false;
+  }
+  Kizuri::SelectAutoLodCoverage(2.0f, 1.0f, 1080.0f, 1.0471976f, tierA, tierB, fadeB);
+  if (tierA != 0 || tierB != -1) {
+    return false;
+  }
+  Kizuri::SelectAutoLodCoverage(100.0f, 1.0f, 1080.0f, 1.0471976f, tierA, tierB, fadeB);
+  if (tierA != 2) {
+    return false;
+  }
+  Kizuri::SelectAutoLodCoverage(5.7735027f, 1.0f, 1080.0f, 1.0471976f, tierA, tierB, fadeB);
+  if (tierA != 0 || tierB != 1) {
+    return false;
+  }
+  float fd = fadeB > 0.5f ? fadeB - 0.5f : 0.5f - fadeB;
+  if (fd > 0.05f) {
+    return false;
+  }
+  Kizuri::SelectAutoLodCoverage(0.0f, 1.0f, 1080.0f, 1.0471976f, tierA, tierB, fadeB);
+  return tierA == 0 && tierB == -1;
+}
+bool TestTriplanar() {
   Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 5 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  tmat.triplanar = true;
+  tmat.triplanarScale = 0.25f;
+  tmat.texFlags |= 1u | 536870912u;
+  Kizuri::RenderDirectionalLight dl;
+  dl.dir[0] = 0.0f;
+  dl.dir[1] = -1.0f;
+  dl.dir[2] = 0.2f;
+  dl.color[0] = 1.0f;
+  dl.color[1] = 0.95f;
+  dl.color[2] = 0.9f;
+  dl.intensity = 3.0f;
+  dl.castShadow = false;
+  dl.effectiveSize = 0.5f;
+  dl.shadowSize = 1024;
+  dl.cascades = 2;
+  dl.lambda = 0.5f;
+  renderer.AddDirectionalLight(dl);
+  renderer.BeginObjects(view, proj);
+  renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+  renderer.EndObjectsToTexture(cam);
+  bool ok = renderer.GetStats().lightingDraws == 1;
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestMaterialNodes() {
+  Kizuri::MaterialGraph graph;
+  Kizuri::MaterialNode c0;
+  c0.id = 0;
+  c0.type = 0;
+  c0.color[0] = 0.5f;
+  c0.color[1] = 0.0f;
+  c0.color[2] = 0.0f;
+  Kizuri::MaterialNode c1;
+  c1.id = 1;
+  c1.type = 0;
+  c1.color[0] = 1.0f;
+  c1.color[1] = 0.5f;
+  c1.color[2] = 0.25f;
+  Kizuri::MaterialNode mul;
+  mul.id = 2;
+  mul.type = 3;
+  mul.inA = 0;
+  mul.inB = 1;
+  Kizuri::MaterialNode rv;
+  rv.id = 3;
+  rv.type = 1;
+  rv.value = 0.3f;
+  graph.nodes.push_back(c0);
+  graph.nodes.push_back(c1);
+  graph.nodes.push_back(mul);
+  graph.nodes.push_back(rv);
+  graph.outAlbedo = 2;
+  graph.outRoughness = 3;
+  graph.nextId = 4;
+  float albedo[3] = { 0.0f, 0.0f, 0.0f };
+  float rough = 0.5f;
+  float metal = 0.0f;
+  float emissive[3] = { 0.0f, 0.0f, 0.0f };
+  std::string tex;
+  if (!Kizuri::EvaluateMaterialGraph(graph, albedo, rough, metal, emissive, tex)) {
+    return false;
+  }
+  if (albedo[0] != 0.5f || albedo[1] != 0.0f || albedo[2] != 0.0f || !tex.empty()) {
+    return false;
+  }
+  float rd = rough > 0.3f ? rough - 0.3f : 0.3f - rough;
+  if (rd > 0.000001f) {
+    return false;
+  }
+  std::string hlsl;
+  Kizuri::EmitMaterialGraphHlsl(graph, hlsl);
+  if (hlsl.find("albedo =") == std::string::npos || hlsl.find("*") == std::string::npos || hlsl.find("rough =") == std::string::npos) {
+    return false;
+  }
+  Kizuri::MaterialGraph cyclic;
+  Kizuri::MaterialNode self;
+  self.id = 0;
+  self.type = 3;
+  self.inA = 0;
+  self.inB = 0;
+  cyclic.nodes.push_back(self);
+  cyclic.outAlbedo = 0;
+  float ca[3] = { 0.0f, 0.0f, 0.0f };
+  float cr = 0.0f;
+  float cm = 0.0f;
+  float ce[3] = { 0.0f, 0.0f, 0.0f };
+  std::string ct;
+  if (!Kizuri::EvaluateMaterialGraph(cyclic, ca, cr, cm, ce, ct)) {
+    return false;
+  }
+  return true;
+}
+bool TestTemporalUpsampling() { Kizuri::IRHI* rhi = nullptr;
   Kizuri::DeferredRenderer renderer;
   if (!InitNullRenderer(rhi, renderer)) {
     return false;
@@ -8918,6 +9063,9 @@ int main() {
   failures += Check("FramePacer", TestFramePacer());
   failures += Check("RenderGraph", TestRenderGraph());
   failures += Check("TemporalUpsampling", TestTemporalUpsampling());
+  failures += Check("MaterialNodes", TestMaterialNodes());
+  failures += Check("LodCoverage", TestLodCoverage());
+  failures += Check("Triplanar", TestTriplanar());
   failures += Check("VirtualTexture", TestVirtualTexture());
   failures += Check("LensDirt", TestLensDirt());
   failures += Check("RHI-Null", TestRHINull());

@@ -89,7 +89,7 @@ void FillMatConstants(const DeferredMaterial& use, float lodFade, MatConstants& 
   mc.params[2] = static_cast<float>(use.texFlags);
   mc.params[3] = lodFade < 0.0f ? 0.0f : (lodFade > 1.0f ? 1.0f : lodFade);
   mc.extra[0] = use.lightmapIntensity;
-  mc.extra[1] = 0.0f;
+  mc.extra[1] = use.triplanarScale;
   mc.extra[2] = 0.0f;
   mc.extra[3] = 0.0f;
   mc.extA[0] = use.emissiveStrength;
@@ -304,6 +304,9 @@ DeferredRenderer::DeferredRenderer()
   , shadowPointActive(false)
   , bloomBrightPS(0)
   , bloomBlurPS(0)
+  , bloomBlurCS(0)
+  , bloomUavA(0)
+  , bloomUavB(0)
   , bloomAddPS(0)
   , bloomCB(0)
   , gLight(0)
@@ -356,6 +359,7 @@ DeferredRenderer::DeferredRenderer()
   , sssBlurA(0)
   , sssBlurB(0)
   , hzbA{ 0, 0, 0, 0, 0 }
+  , hzbBuilt(false)
   , ssrA(0)
   , ssrTmp(0)
   , ssrHist(0)
@@ -444,6 +448,8 @@ DeferredRenderer::DeferredRenderer()
   , cullOutBuf(0)
   , cullArgsBuf(0)
   , cullBufCap(0)
+  , cullLastKey(0)
+  , cullLastHash(0)
   , gpuDriven(false)
   , computeAvailable(false)
   , gpuCullParity(false)
@@ -653,6 +659,8 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   std::string decalPSPath = dir + "/DecalPS.hlsl";
   std::string bloomBrightPath = dir + "/BloomBrightPS.hlsl";
   std::string bloomBlurPath = dir + "/BloomBlurPS.hlsl";
+  std::string bloomBlurCSPath = dir + "/BloomBlurCS.hlsl";
+  bloomBlurCS = rhi->CreateComputeShaderFromFile(bloomBlurCSPath.c_str(), "main");
   std::string bloomAddPath = dir + "/BloomAddPS.hlsl";
   std::string fsrEasuPath = dir + "/FsrEasuPS.hlsl";
   std::string fsrRcasPath = dir + "/FsrRcasPS.hlsl";
@@ -911,7 +919,7 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   gridBuf = rhi->CreateStructBuffer(144, 4, nullptr);
   std::string cullInstPath = dir + "/CullInstancesCS.hlsl";
   cullInstCS = rhi->CreateComputeShaderFromFile(cullInstPath.c_str(), "main");
-  float instCullInit[32] = { 0.0f };
+  float instCullInit[56] = { 0.0f };
   instCullCB = rhi->CreateConstantBuffer(sizeof(instCullInit), &instCullInit);
   if (instCullCB == 0) {
     return false;
@@ -4295,6 +4303,8 @@ void DeferredRenderer::DrawGeoGpuDriven(const std::vector<size_t>& indices) {
     cullInBuf = rhi->CreateStructBuffer(cap, 64, nullptr);
     cullOutBuf = rhi->CreateStructBuffer(cap, 64, nullptr);
     cullBufCap = (cullInBuf != 0 && cullOutBuf != 0) ? cap : 0;
+    cullLastKey = 0;
+    cullLastHash = 0;
   }
   if (cullBufCap < n || cullInBuf == 0 || cullOutBuf == 0) {
     for (size_t i : indices) {
@@ -4306,11 +4316,24 @@ void DeferredRenderer::DrawGeoGpuDriven(const std::vector<size_t>& indices) {
   for (uint32_t k = 0; k < n; ++k) {
     std::memcpy(bytes.data() + static_cast<size_t>(k) * 64, geoQueue[indices[k]].world, 64);
   }
-  if (!rhi->UpdateStructBuffer(cullInBuf, bytes.data(), bytes.size())) {
-    for (size_t i : indices) {
-      DrawGeoSingle(geoQueue[i]);
+  uint64_t wh = 1469598103934665603ull;
+  for (size_t b = 0; b < bytes.size(); ++b) {
+    wh ^= static_cast<uint64_t>(bytes[b]);
+    wh *= 1099511628211ull;
+  }
+  if (wh == 0) {
+    wh = 1;
+  }
+  uint64_t wkey = (static_cast<uint64_t>(first.vb) * 1315423911ull) ^ static_cast<uint64_t>(first.ib);
+  if (wkey != cullLastKey || wh != cullLastHash) {
+    if (!rhi->UpdateStructBuffer(cullInBuf, bytes.data(), bytes.size())) {
+      for (size_t i : indices) {
+        DrawGeoSingle(geoQueue[i]);
+      }
+      return;
     }
-    return;
+    cullLastKey = wkey;
+    cullLastHash = wh;
   }
   uint32_t args[5] = { first.count, 0, first.start, 0, 0 };
   rhi->UpdateStructBuffer(cullArgsBuf, args, sizeof(args));
@@ -4324,7 +4347,7 @@ void DeferredRenderer::DrawGeoGpuDriven(const std::vector<size_t>& indices) {
   if (!first.hasBounds || br <= 0.0f) {
     br = 1000000.0f;
   }
-  float cb[32];
+  float cb[56];
   for (int p = 0; p < 6; ++p) {
     cb[p * 4 + 0] = frustumPlanes[p][0];
     cb[p * 4 + 1] = frustumPlanes[p][1];
@@ -4339,15 +4362,36 @@ void DeferredRenderer::DrawGeoGpuDriven(const std::vector<size_t>& indices) {
   cb[29] = static_cast<float>(first.count);
   cb[30] = static_cast<float>(first.start);
   cb[31] = 0.0f;
+  float cullVP[16];
+  MulViewProj(lastView, lastProj, cullVP);
+  for (int k = 0; k < 16; ++k) {
+    cb[32 + k] = cullVP[k];
+  }
+  int hzbW = w / 2 > 0 ? w / 2 : 1;
+  int hzbH = h / 2 > 0 ? h / 2 : 1;
+  bool hzbUse = hzbBuilt && hzbA[1] != 0;
+  cb[48] = mainCam.camPos[0];
+  cb[49] = mainCam.camPos[1];
+  cb[50] = mainCam.camPos[2];
+  cb[51] = hzbUse ? static_cast<float>(hzbW) : 0.0f;
+  cb[52] = hzbUse ? static_cast<float>(hzbH) : 0.0f;
+  cb[53] = 0.0f;
+  cb[54] = 0.0f;
+  cb[55] = 0.0f;
   rhi->UpdateConstantBuffer(instCullCB, &cb, sizeof(cb));
   rhi->SetComputeConstantBuffer(0, instCullCB);
   rhi->SetComputeSRV(0, cullInBuf);
+  if (hzbUse) {
+    rhi->SetComputeTexture(1, hzbA[1]);
+  }
   rhi->SetComputeUAV(0, cullOutBuf);
   rhi->SetComputeUAV(1, cullArgsBuf);
   rhi->SetComputeShader(cullInstCS);
   rhi->Dispatch((n + 63) / 64, 1, 1);
   rhi->SetComputeUAV(0, 0);
   rhi->SetComputeUAV(1, 0);
+  rhi->SetComputeSRV(0, 0);
+  rhi->SetComputeTexture(1, 0);
   rhi->SetComputeShader(0);
   SetGeoMaterial(first.mat, first.lodFade);
   GeoConstants gc;
@@ -4792,6 +4836,7 @@ void DeferredRenderer::BuildHzb(const float camPos[3]) {
   if (graph.Compile()) {
     graph.Execute();
   }
+  hzbBuilt = true;
   rhi->SetPixelTexture(0, 0);
   rhi->EndEvent();
 }
@@ -5830,15 +5875,35 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     NoteFullscreen();
     float bh[4] = { 1.0f / static_cast<float>(bloomW), 0.0f, 0.0f, 0.0f };
     rhi->UpdateConstantBuffer(bloomCB, &bh, sizeof(bh));
-    rhi->SetRenderTargets(1, &bloomB, 0);
-    rhi->SetPixelShader(bloomBlurPS);
-    rhi->SetPixelTexture(0, bloomA);
-    NoteFullscreen();
-    float bv[4] = { 0.0f, 1.0f / static_cast<float>(bloomH), 0.0f, 0.0f };
-    rhi->UpdateConstantBuffer(bloomCB, &bv, sizeof(bv));
-    rhi->SetRenderTargets(1, &bloomA, 0);
-    rhi->SetPixelTexture(0, bloomB);
-    NoteFullscreen();
+    if (bloomBlurCS != 0 && bloomUavA != 0 && bloomUavB != 0) {
+      rhi->SetComputeShader(bloomBlurCS);
+      rhi->SetComputeConstantBuffer(0, bloomCB);
+      rhi->SetComputeSampler(0, sampler);
+      rhi->SetComputeTexture(0, bloomA);
+      rhi->SetComputeUAVTexture(0, bloomUavB);
+      rhi->Dispatch(static_cast<uint32_t>((bloomW + 15) / 16), static_cast<uint32_t>((bloomH + 15) / 16), 1);
+      float bv[4] = { 0.0f, 1.0f / static_cast<float>(bloomH), 0.0f, 0.0f };
+      rhi->UpdateConstantBuffer(bloomCB, &bv, sizeof(bv));
+      rhi->SetComputeConstantBuffer(0, bloomCB);
+      rhi->SetComputeTexture(0, bloomUavB);
+      rhi->SetComputeUAVTexture(0, bloomUavA);
+      rhi->Dispatch(static_cast<uint32_t>((bloomW + 15) / 16), static_cast<uint32_t>((bloomH + 15) / 16), 1);
+      rhi->SetComputeTexture(0, 0);
+      rhi->SetComputeUAVTexture(0, 0);
+      rhi->SetComputeShader(0);
+      rhi->SetPixelTexture(1, bloomUavA);
+    } else {
+      rhi->SetRenderTargets(1, &bloomB, 0);
+      rhi->SetPixelShader(bloomBlurPS);
+      rhi->SetPixelTexture(0, bloomA);
+      NoteFullscreen();
+      float bv[4] = { 0.0f, 1.0f / static_cast<float>(bloomH), 0.0f, 0.0f };
+      rhi->UpdateConstantBuffer(bloomCB, &bv, sizeof(bv));
+      rhi->SetRenderTargets(1, &bloomA, 0);
+      rhi->SetPixelTexture(0, bloomB);
+      NoteFullscreen();
+      rhi->SetPixelTexture(1, bloomA);
+    }
     float ba[4] = { bloomStrength, lensDirt, 0.0f, 0.0f };
     rhi->UpdateConstantBuffer(bloomCB, &ba, sizeof(ba));
     rhi->SetRenderTargets(1, &gViewport, 0);
@@ -5852,7 +5917,7 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
     rhi->SetViewport(fvp);
     rhi->SetPixelShader(bloomAddPS);
     rhi->SetPixelTexture(0, gLight);
-    rhi->SetPixelTexture(1, bloomA);
+    rhi->SetPixelTexture(1, bloomUavA != 0 && bloomBlurCS != 0 ? bloomUavA : bloomA);
     rhi->SetPixelTexture2D(2, dirtTex);
     NoteFullscreen();
     rhi->SetPixelTexture(0, 0);
@@ -6285,6 +6350,8 @@ bool DeferredRenderer::CreateTargets() {
   }
   bloomA = rhi->CreateRenderTarget(bloomW, bloomH, RHIFormat::RGBA16F);
   bloomB = rhi->CreateRenderTarget(bloomW, bloomH, RHIFormat::RGBA16F);
+  bloomUavA = rhi->CreateUavTexture(bloomW, bloomH, RHITextureFormat::RGBA16F);
+  bloomUavB = rhi->CreateUavTexture(bloomW, bloomH, RHITextureFormat::RGBA16F);
   int fw = outW > 0 ? outW : w;
   int fh = outH > 0 ? outH : h;
   fsrA = rhi->CreateRenderTarget(fw, fh, RHIFormat::RGBA8_UNORM);
@@ -6343,7 +6410,7 @@ bool DeferredRenderer::CreateTargets() {
   }
   sssBlurA = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA16F);
   sssBlurB = rhi->CreateRenderTarget(w, h, RHIFormat::RGBA16F);
-  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 &&   fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && bentA != 0 && ssrA != 0 && ssrTmp != 0 && ssrHist != 0 && ssrHistB != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0 && taaSharpA != 0 && lumA != 0 && lumB != 0 && expA != 0 && expB != 0 && godA != 0 && godHalfA != 0 && godDepthA != 0 && debugA != 0 && overdrawA != 0 && uvA != 0 && hzbA[0] != 0 && hzbA[1] != 0 && hzbA[2] != 0 && hzbA[3] != 0 && hzbA[4] != 0 && sssBlurA != 0 && sssBlurB != 0;
+  return gAlbedo != 0 && gNormalRough != 0 && gMetallic != 0 && gPosition != 0 && gLightmap != 0 && gEmissive != 0 && gF0 != 0 && gExtA != 0 && transSrc != 0 && gDepth != 0 && gViewport != 0 && gLight != 0 && bloomA != 0 && bloomB != 0 && bloomUavA != 0 && bloomUavB != 0 &&   fsrA != 0 && fsrOut != 0 && ssaoA != 0 && ssaoB != 0 && bentA != 0 && ssrA != 0 && ssrTmp != 0 && ssrHist != 0 && ssrHistB != 0 && contactA != 0 && filmA != 0 && ssgiA != 0 && ssgiB != 0 && fxaaA != 0 && gradeA != 0 && taaA != 0 && taaB != 0 && taaSharpA != 0 && lumA != 0 && lumB != 0 && expA != 0 && expB != 0 && godA != 0 && godHalfA != 0 && godDepthA != 0 && debugA != 0 && overdrawA != 0 && uvA != 0 && hzbA[0] != 0 && hzbA[1] != 0 && hzbA[2] != 0 && hzbA[3] != 0 && hzbA[4] != 0 && sssBlurA != 0 && sssBlurB != 0;
 }
 void DeferredRenderer::DestroyTargets() {
   if (rhi == nullptr) {
@@ -6404,6 +6471,14 @@ void DeferredRenderer::DestroyTargets() {
   if (bloomB != 0) {
     rhi->DestroyRenderTarget(bloomB);
     bloomB = 0;
+  }
+  if (bloomUavA != 0) {
+    rhi->DestroyTexture(bloomUavA);
+    bloomUavA = 0;
+  }
+  if (bloomUavB != 0) {
+    rhi->DestroyTexture(bloomUavB);
+    bloomUavB = 0;
   }
   if (fsrA != 0) {
     rhi->DestroyRenderTarget(fsrA);
@@ -6529,6 +6604,7 @@ void DeferredRenderer::DestroyTargets() {
       hzbA[hi] = 0;
     }
   }
+  hzbBuilt = false;
   if (sssBlurA != 0) {
     rhi->DestroyRenderTarget(sssBlurA);
     sssBlurA = 0;

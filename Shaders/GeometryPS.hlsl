@@ -116,13 +116,27 @@ PSOut main(PSIn pin)
     }
     float3 alb = Albedo.rgb;
     float alpha = Albedo.a;
+    bool triOn = ((flags & 536870912u) != 0u);
+    float3 triW = float3(0.0, 0.0, 0.0);
+    float triS = 1.0;
+    if (triOn) {
+        float3 tn0 = normalize(pin.wnrm);
+        triW = pow(abs(tn0), 4.0);
+        triW /= max(triW.x + triW.y + triW.z, 1e-4);
+        triS = max(Extra.y, 1e-4);
+    }
     if ((flags & 1u) != 0u) {
-        if ((flags & 134217728u) != 0u) {
+        if (triOn) {
+            float3 cx = AlbedoTex.Sample(GeoSamp, pin.wpos.zy * triS).rgb;
+            float3 cy = AlbedoTex.Sample(GeoSamp, pin.wpos.xz * triS).rgb;
+            float3 cz = AlbedoTex.Sample(GeoSamp, pin.wpos.xy * triS).rgb;
+            alb *= cx * triW.x + cy * triW.y + cz * triW.z;
+        } else if ((flags & 134217728u) != 0u) {
             float2 vtPage = floor(pov * 64.0);
             float2 vtFrac = frac(pov * 64.0);
             float4 ve = VtTable.Load(int3((int) min(vtPage.x, 63.0), (int) min(vtPage.y, 63.0), 0));
             if (ve.b > 0.5 && abs(ve.a * 255.0 - ExtG.w) < 0.5) {
-                float2 phys = (ve.rg * 255.0 * 32.0 + vtFrac * 32.0) / 1024.0;
+                float2 phys = float2((ve.r * 255.0 * 34.0 + 1.0 + vtFrac.x * 32.0) / 2048.0, (ve.g * 255.0 * 34.0 + 1.0 + vtFrac.y * 32.0) / 1024.0);
                 float4 vtT = AlbedoTex.SampleLevel(GeoSamp, phys, 0);
                 alb *= vtT.rgb;
                 alpha *= vtT.a;
@@ -158,6 +172,12 @@ PSOut main(PSIn pin)
     if ((flags & 4u) != 0u) {
         float2 ouv = XformUv(pin.uv, pin.uv2, 2);
         float3 orm = OrmTex.Sample(GeoSamp, ouv).rgb;
+        if (triOn) {
+            float3 ox = OrmTex.Sample(GeoSamp, pin.wpos.zy * triS).rgb;
+            float3 oy = OrmTex.Sample(GeoSamp, pin.wpos.xz * triS).rgb;
+            float3 oz = OrmTex.Sample(GeoSamp, pin.wpos.xy * triS).rgb;
+            orm = ox * triW.x + oy * triW.y + oz * triW.z;
+        }
         occ = orm.r;
         rough = orm.g;
         metal = orm.b;

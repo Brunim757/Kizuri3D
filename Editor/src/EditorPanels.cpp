@@ -17,6 +17,7 @@
 #include <ImGuizmo.h>
 #include <DirectXMath.h>
 #include <cstring>
+#include <cstdio>
 #include <cmath>
 #include <algorithm>
 #include <functional>
@@ -106,15 +107,28 @@ void MaterialDataFromMesh(const MeshMaterialData& mm, MaterialData& m) {
 }
 void FillDeferredFromEntity(AssetDatabase& assets, const MaterialData& m, DeferredMaterial& partMat) {
   partMat.linkGroup = static_cast<uint32_t>(m.linkMask < 0 ? 0 : (m.linkMask > 255 ? 255 : m.linkMask));
-  partMat.albedo[0] = m.albedo[0];
-  partMat.albedo[1] = m.albedo[1];
-  partMat.albedo[2] = m.albedo[2];
+  std::string nodeAlbedoTex = m.albedoTex;
+  float nodeAlbedo[3] = { m.albedo[0], m.albedo[1], m.albedo[2] };
+  float nodeRough = m.roughness;
+  float nodeMetal = m.metallic;
+  float nodeEmissive[3] = { m.emissive[0], m.emissive[1], m.emissive[2] };
+  if (m.useNodes && !m.graph.nodes.empty()) {
+    std::string bakedTex;
+    if (EvaluateMaterialGraph(m.graph, nodeAlbedo, nodeRough, nodeMetal, nodeEmissive, bakedTex)) {
+      if (!bakedTex.empty()) {
+        nodeAlbedoTex = bakedTex;
+      }
+    }
+  }
+  partMat.albedo[0] = nodeAlbedo[0];
+  partMat.albedo[1] = nodeAlbedo[1];
+  partMat.albedo[2] = nodeAlbedo[2];
   partMat.alpha = m.alpha;
-  partMat.roughness = m.roughness;
-  partMat.metallic = m.metallic;
-  partMat.emissive[0] = m.emissive[0];
-  partMat.emissive[1] = m.emissive[1];
-  partMat.emissive[2] = m.emissive[2];
+  partMat.roughness = nodeRough < 0.0f ? 0.0f : (nodeRough > 1.0f ? 1.0f : nodeRough);
+  partMat.metallic = nodeMetal < 0.0f ? 0.0f : (nodeMetal > 1.0f ? 1.0f : nodeMetal);
+  partMat.emissive[0] = nodeEmissive[0];
+  partMat.emissive[1] = nodeEmissive[1];
+  partMat.emissive[2] = nodeEmissive[2];
   partMat.emissiveStrength = m.emissiveStrength;
   partMat.unlit = m.unlit;
   partMat.doubleSided = m.doubleSided;
@@ -167,8 +181,10 @@ void FillDeferredFromEntity(AssetDatabase& assets, const MaterialData& m, Deferr
   partMat.sssColor[2] = m.sssColor[2];
   partMat.sssIntensity = m.sssIntensity;
   partMat.sssKind = m.sssKind < 0 ? 0 : (m.sssKind > 3 ? 3 : m.sssKind);
+  partMat.triplanar = m.triplanar;
+  partMat.triplanarScale = m.triplanarScale < 0.001f ? 0.001f : m.triplanarScale;
   uint32_t flags = 0;
-  flags |= ResolveMaterialSlot(assets, m.albedoTex, 1u, partMat.albedoTex);
+  flags |= ResolveMaterialSlot(assets, nodeAlbedoTex, 1u, partMat.albedoTex);
   flags |= ResolveMaterialSlot(assets, m.normalTex, 2u, partMat.normalTex);
   flags |= ResolveMaterialSlot(assets, m.ormTex, 4u, partMat.ormTex);
   flags |= ResolveMaterialSlot(assets, m.heightTex, 8u, partMat.heightTex);
@@ -206,28 +222,31 @@ void FillDeferredFromEntity(AssetDatabase& assets, const MaterialData& m, Deferr
   } else if (m.sssKind == 3) {
     flags |= 67108864u;
   }
+  if (m.triplanar) {
+    flags |= 536870912u;
+  }
   partMat.vtTable = 0;
   partMat.vtTail = 0;
   partMat.vtResidentMip = 99.0f;
   partMat.vtGuid.clear();
-  if (m.vtAlbedo && !m.albedoTex.empty()) {
+  if (m.vtAlbedo && !nodeAlbedoTex.empty()) {
     VtBundle bundle;
-    const TextureRecord* vtRec = assets.GetTexByGuid(m.albedoTex);
+    const TextureRecord* vtRec = assets.GetTexByGuid(nodeAlbedoTex);
     const TextureAssetData* vtData = (vtRec != nullptr && vtRec->loaded) ? &vtRec->data : nullptr;
-    if (assets.GetVirtualBundle(m.albedoTex, bundle) && bundle.valid) {
+    if (assets.GetVirtualBundle(nodeAlbedoTex, bundle) && bundle.valid) {
       flags |= 134217728u;
       partMat.albedoTex = bundle.physical;
       partMat.vtTable = bundle.table;
       partMat.vtTail = bundle.tail;
       partMat.vtResidentMip = bundle.residentMip;
-      partMat.vtGuid = m.albedoTex;
-    } else if (vtData != nullptr && assets.CreateVirtualTexture(vtData, m.albedoTex) >= 0 && assets.GetVirtualBundle(m.albedoTex, bundle) && bundle.valid) {
+      partMat.vtGuid = nodeAlbedoTex;
+    } else if (vtData != nullptr && assets.CreateVirtualTexture(vtData, nodeAlbedoTex) >= 0 && assets.GetVirtualBundle(nodeAlbedoTex, bundle) && bundle.valid) {
       flags |= 134217728u;
       partMat.albedoTex = bundle.physical;
       partMat.vtTable = bundle.table;
       partMat.vtTail = bundle.tail;
       partMat.vtResidentMip = bundle.residentMip;
-      partMat.vtGuid = m.albedoTex;
+      partMat.vtGuid = nodeAlbedoTex;
     }
   }
   partMat.texFlags = flags;
@@ -980,7 +999,15 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) { renderer.ClearLights();
         int tierA = 0;
         int tierB = -1;
         float fadeB = 0.0f;
-        Kizuri::SelectAutoLod(ldist, e->lod.nearDist, e->lod.farDist, tierA, tierB, fadeB);
+        float rdx = baseRec->data.aabbMax[0] - baseRec->data.aabbMin[0];
+        float rdy = baseRec->data.aabbMax[1] - baseRec->data.aabbMin[1];
+        float rdz = baseRec->data.aabbMax[2] - baseRec->data.aabbMin[2];
+        float rradius = 0.5f * sqrtf(rdx * rdx + rdy * rdy + rdz * rdz);
+        if (rradius > 0.001f && renderer.MainFovY() > 0.001f && renderer.RenderHeight() > 0) {
+          Kizuri::SelectAutoLodCoverage(ldist, rradius, static_cast<float>(renderer.RenderHeight()), renderer.MainFovY(), tierA, tierB, fadeB);
+        } else {
+          Kizuri::SelectAutoLod(ldist, e->lod.nearDist, e->lod.farDist, tierA, tierB, fadeB);
+        }
         std::string tierGuids[3];
         tierGuids[0] = e->meshGuid;
         tierGuids[1] = "";
@@ -3119,9 +3146,268 @@ void EditorApp::DrawMeshSection(Entity* e) {
   }
   DrawPartMaterials(e);
 }
-bool EditorApp::DrawMaterialScalars(MaterialData& mat) {
+static const char* MatNodeName(int type) {
+  if (type == 1) {
+    return "Value";
+  }
+  if (type == 2) {
+    return "Texture";
+  }
+  if (type == 3) {
+    return "Multiply";
+  }
+  if (type == 4) {
+    return "Add";
+  }
+  if (type == 5) {
+    return "Mix";
+  }
+  return "Color";
+}
+bool EditorApp::DrawMaterialNodes(MaterialData& mat) {
   bool matChanged = false;
-    if (ImGui::ColorEdit3("Albedo", mat.albedo)) {
+  if (ImGui::Checkbox("Use Nodes", &mat.useNodes)) {
+    matChanged = true;
+  }
+  if (!mat.useNodes) {
+    return matChanged;
+  }
+  const char* addNames[6] = { "Color", "Value", "Texture", "Multiply", "Add", "Mix" };
+  for (int t = 0; t < 6; ++t) {
+    if (t > 0) {
+      ImGui::SameLine();
+    }
+    char label[32];
+    label[0] = '+';
+    label[1] = 0;
+    size_t li = 1;
+    for (size_t ci = 0; addNames[t][ci] != 0 && li < 30; ++ci) {
+      label[li++] = addNames[t][ci];
+    }
+    label[li] = 0;
+    if (ImGui::SmallButton(label)) {
+      MaterialNode nd;
+      nd.id = mat.graph.nextId++;
+      nd.type = t;
+      nd.posX = 20.0f + static_cast<float>((mat.graph.nodes.size() % 4) * 170);
+      nd.posY = 20.0f + static_cast<float>((mat.graph.nodes.size() / 4) * 120);
+      mat.graph.nodes.push_back(nd);
+      matChanged = true;
+    }
+  }
+  ImGui::SameLine();
+  if (ImGui::SmallButton("Delete Selected")) {
+    for (size_t i = 0; i < mat.graph.nodes.size(); ++i) {
+      if (mat.graph.nodes[i].id == nodeSelected) {
+        mat.graph.nodes.erase(mat.graph.nodes.begin() + i);
+        for (size_t j = 0; j < mat.graph.nodes.size(); ++j) {
+          if (mat.graph.nodes[j].inA == nodeSelected) {
+            mat.graph.nodes[j].inA = -1;
+          }
+          if (mat.graph.nodes[j].inB == nodeSelected) {
+            mat.graph.nodes[j].inB = -1;
+          }
+          if (mat.graph.nodes[j].inC == nodeSelected) {
+            mat.graph.nodes[j].inC = -1;
+          }
+        }
+        if (mat.graph.outAlbedo == nodeSelected) {
+          mat.graph.outAlbedo = -1;
+        }
+        if (mat.graph.outRoughness == nodeSelected) {
+          mat.graph.outRoughness = -1;
+        }
+        if (mat.graph.outMetallic == nodeSelected) {
+          mat.graph.outMetallic = -1;
+        }
+        if (mat.graph.outEmissive == nodeSelected) {
+          mat.graph.outEmissive = -1;
+        }
+        nodeSelected = -1;
+        matChanged = true;
+        break;
+      }
+    }
+  }
+  std::string outItems = "None";
+  for (size_t i = 0; i < mat.graph.nodes.size(); ++i) {
+    char nb[32];
+    std::snprintf(nb, sizeof(nb), "%d:%s", mat.graph.nodes[i].id, MatNodeName(mat.graph.nodes[i].type));
+    outItems += std::string("\0") + nb;
+  }
+  int outs[4] = { mat.graph.outAlbedo, mat.graph.outRoughness, mat.graph.outMetallic, mat.graph.outEmissive };
+  const char* outLabels[4] = { "Out Albedo", "Out Rough", "Out Metal", "Out Emissive" };
+  for (int o = 0; o < 4; ++o) {
+    int cur = 0;
+    for (size_t i = 0; i < mat.graph.nodes.size(); ++i) {
+      if (mat.graph.nodes[i].id == outs[o]) {
+        cur = static_cast<int>(i) + 1;
+        break;
+      }
+    }
+    if (ImGui::Combo(outLabels[o], &cur, outItems.c_str())) {
+      int nid = -1;
+      if (cur >= 1 && static_cast<size_t>(cur - 1) < mat.graph.nodes.size()) {
+        nid = mat.graph.nodes[static_cast<size_t>(cur - 1)].id;
+      }
+      if (o == 0) {
+        mat.graph.outAlbedo = nid;
+      } else if (o == 1) {
+        mat.graph.outRoughness = nid;
+      } else if (o == 2) {
+        mat.graph.outMetallic = nid;
+      } else {
+        mat.graph.outEmissive = nid;
+      }
+      matChanged = true;
+    }
+  }
+  ImVec2 canvasPos = ImGui::GetCursorScreenPos();
+  ImVec2 canvasSize = ImVec2(ImGui::GetContentRegionAvail().x, 380.0f);
+  ImGui::InvisibleButton("nodecanvas", canvasSize);
+  bool canvasHover = ImGui::IsItemHovered();
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  dl->AddRectFilled(canvasPos, ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y), IM_COL32(18, 18, 24, 255));
+  dl->AddRect(canvasPos, ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y), IM_COL32(60, 60, 70, 255));
+  ImVec2 mouse = ImGui::GetMousePos();
+  if (nodeLinkFrom >= 0 && ImGui::IsMouseClicked(1) && canvasHover) {
+    nodeLinkFrom = -1;
+  }
+  if (nodeDragId < 0 && nodeLinkFrom < 0 && ImGui::IsMouseClicked(0) && canvasHover) {
+    nodeSelected = -1;
+  }
+  for (size_t i = 0; i < mat.graph.nodes.size(); ++i) {
+    MaterialNode& nd = mat.graph.nodes[i];
+    float nw = 150.0f;
+    float nh = 76.0f;
+    if (nd.type == 2) {
+      nh = 100.0f;
+    }
+    ImVec2 p0 = ImVec2(canvasPos.x + nd.posX, canvasPos.y + nd.posY);
+    ImVec2 p1 = ImVec2(p0.x + nw, p0.y + nh);
+    bool sel = nd.id == nodeSelected;
+    dl->AddRectFilled(p0, p1, sel ? IM_COL32(50, 70, 110, 255) : IM_COL32(36, 36, 46, 255), 4.0f);
+    dl->AddRect(p0, p1, nodeLinkFrom == nd.id ? IM_COL32(255, 200, 80, 255) : IM_COL32(90, 90, 110, 255), 4.0f);
+    dl->AddText(ImVec2(p0.x + 8, p0.y + 4), IM_COL32(230, 230, 240, 255), MatNodeName(nd.type));
+    ImVec2 inA = ImVec2(p0.x, p0.y + 30);
+    ImVec2 inB = ImVec2(p0.x, p0.y + 48);
+    ImVec2 outP = ImVec2(p1.x, p0.y + 30);
+    bool hasIn = nd.type == 3 || nd.type == 4 || nd.type == 5;
+    if (hasIn) {
+      dl->AddCircleFilled(inA, 5.0f, nd.inA >= 0 ? IM_COL32(120, 220, 120, 255) : IM_COL32(90, 90, 100, 255));
+      dl->AddCircleFilled(inB, 5.0f, nd.inB >= 0 ? IM_COL32(120, 220, 120, 255) : IM_COL32(90, 90, 100, 255));
+    }
+    dl->AddCircleFilled(outP, 5.0f, IM_COL32(230, 180, 90, 255));
+    bool inBody = mouse.x >= p0.x && mouse.x <= p1.x && mouse.y >= p0.y && mouse.y <= p1.y;
+    auto nearPin = [&mouse](ImVec2 pp) {
+      float dx = mouse.x - pp.x;
+      float dy = mouse.y - pp.y;
+      return dx * dx + dy * dy <= 100.0f;
+    };
+    if (canvasHover && ImGui::IsMouseClicked(0)) {
+      if (nearPin(outP)) {
+        nodeLinkFrom = nd.id;
+        nodeDragId = -1;
+      } else if (hasIn && (nearPin(inA) || nearPin(inB))) {
+        if (nodeLinkFrom >= 0 && nodeLinkFrom != nd.id) {
+          bool toA = nearPin(inA) && (nd.inA < 0 || !nearPin(inB));
+          if (nd.type == 5 && nd.inA >= 0 && nd.inB >= 0) {
+            nd.inC = nodeLinkFrom;
+          } else if (toA || nd.type == 5) {
+            if (toA) {
+              nd.inA = nodeLinkFrom;
+            } else {
+              nd.inB = nodeLinkFrom;
+            }
+          } else {
+            nd.inB = nodeLinkFrom;
+          }
+          nodeLinkFrom = -1;
+          matChanged = true;
+        }
+      } else if (inBody) {
+        nodeSelected = nd.id;
+        nodeDragId = nd.id;
+        nodeDragDX = mouse.x - p0.x;
+        nodeDragDY = mouse.y - p0.y;
+      }
+    }
+    if (nodeDragId == nd.id) {
+      if (ImGui::IsMouseDown(0)) {
+        nd.posX = mouse.x - canvasPos.x - nodeDragDX;
+        nd.posY = mouse.y - canvasPos.y - nodeDragDY;
+        if (nd.posX < 0.0f) {
+          nd.posX = 0.0f;
+        }
+        if (nd.posY < 0.0f) {
+          nd.posY = 0.0f;
+        }
+        matChanged = true;
+      } else {
+        nodeDragId = -1;
+      }
+    }
+    if (nodeLinkFrom == nd.id) {
+      dl->AddLine(outP, mouse, IM_COL32(255, 200, 80, 255), 2.0f);
+    }
+    if (nd.inA >= 0) {
+      for (size_t j = 0; j < mat.graph.nodes.size(); ++j) {
+        if (mat.graph.nodes[j].id == nd.inA) {
+          ImVec2 sp = ImVec2(canvasPos.x + mat.graph.nodes[j].posX + 150.0f, canvasPos.y + mat.graph.nodes[j].posY + 30);
+          dl->AddBezierCubic(sp, ImVec2(sp.x + 30, sp.y), inA, ImVec2(inA.x - 30, inA.y), IM_COL32(120, 220, 120, 255), 2.0f, 12);
+          break;
+        }
+      }
+    }
+    if (nd.inB >= 0) {
+      for (size_t j = 0; j < mat.graph.nodes.size(); ++j) {
+        if (mat.graph.nodes[j].id == nd.inB) {
+          ImVec2 sp = ImVec2(canvasPos.x + mat.graph.nodes[j].posX + 150.0f, canvasPos.y + mat.graph.nodes[j].posY + 30);
+          dl->AddBezierCubic(sp, ImVec2(sp.x + 30, sp.y), inB, ImVec2(inB.x - 30, inB.y), IM_COL32(120, 220, 120, 255), 2.0f, 12);
+          break;
+        }
+      }
+    }
+  }
+  if (nodeSelected >= 0) {
+    for (size_t i = 0; i < mat.graph.nodes.size(); ++i) {
+      MaterialNode& nd = mat.graph.nodes[i];
+      if (nd.id != nodeSelected) {
+        continue;
+      }
+      char title[48];
+      std::snprintf(title, sizeof(title), "Node %d (%s)", nd.id, MatNodeName(nd.type));
+      ImGui::Text("%s", title);
+      if (nd.type == 0) {
+        if (ImGui::ColorEdit3("Node Color", nd.color)) {
+          matChanged = true;
+        }
+      } else if (nd.type == 1 || nd.type == 5) {
+        if (ImGui::DragFloat("Node Value", &nd.value, 0.01f, 0.0f, 1.0f)) {
+          matChanged = true;
+        }
+      } else if (nd.type == 2) {
+        char tbuf[256];
+        std::strncpy(tbuf, nd.texGuid.c_str(), sizeof(tbuf) - 1);
+        tbuf[sizeof(tbuf) - 1] = 0;
+        if (ImGui::InputText("Node Tex", tbuf, sizeof(tbuf))) {
+          nd.texGuid = tbuf;
+          matChanged = true;
+        }
+      }
+      break;
+    }
+  }
+  ImGui::Checkbox("Show HLSL", &nodeShowHlsl);
+  if (nodeShowHlsl) {
+    std::string hlsl;
+    EmitMaterialGraphHlsl(mat.graph, hlsl);
+    ImGui::TextUnformatted(hlsl.empty() ? "(empty graph)" : hlsl.c_str());
+  }
+  return matChanged;
+}
+bool EditorApp::DrawMaterialScalars(MaterialData& mat) {
+  bool matChanged = false;    if (ImGui::ColorEdit3("Albedo", mat.albedo)) {
       matChanged = true;
     }
     if (ImGui::DragFloat("Alpha", &mat.alpha, 0.01f, 0.0f, 1.0f)) {
@@ -3268,6 +3554,19 @@ bool EditorApp::DrawMaterialScalars(MaterialData& mat) {
     }
     if (ImGui::CollapsingHeader("Virtual Texture")) {
       if (ImGui::Checkbox("Virtualize Albedo", &mat.vtAlbedo)) {
+        matChanged = true;
+      }
+    }
+    if (ImGui::CollapsingHeader("Procedural")) {
+      if (ImGui::Checkbox("Triplanar", &mat.triplanar)) {
+        matChanged = true;
+      }
+      if (mat.triplanar && ImGui::DragFloat("Triplanar Scale", &mat.triplanarScale, 0.01f, 0.001f, 8.0f)) {
+        matChanged = true;
+      }
+    }
+    if (ImGui::CollapsingHeader("Node Graph")) {
+      if (DrawMaterialNodes(mat)) {
         matChanged = true;
       }
     }

@@ -2143,8 +2143,80 @@ private:
       cmdList.Reset();
     }
     if (cl.Get() != nullptr) {
-      Ctx()->ExecuteCommandList(cl.Get(), FALSE);
+      context->ExecuteCommandList(cl.Get(), FALSE);
     }
+  }
+  void SetComputeTexture(uint32_t slot, RHITexture tex) override {
+    std::lock_guard<std::mutex> lock(resMutex);
+    ID3D11ShaderResourceView* v = nullptr;
+    if (tex != 0) {
+      auto it = textures.find(tex);
+      if (it != textures.end()) {
+        v = it->second.srv.Get();
+      }
+    }
+    Ctx()->CSSetShaderResources(slot, 1, &v);
+  }
+  RHITexture CreateUavTexture(int tw, int th, RHITextureFormat fmt) override {
+    if (tw <= 0 || th <= 0) {
+      return 0;
+    }
+    D3D11_TEXTURE2D_DESC td;
+    td.Width = static_cast<UINT>(tw);
+    td.Height = static_cast<UINT>(th);
+    td.MipLevels = 1;
+    td.ArraySize = 1;
+    td.Format = ToTextureFormat(fmt);
+    td.SampleDesc.Count = 1;
+    td.SampleDesc.Quality = 0;
+    td.Usage = D3D11_USAGE_DEFAULT;
+    td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+    td.CPUAccessFlags = 0;
+    td.MiscFlags = 0;
+    ComPtr<ID3D11Texture2D> tex;
+    if (FAILED(device->CreateTexture2D(&td, nullptr, tex.GetAddressOf()))) {
+      return 0;
+    }
+    ComPtr<ID3D11ShaderResourceView> srv;
+    if (FAILED(device->CreateShaderResourceView(tex.Get(), nullptr, srv.GetAddressOf()))) {
+      return 0;
+    }
+    ComPtr<ID3D11UnorderedAccessView> uav;
+    if (FAILED(device->CreateUnorderedAccessView(tex.Get(), nullptr, uav.GetAddressOf()))) {
+      return 0;
+    }
+    uint64_t id = nextId++;
+    TexEntry entry;
+    entry.tex = tex;
+    entry.srv = srv;
+    entry.uav = uav;
+    entry.w = tw;
+    entry.h = th;
+    entry.mips = 1;
+    entry.fmt = fmt;
+    textures[id] = entry;
+    return id;
+  }
+  void SetComputeUAVTexture(uint32_t slot, RHITexture tex) override {
+    std::lock_guard<std::mutex> lock(resMutex);
+    ID3D11UnorderedAccessView* v = nullptr;
+    if (tex != 0) {
+      auto it = textures.find(tex);
+      if (it != textures.end()) {
+        v = it->second.uav.Get();
+      }
+    }
+    UINT initial = 0;
+    Ctx()->CSSetUnorderedAccessViews(slot, 1, &v, &initial);
+  }
+  void SetComputeSampler(uint32_t slot, RHISampler sampler) override {
+    std::lock_guard<std::mutex> lock(resMutex);
+    ID3D11SamplerState* s = nullptr;
+    auto it = samplers.find(sampler);
+    if (it != samplers.end()) {
+      s = it->second.Get();
+    }
+    Ctx()->CSSetSamplers(slot, 1, &s);
   }
   bool CreateBackbuffer() {
     ComPtr<ID3D11Texture2D> back;
@@ -2327,11 +2399,10 @@ private:
   std::unordered_map<uint64_t, OccQuery> occQueries;
   std::unordered_map<uint64_t, ComPtr<ID3D11SamplerState>> samplers;
   std::unordered_map<uint64_t, ShadowCubeRes> cubes;
-  uint64_t CC()->lastCube = 0;
-  int CC()->lastCubeFace = -1;
   struct TexEntry {
     ComPtr<ID3D11Texture2D> tex;
     ComPtr<ID3D11ShaderResourceView> srv;
+    ComPtr<ID3D11UnorderedAccessView> uav;
     ComPtr<ID3D11RenderTargetView> faceRTV[6];
     RHIRenderTarget faceTargets[6] = { 0, 0, 0, 0, 0, 0 };
     int w = 0;

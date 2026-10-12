@@ -86,6 +86,8 @@ struct DeferredMaterial {
   RHITexture vtTail = 0;
   float vtResidentMip = 99.0f;
   std::string vtGuid;
+  bool triplanar = false;
+  float triplanarScale = 0.25f;
 };
 struct DeferredLight {
   float direction[3];
@@ -337,6 +339,8 @@ public:
   void SetTemporalUpsampling(bool on);
   bool IsTemporalUpsampling() const { return temporalUpsampling; }
   float RenderScale() const { return renderScale; }
+  float MainFovY() const { return mainCam.fovY; }
+  int RenderHeight() const { return h; }
   void SetTargetFrameRate(float fps) { framePacer.SetTargetFps(fps); }
   float TargetFrameRate() const { return framePacer.TargetFps(); }
   void SetEnvProbes(int count, const RHITexture* cubes, const float (*boxMin)[4], const float (*boxMax)[4]);
@@ -571,6 +575,9 @@ public:
   RHIRenderTarget gLight;
   RHIRenderTarget bloomA;
   RHIRenderTarget bloomB;
+  RHIComputeShader bloomBlurCS;
+  RHITexture bloomUavA;
+  RHITexture bloomUavB;
   int bloomW;
   int bloomH;
   float exposure;
@@ -615,6 +622,7 @@ public:
   RHIPixelShader hzbPS;
   RHIConstBuffer hzbCB;
   RHIRenderTarget hzbA[5];
+  bool hzbBuilt;
   RHIPixelShader sssBlurPS;
   RHIConstBuffer sssBlurCB;
   RHIRenderTarget sssBlurA;
@@ -710,6 +718,8 @@ public:
   RHIStructBuffer cullOutBuf;
   RHIStructBuffer cullArgsBuf;
   uint32_t cullBufCap;
+  uint64_t cullLastKey;
+  uint64_t cullLastHash;
   bool gpuDriven;
   FramePacer framePacer;
   bool computeAvailable;
