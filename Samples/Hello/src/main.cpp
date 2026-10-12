@@ -1714,8 +1714,69 @@ bool TestAssetVersion() { unsigned char bad[16] = { 'K', 'Z', 'M', 'H', 0, 0, 0,
   }
   return back.guid == "ver-1" && back.positions.size() == 9 && back.indices.size() == 3;
 }
-bool TestGpuFence() {
-  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
+bool TestShadowMt() {
+  Kizuri::IRHI* rhi = nullptr;
+  Kizuri::DeferredRenderer renderer;
+  if (!InitNullRenderer(rhi, renderer)) {
+    return false;
+  }
+  float verts[12] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1 };
+  uint32_t idxs[3] = { 0, 1, 2 };
+  Kizuri::RHIBuffer tvb = rhi->CreateBuffer(sizeof(verts), 48, false, verts);
+  Kizuri::RHIBuffer tib = rhi->CreateBuffer(sizeof(idxs), 4, true, idxs);
+  if (tvb == 0 || tib == 0) {
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  float view[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float proj[16] = { 1,0,0,0, 0,1,0,0, 0,0,1.1111112f,1, 0,0,-1.1111112f,0 };
+  float cam[3] = { 0, 0, 5 };
+  float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+  float bmin[3] = { -1, -1, -1 };
+  float bmax[3] = { 1, 1, 1 };
+  Kizuri::DeferredMaterial tmat;
+  Kizuri::RenderDirectionalLight dl;
+  dl.dir[0] = 0.0f;
+  dl.dir[1] = -1.0f;
+  dl.dir[2] = 0.2f;
+  dl.color[0] = 1.0f;
+  dl.color[1] = 0.95f;
+  dl.color[2] = 0.9f;
+  dl.intensity = 3.0f;
+  dl.castShadow = true;
+  dl.effectiveSize = 0.5f;
+  dl.shadowSize = 1024;
+  dl.cascades = 2;
+  dl.lambda = 0.5f;
+  renderer.AddDirectionalLight(dl);
+  renderer.SetShadowMultithread(true);
+  if (!renderer.IsShadowMultithread()) {
+    rhi->DestroyBuffer(tvb);
+    rhi->DestroyBuffer(tib);
+    renderer.Shutdown();
+    rhi->Shutdown();
+    Kizuri::DestroyRHI(rhi);
+    return false;
+  }
+  bool ok = true;
+  for (int f = 0; f < 2 && ok; ++f) {
+    renderer.BeginObjects(view, proj);
+    renderer.DrawObjectEx(ident, tvb, tib, 0, 3, &tmat, 0.0f, bmin, bmax);
+    renderer.EndObjectsToTexture(cam);
+    ok = ok && renderer.GetStats().lightingDraws == 1;
+  }
+  renderer.SetShadowMultithread(false);
+  ok = ok && !renderer.IsShadowMultithread();
+  rhi->DestroyBuffer(tvb);
+  rhi->DestroyBuffer(tib);
+  renderer.Shutdown();
+  rhi->Shutdown();
+  Kizuri::DestroyRHI(rhi);
+  return ok;
+}
+bool TestGpuFence() {  Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::Null);
   Kizuri::RHIDesc desc;
   desc.windowHandle = nullptr;
   desc.width = 64;
@@ -8853,6 +8914,7 @@ int main() {
   failures += Check("ScanIdempotent", TestScanIdempotent());
   failures += Check("PoolReuse", TestPoolReuse());
   failures += Check("GpuFence", TestGpuFence());
+  failures += Check("ShadowMt", TestShadowMt());
   failures += Check("FramePacer", TestFramePacer());
   failures += Check("RenderGraph", TestRenderGraph());
   failures += Check("TemporalUpsampling", TestTemporalUpsampling());

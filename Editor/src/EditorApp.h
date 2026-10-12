@@ -76,6 +76,7 @@ struct EditorApp {
   std::string viewProcGuid;
   bool viewTempUpsample;
   float viewTargetFps;
+  bool viewMtShadows;
   struct StaticBucketDraw {
     std::string guid;
     DeferredMaterial mat;

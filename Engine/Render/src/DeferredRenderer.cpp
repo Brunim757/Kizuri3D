@@ -287,6 +287,12 @@ DeferredRenderer::DeferredRenderer()
   , shadowCube(0)
   , shadowSampler(0)
   , shadowsAvailable(false)
+  , mtShadows(false)
+  , shadowExit(false)
+  , shadowHasWork(false)
+  , shadowWorkDone(false)
+  , shadowThreadReady(false)
+  , shadowClOk(false)
   , shadowDebug(false)
   , shadowMapsValid(false)
   , shadowCascadeActive(0)
@@ -1136,10 +1142,26 @@ bool DeferredRenderer::Initialize(IRHI* r, int vw, int vh, const char* shaderDir
   gpuShadowTs = rhi->CreateTimestamp();
   gpuLightTs = rhi->CreateTimestamp();
   gpuPostTs = rhi->CreateTimestamp();
+  try {
+    shadowThread = std::thread(&DeferredRenderer::ShadowThreadLoop, this);
+    shadowThreadReady = true;
+  } catch (...) {
+    shadowThreadReady = false;
+  }
   ready = true;
   return true;
 }
 void DeferredRenderer::Shutdown() {
+  if (shadowThread.joinable()) {
+    {
+      std::lock_guard<std::mutex> lock(shadowMutex);
+      shadowExit = true;
+      shadowHasWork = false;
+    }
+    shadowCV.notify_one();
+    shadowThread.join();
+  }
+  shadowThreadReady = false;
   if (rhi == nullptr) {
     return;
   }
@@ -2790,6 +2812,41 @@ void DeferredRenderer::SetGodRays(bool on, float density, float decay, float int
   godDensity = density < 0.1f ? 0.1f : (density > 3.0f ? 3.0f : density);
   godDecay = decay < 0.8f ? 0.8f : (decay > 0.999f ? 0.999f : decay);
   godIntensity = intensity < 0.0f ? 0.0f : (intensity > 2.0f ? 2.0f : intensity);
+}
+void DeferredRenderer::SetShadowMultithread(bool on) {
+  mtShadows = on && shadowThreadReady;
+}
+void DeferredRenderer::ShadowThreadLoop() {
+  for (;;) {
+    {
+      std::unique_lock<std::mutex> lock(shadowMutex);
+      shadowCV.wait(lock, [this]() { return shadowHasWork || shadowExit; });
+      if (shadowExit) {
+        return;
+      }
+    }
+    bool recorded = false;
+    if (rhi != nullptr && rhi->BeginCommandList()) {
+      RenderShadowMaps();
+      recorded = rhi->EndCommandList();
+    }
+    {
+      std::lock_guard<std::mutex> lock(shadowMutex);
+      shadowHasWork = false;
+      shadowWorkDone = true;
+      shadowClOk = recorded;
+    }
+    shadowCV.notify_one();
+  }
+}
+void DeferredRenderer::RecordShadowMaps() {
+  {
+    std::lock_guard<std::mutex> lock(shadowMutex);
+    shadowHasWork = true;
+    shadowWorkDone = false;
+    shadowClOk = false;
+  }
+  shadowCV.notify_one();
 }
 void DeferredRenderer::RenderShadowMaps() {
   uint64_t casterHash = CasterHash();
@@ -5034,11 +5091,39 @@ void DeferredRenderer::EndInternal(const float camPos[3], bool toTexture) {
   }
   begun = false;
   stats.msSubmit = ElapsedMs(frameStart, std::chrono::steady_clock::now());
+  bool shadowKicked = false;
+  if (mtShadows && !captureMode && shadowsAvailable && !shadowDraws.empty()) {
+    uint64_t casterHash = CasterHash();
+    if (shadowCacheOn && hasCasterHash && casterHash == lastCasterHash) {
+      BeginShadowSection();
+      RenderShadowMaps();
+      EndShadowSection();
+    } else {
+      BeginShadowSection();
+      RecordShadowMaps();
+      shadowKicked = true;
+    }
+  }
   FlushGeoQueue();
   if (!captureMode) {
-    BeginShadowSection();
-    RenderShadowMaps();
-    EndShadowSection();
+    if (shadowKicked) {
+      {
+        std::unique_lock<std::mutex> lock(shadowMutex);
+        shadowCV.wait(lock, [this]() { return shadowWorkDone || shadowExit; });
+      }
+      if (shadowClOk) {
+        rhi->ExecuteCommandList();
+      } else {
+        RenderShadowMaps();
+      }
+      EndShadowSection();
+    } else if (!mtShadows || shadowDraws.empty() || !shadowsAvailable) {
+      BeginShadowSection();
+      RenderShadowMaps();
+      EndShadowSection();
+    } else {
+      EndShadowSection();
+    }
   }
   auto decalStart = std::chrono::steady_clock::now();
   RenderDecals(camPos);

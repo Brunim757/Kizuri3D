@@ -1,6 +1,10 @@
 #pragma once
 #include "Kizuri/RHI.h"
 #include "Kizuri/FramePacer.h"
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -413,6 +417,15 @@ public:
   RHIRenderTarget shadowCube;
   RHISampler shadowSampler;
   bool shadowsAvailable;
+  bool mtShadows;
+  std::thread shadowThread;
+  std::mutex shadowMutex;
+  std::condition_variable shadowCV;
+  bool shadowExit;
+  bool shadowHasWork;
+  bool shadowWorkDone;
+  bool shadowThreadReady;
+  bool shadowClOk;
   bool shadowDebug;
   bool shadowMapsValid;
   MainCameraSetup mainCam;
@@ -807,6 +820,10 @@ public:
   bool CreateTargets();
   void DestroyTargets();
   void RenderShadowMaps();
+  void RecordShadowMaps();
+  void ShadowThreadLoop();
+  void SetShadowMultithread(bool on);
+  bool IsShadowMultithread() const { return mtShadows; }
   void RenderDecals(const float camPos[3]);
   void SetupGeometryPass();
   void RenderInternal(const float view[16], const float proj[16], const float camPos[3], bool toTexture);

@@ -9,6 +9,8 @@
 #include <wrl/client.h>
 #include <cstring>
 #include <string>
+#include <mutex>
+#include <atomic>
 #include <unordered_map>
 #include <vector>
 #include <list>
@@ -126,6 +128,54 @@ struct Tstamp {
 struct OccQuery {
   ComPtr<ID3D11Query> query;
 };
+struct CtxCache {
+  uint64_t curVS = 0;
+  uint64_t curPS = 0;
+  uint64_t curLayout = 0;
+  uint64_t curVB = 0;
+  uint32_t curVBOffset = 0;
+  uint64_t curIB = 0;
+  RHIRasterizer curRS;
+  RHIDepthStencil curDS;
+  RHIBlend curBlend;
+  RHIViewport curVP;
+  D3D11_PRIMITIVE_TOPOLOGY curTopoD3D = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+  ComPtr<ID3D11RasterizerState> rsCache;
+  ComPtr<ID3D11DepthStencilState> dsCache;
+  ComPtr<ID3D11BlendState> blendCache;
+  std::vector<uint64_t> curRTs;
+  uint64_t curDepth = 0;
+  uint64_t lastCube = 0;
+  int lastCubeFace = -1;
+  bool hasRS = false;
+  bool hasDS = false;
+  bool hasBlend = false;
+  bool hasVP = false;
+  bool hasTopo = false;
+  void ResetFresh() {
+    curVS = ~0ull;
+    curPS = ~0ull;
+    curLayout = ~0ull;
+    curVB = ~0ull;
+    curVBOffset = ~0u;
+    curIB = ~0ull;
+    curTopoD3D = static_cast<D3D11_PRIMITIVE_TOPOLOGY>(-1);
+    rsCache.Reset();
+    dsCache.Reset();
+    blendCache.Reset();
+    curRTs.clear();
+    curDepth = ~0ull;
+    lastCube = ~0ull;
+    lastCubeFace = -2;
+    hasRS = false;
+    hasDS = false;
+    hasBlend = false;
+    hasVP = false;
+    hasTopo = false;
+  }
+};
+thread_local ID3D11DeviceContext* t_activeCtx = nullptr;
+thread_local CtxCache* t_activeCache = nullptr;
 uint64_t TargetBytes(int tw, int th, RHIFormat fmt) {
   uint64_t bpp = 4;
   if (fmt == RHIFormat::RGBA16F) {
@@ -167,31 +217,31 @@ public:
     , h(0)
     , nextId(1)
     , total(0)
-    , discarded(0)
-    , curVS(0)
-    , curPS(0)
-    , curLayout(0)
-    , curVB(0)
-    , curVBOffset(0)
-    , curIB(0) {
-    curRS.cull = RHICull::Back;
-    curRS.fill = RHIFill::Solid;
-    curRS.frontCCW = false;
-    curRS.slopeBias = 0.0f;
-    curDS.depthEnable = true;
-    curDS.depthWrite = true;
-    curBlend.enable = false;
-    curTopoD3D = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    curVP.x = 0.0f;
-    curVP.y = 0.0f;
-    curVP.w = 0.0f;
-    curVP.h = 0.0f;
-    curVP.minD = 0.0f;
-    curVP.maxD = 1.0f;
-    hasRS = false;
-    hasDS = false;
-    hasBlend = false;
-    hasVP = false;
+    , discarded(0) {
+    immCache.curVS = 0;
+    immCache.curPS = 0;
+    immCache.curLayout = 0;
+    immCache.curVB = 0;
+    immCache.curVBOffset = 0;
+    immCache.curIB = 0;
+    immCache.curRS.cull = RHICull::Back;
+    immCache.curRS.fill = RHIFill::Solid;
+    immCache.curRS.frontCCW = false;
+    immCache.curRS.slopeBias = 0.0f;
+    immCache.curDS.depthEnable = true;
+    immCache.curDS.depthWrite = true;
+    immCache.curBlend.enable = false;
+    immCache.curTopoD3D = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    immCache.curVP.x = 0.0f;
+    immCache.curVP.y = 0.0f;
+    immCache.curVP.w = 0.0f;
+    immCache.curVP.h = 0.0f;
+    immCache.curVP.minD = 0.0f;
+    immCache.curVP.maxD = 1.0f;
+    immCache.hasRS = false;
+    immCache.hasDS = false;
+    immCache.hasBlend = false;
+    immCache.hasVP = false;
   }
   bool Initialize(const RHIDesc& desc) override {
     hwnd = static_cast<HWND>(desc.windowHandle);
@@ -267,8 +317,8 @@ public:
     samplers.clear();
     layouts.clear();
     cubes.clear();
-    lastCube = 0;
-    lastCubeFace = -1;
+    CC()->lastCube = 0;
+    CC()->lastCubeFace = -1;
     vsBlobs.clear();
     vsMap.clear();
     psMap.clear();
@@ -290,7 +340,7 @@ public:
     if (swapchain == nullptr) {
       return false;
     }
-    context->OMSetRenderTargets(0, nullptr, nullptr);
+    Ctx()->OMSetRenderTargets(0, nullptr, nullptr);
     backRTV.Reset();
     HRESULT hr = swapchain->ResizeBuffers(1, static_cast<UINT>(nw), static_cast<UINT>(nh), DXGI_FORMAT_R8G8B8A8_UNORM, 0);
     if (FAILED(hr)) {
@@ -298,19 +348,19 @@ public:
     }
     w = nw;
     h = nh;
-    hasRS = false;
-    hasDS = false;
-    hasBlend = false;
-    hasVP = false;
-    curRTs.clear();
-    curDepth = 0;
+    CC()->hasRS = false;
+    CC()->hasDS = false;
+    CC()->hasBlend = false;
+    CC()->hasVP = false;
+    CC()->curRTs.clear();
+    CC()->curDepth = 0;
     return CreateBackbuffer();
   }
   void Clear(float r, float g, float b, float a) override {
     BindBackbuffer();
     float c[4] = { r, g, b, a };
     if (backRTV != nullptr) {
-      context->ClearRenderTargetView(backRTV.Get(), c);
+      Ctx()->ClearRenderTargetView(backRTV.Get(), c);
     }
   }
   void Present(bool vsync) override {
@@ -370,7 +420,7 @@ public:
     if (it == fences.end()) {
       return;
     }
-    context->End(it->second.Get());
+    Ctx()->End(it->second.Get());
   }
   bool WaitGpuFence(RHIGpuFence fence, uint32_t timeoutMs) override {
     auto it = fences.find(fence);
@@ -379,13 +429,13 @@ public:
     }
     uint32_t waited = 0;
     for (;;) {
-      HRESULT hr = context->GetData(it->second.Get(), nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH);
+      HRESULT hr = Ctx()->GetData(it->second.Get(), nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH);
       if (hr == S_OK) {
         return true;
       }
       if (waited >= timeoutMs) {
-        context->Flush();
-        hr = context->GetData(it->second.Get(), nullptr, 0, 0);
+        Ctx()->Flush();
+        hr = Ctx()->GetData(it->second.Get(), nullptr, 0, 0);
         return hr == S_OK;
       }
       Sleep(1);
@@ -393,6 +443,7 @@ public:
     }
   }
   RHIBuffer CreateBuffer(uint64_t size, uint32_t stride, bool isIndex, const void* initialData) override {
+    std::lock_guard<std::mutex> lock(resMutex);
     if (size == 0 || size > 256 * 1024 * 1024) {
       return 0;
     }
@@ -424,6 +475,7 @@ public:
     return id;
   }
   RHIBuffer CreateBufferEmpty(uint64_t size, uint32_t stride, bool isIndex) override {
+    std::lock_guard<std::mutex> lock(resMutex);
     if (size == 0 || size > 256 * 1024 * 1024) {
       return 0;
     }
@@ -445,6 +497,7 @@ public:
     return id;
   }
   bool UpdateBufferRange(RHIBuffer buf, uint64_t offset, const void* data, size_t bytes) override {
+    std::lock_guard<std::mutex> lock(resMutex);
     auto it = buffers.find(buf);
     if (it == buffers.end() || data == nullptr || bytes == 0) {
       return false;
@@ -454,14 +507,15 @@ public:
       return false;
     }
     D3D11_MAPPED_SUBRESOURCE mapped;
-    if (FAILED(context->Map(it->second.Get(), 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &mapped))) {
+    if (FAILED(Ctx()->Map(it->second.Get(), 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &mapped))) {
       return false;
     }
     std::memcpy(static_cast<unsigned char*>(mapped.pData) + static_cast<size_t>(offset), data, bytes);
-    context->Unmap(it->second.Get(), 0);
+    Ctx()->Unmap(it->second.Get(), 0);
     return true;
   }
   bool UpdateBufferDiscard(RHIBuffer buf, const void* data, size_t bytes) override {
+    std::lock_guard<std::mutex> lock(resMutex);
     auto it = buffers.find(buf);
     if (it == buffers.end() || data == nullptr || bytes == 0) {
       return false;
@@ -471,52 +525,55 @@ public:
       return false;
     }
     D3D11_MAPPED_SUBRESOURCE mapped;
-    if (FAILED(context->Map(it->second.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+    if (FAILED(Ctx()->Map(it->second.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
       return false;
     }
     std::memcpy(mapped.pData, data, bytes);
-    context->Unmap(it->second.Get(), 0);
+    Ctx()->Unmap(it->second.Get(), 0);
     return true;
   }
   void DestroyBuffer(RHIBuffer buf) override {
+    std::lock_guard<std::mutex> lock(resMutex);
     buffers.erase(buf);
     strides.erase(buf);
     sizes.erase(buf);
   }
   void SetVertexBuffer(RHIBuffer buf, uint32_t offset) override {
-    if (curVB == buf && curVBOffset == offset) {
+    std::lock_guard<std::mutex> lock(resMutex);
+    if (CC()->curVB == buf && CC()->curVBOffset == offset) {
       Note(true);
       return;
     }
     Note(false);
-    curVB = buf;
-    curVBOffset = offset;
+    CC()->curVB = buf;
+    CC()->curVBOffset = offset;
     auto it = buffers.find(buf);
     if (it == buffers.end()) {
       ID3D11Buffer* nullBuf = nullptr;
       UINT zero = 0;
       UINT off = offset;
-      context->IASetVertexBuffers(0, 1, &nullBuf, &zero, &off);
+      Ctx()->IASetVertexBuffers(0, 1, &nullBuf, &zero, &off);
       return;
     }
     UINT stride = strides[buf];
     UINT off = offset;
     ID3D11Buffer* b = it->second.Get();
-    context->IASetVertexBuffers(0, 1, &b, &stride, &off);
+    Ctx()->IASetVertexBuffers(0, 1, &b, &stride, &off);
   }
   void SetIndexBuffer(RHIBuffer buf) override {
-    if (curIB == buf) {
+    std::lock_guard<std::mutex> lock(resMutex);
+    if (CC()->curIB == buf) {
       Note(true);
       return;
     }
     Note(false);
-    curIB = buf;
+    CC()->curIB = buf;
     auto it = buffers.find(buf);
     if (it == buffers.end()) {
-      context->IASetIndexBuffer(nullptr, DXGI_FORMAT_R32_UINT, 0);
+      Ctx()->IASetIndexBuffer(nullptr, DXGI_FORMAT_R32_UINT, 0);
       return;
     }
-    context->IASetIndexBuffer(it->second.Get(), DXGI_FORMAT_R32_UINT, 0);
+    Ctx()->IASetIndexBuffer(it->second.Get(), DXGI_FORMAT_R32_UINT, 0);
   }
   RHIConstBuffer CreateConstantBuffer(uint64_t size, const void* initialData) override {
     if (size == 0 || size > 65536) {
@@ -555,11 +612,11 @@ public:
       return;
     }
     D3D11_MAPPED_SUBRESOURCE mapped;
-    if (FAILED(context->Map(it->second.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+    if (FAILED(Ctx()->Map(it->second.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
       return;
     }
     memcpy(mapped.pData, data, static_cast<size_t>(size));
-    context->Unmap(it->second.Get(), 0);
+    Ctx()->Unmap(it->second.Get(), 0);
   }
   void DestroyConstantBuffer(RHIConstBuffer buf) override {
     cbuffers.erase(buf);
@@ -571,7 +628,7 @@ public:
       return;
     }
     ID3D11Buffer* b = it->second.Get();
-    context->VSSetConstantBuffers(slot, 1, &b);
+    Ctx()->VSSetConstantBuffers(slot, 1, &b);
   }
   void SetPixelConstantBuffer(uint32_t slot, RHIConstBuffer buf) override {
     auto it = cbuffers.find(buf);
@@ -579,7 +636,7 @@ public:
       return;
     }
     ID3D11Buffer* b = it->second.Get();
-    context->PSSetConstantBuffers(slot, 1, &b);
+    Ctx()->PSSetConstantBuffers(slot, 1, &b);
   }
   RHIVertexShader CreateVertexShaderFromFile(const char* path, const char* entry) override {
     ComPtr<ID3DBlob> blob;
@@ -609,14 +666,14 @@ public:
     return id;
   }
   void SetVertexShader(RHIVertexShader vs) override {
-    if (curVS == vs) {
+    if (CC()->curVS == vs) {
       Note(true);
       return;
     }
     Note(false);
-    curVS = vs;
+    CC()->curVS = vs;
     auto it = vsMap.find(vs);
-    context->VSSetShader(it == vsMap.end() ? nullptr : it->second.Get(), nullptr, 0);
+    Ctx()->VSSetShader(it == vsMap.end() ? nullptr : it->second.Get(), nullptr, 0);
   }
   RHIHullShader CreateHullShaderFromFile(const char* path, const char* entry) override {
     ComPtr<ID3DBlob> blob;
@@ -646,41 +703,41 @@ public:
   }
   void SetHullShader(RHIHullShader hs) override {
     auto it = hsMap.find(hs);
-    context->HSSetShader(it == hsMap.end() ? nullptr : it->second.Get(), nullptr, 0);
+    Ctx()->HSSetShader(it == hsMap.end() ? nullptr : it->second.Get(), nullptr, 0);
   }
   void SetDomainShader(RHIDomainShader ds) override {
     auto it = dsMap.find(ds);
-    context->DSSetShader(it == dsMap.end() ? nullptr : it->second.Get(), nullptr, 0);
+    Ctx()->DSSetShader(it == dsMap.end() ? nullptr : it->second.Get(), nullptr, 0);
   }
   void SetHullConstantBuffer(uint32_t slot, RHIConstBuffer cb) override {
     auto it = cbuffers.find(cb);
     ID3D11Buffer* b = (it == cbuffers.end()) ? nullptr : it->second.Get();
-    context->HSSetConstantBuffers(slot, 1, &b);
+    Ctx()->HSSetConstantBuffers(slot, 1, &b);
   }
   void SetDomainConstantBuffer(uint32_t slot, RHIConstBuffer cb) override {
     auto it = cbuffers.find(cb);
     ID3D11Buffer* b = (it == cbuffers.end()) ? nullptr : it->second.Get();
-    context->DSSetConstantBuffers(slot, 1, &b);
+    Ctx()->DSSetConstantBuffers(slot, 1, &b);
   }
   void SetDomainTexture(uint32_t slot, RHITexture tex) override {
     auto it = textures.find(tex);
     ID3D11ShaderResourceView* v = (it == textures.end()) ? nullptr : it->second.srv.Get();
-    context->DSSetShaderResources(slot, 1, &v);
+    Ctx()->DSSetShaderResources(slot, 1, &v);
   }
   void SetDomainSampler(uint32_t slot, RHISampler sampler) override {
     auto it = samplers.find(sampler);
     ID3D11SamplerState* s = (it == samplers.end()) ? nullptr : it->second.Get();
-    context->DSSetSamplers(slot, 1, &s);
+    Ctx()->DSSetSamplers(slot, 1, &s);
   }
   void SetPixelShader(RHIPixelShader ps) override {
-    if (curPS == ps) {
+    if (CC()->curPS == ps) {
       Note(true);
       return;
     }
     Note(false);
-    curPS = ps;
+    CC()->curPS = ps;
     auto it = psMap.find(ps);
-    context->PSSetShader(it == psMap.end() ? nullptr : it->second.Get(), nullptr, 0);
+    Ctx()->PSSetShader(it == psMap.end() ? nullptr : it->second.Get(), nullptr, 0);
   }
   RHIInputLayout CreateInputLayoutPNUT(RHIVertexShader vs) override {
     auto it = vsBlobs.find(vs);
@@ -790,29 +847,30 @@ public:
     return id;
   }
   void SetInstanceBuffer(RHIBuffer buf) override {
+    std::lock_guard<std::mutex> lock(resMutex);
     auto it = buffers.find(buf);
     ID3D11Buffer* b = it == buffers.end() ? nullptr : it->second.Get();
     UINT stride = 64;
     UINT offset = 0;
-    context->IASetVertexBuffers(1, 1, &b, &stride, &offset);
+    Ctx()->IASetVertexBuffers(1, 1, &b, &stride, &offset);
   }
-  void SetInputLayout(RHIInputLayout layout) override {    if (curLayout == layout) {
+  void SetInputLayout(RHIInputLayout layout) override {    if (CC()->curLayout == layout) {
       Note(true);
       return;
     }
     Note(false);
-    curLayout = layout;
+    CC()->curLayout = layout;
     auto it = layouts.find(layout);
-    context->IASetInputLayout(it == layouts.end() ? nullptr : it->second.Get());
+    Ctx()->IASetInputLayout(it == layouts.end() ? nullptr : it->second.Get());
   }
   void SetViewport(const RHIViewport& vp) override {
-    if (hasVP && curVP.x == vp.x && curVP.y == vp.y && curVP.w == vp.w && curVP.h == vp.h && curVP.minD == vp.minD && curVP.maxD == vp.maxD) {
+    if (CC()->hasVP && CC()->curVP.x == vp.x && CC()->curVP.y == vp.y && CC()->curVP.w == vp.w && CC()->curVP.h == vp.h && CC()->curVP.minD == vp.minD && CC()->curVP.maxD == vp.maxD) {
       Note(true);
       return;
     }
     Note(false);
-    curVP = vp;
-    hasVP = true;
+    CC()->curVP = vp;
+    CC()->hasVP = true;
     D3D11_VIEWPORT d3dvp;
     d3dvp.TopLeftX = vp.x;
     d3dvp.TopLeftY = vp.y;
@@ -820,30 +878,30 @@ public:
     d3dvp.Height = vp.h;
     d3dvp.MinDepth = vp.minD;
     d3dvp.MaxDepth = vp.maxD;
-    context->RSSetViewports(1, &d3dvp);
+    Ctx()->RSSetViewports(1, &d3dvp);
   }
   void SetTopology(RHITopology topo) override {
     D3D11_PRIMITIVE_TOPOLOGY d3dTopo = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     if (topo == RHITopology::Patch3) {
       d3dTopo = D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
     }
-    if (curTopoD3D == d3dTopo && hasTopo) {
+    if (CC()->curTopoD3D == d3dTopo && CC()->hasTopo) {
       Note(true);
       return;
     }
     Note(false);
-    curTopoD3D = d3dTopo;
-    hasTopo = true;
-    context->IASetPrimitiveTopology(d3dTopo);
+    CC()->curTopoD3D = d3dTopo;
+    CC()->hasTopo = true;
+    Ctx()->IASetPrimitiveTopology(d3dTopo);
   }
   void SetRasterizerState(const RHIRasterizer& rs) override {
-    if (hasRS && curRS.cull == rs.cull && curRS.fill == rs.fill && curRS.frontCCW == rs.frontCCW && curRS.slopeBias == rs.slopeBias) {
+    if (CC()->hasRS && CC()->curRS.cull == rs.cull && CC()->curRS.fill == rs.fill && CC()->curRS.frontCCW == rs.frontCCW && CC()->curRS.slopeBias == rs.slopeBias) {
       Note(true);
       return;
     }
     Note(false);
-    curRS = rs;
-    hasRS = true;
+    CC()->curRS = rs;
+    CC()->hasRS = true;
     D3D11_RASTERIZER_DESC d;
     d.FillMode = (rs.fill == RHIFill::Wireframe) ? D3D11_FILL_WIREFRAME : D3D11_FILL_SOLID;
     if (rs.cull == RHICull::None) {
@@ -863,18 +921,18 @@ public:
     d.AntialiasedLineEnable = FALSE;
     ComPtr<ID3D11RasterizerState> state;
     if (SUCCEEDED(device->CreateRasterizerState(&d, state.GetAddressOf()))) {
-      rsCache = state;
-      context->RSSetState(state.Get());
+      CC()->rsCache = state;
+      Ctx()->RSSetState(state.Get());
     }
   }
   void SetDepthStencilState(const RHIDepthStencil& ds) override {
-    if (hasDS && curDS.depthEnable == ds.depthEnable && curDS.depthWrite == ds.depthWrite) {
+    if (CC()->hasDS && CC()->curDS.depthEnable == ds.depthEnable && CC()->curDS.depthWrite == ds.depthWrite) {
       Note(true);
       return;
     }
     Note(false);
-    curDS = ds;
-    hasDS = true;
+    CC()->curDS = ds;
+    CC()->hasDS = true;
     D3D11_DEPTH_STENCIL_DESC d;
     d.DepthEnable = ds.depthEnable ? TRUE : FALSE;
     d.DepthWriteMask = ds.depthWrite ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO;
@@ -892,18 +950,18 @@ public:
     d.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
     ComPtr<ID3D11DepthStencilState> state;
     if (SUCCEEDED(device->CreateDepthStencilState(&d, state.GetAddressOf()))) {
-      dsCache = state;
-      context->OMSetDepthStencilState(state.Get(), 0);
+      CC()->dsCache = state;
+      Ctx()->OMSetDepthStencilState(state.Get(), 0);
     }
   }
   void SetBlendState(const RHIBlend& blend) override {
-    if (hasBlend && curBlend.enable == blend.enable) {
+    if (CC()->hasBlend && CC()->curBlend.enable == blend.enable) {
       Note(true);
       return;
     }
     Note(false);
-    curBlend = blend;
-    hasBlend = true;
+    CC()->curBlend = blend;
+    CC()->hasBlend = true;
     D3D11_BLEND_DESC d;
     d.AlphaToCoverageEnable = FALSE;
     d.IndependentBlendEnable = FALSE;
@@ -920,9 +978,9 @@ public:
     }
     ComPtr<ID3D11BlendState> state;
     if (SUCCEEDED(device->CreateBlendState(&d, state.GetAddressOf()))) {
-      blendCache = state;
+      CC()->blendCache = state;
       float f[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-      context->OMSetBlendState(state.Get(), f, 0xFFFFFFFF);
+      Ctx()->OMSetBlendState(state.Get(), f, 0xFFFFFFFF);
     }
   }
   RHIRenderTarget CreateRenderTarget(int tw, int th, RHIFormat fmt) override {
@@ -1007,9 +1065,9 @@ public:
     auto it = targets.find(rt);
     if (it == targets.end()) {
       cubes.erase(rt);
-      if (lastCube == rt) {
-        lastCube = 0;
-        lastCubeFace = -1;
+      if (CC()->lastCube == rt) {
+        CC()->lastCube = 0;
+        CC()->lastCubeFace = -1;
       }
       return;
     }
@@ -1018,16 +1076,16 @@ public:
     }
     targets.erase(it);
     cubes.erase(rt);
-    if (lastCube == rt) {
-      lastCube = 0;
-      lastCubeFace = -1;
+    if (CC()->lastCube == rt) {
+      CC()->lastCube = 0;
+      CC()->lastCubeFace = -1;
     }
   }
   void SetRenderTargets(uint32_t count, const RHIRenderTarget* colorRTs, RHIRenderTarget depthRT) override {
-    bool same = (curRTs.size() == count && curDepth == depthRT);
+    bool same = (CC()->curRTs.size() == count && CC()->curDepth == depthRT);
     if (same) {
       for (uint32_t i = 0; i < count; ++i) {
-        if (curRTs[i] != colorRTs[i]) {
+        if (CC()->curRTs[i] != colorRTs[i]) {
           same = false;
           break;
         }
@@ -1038,10 +1096,10 @@ public:
       return;
     }
     Note(false);
-    curRTs.assign(colorRTs, colorRTs + count);
-    curDepth = depthRT;
-    lastCube = 0;
-    lastCubeFace = -1;
+    CC()->curRTs.assign(colorRTs, colorRTs + count);
+    CC()->curDepth = depthRT;
+    CC()->lastCube = 0;
+    CC()->lastCubeFace = -1;
     ID3D11RenderTargetView* rtvs[8] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
     uint32_t n = count > 8 ? 8 : count;
     for (uint32_t i = 0; i < n; ++i) {
@@ -1053,7 +1111,7 @@ public:
     if (dit != targets.end()) {
       dsv = dit->second.dsv.Get();
     }
-    context->OMSetRenderTargets(n, n == 0 ? nullptr : rtvs, dsv);
+    Ctx()->OMSetRenderTargets(n, n == 0 ? nullptr : rtvs, dsv);
     D3D11_VIEWPORT vp;
     vp.TopLeftX = 0.0f;
     vp.TopLeftY = 0.0f;
@@ -1061,14 +1119,14 @@ public:
     vp.Height = static_cast<FLOAT>(h);
     vp.MinDepth = 0.0f;
     vp.MaxDepth = 1.0f;
-    if (!curRTs.empty()) {
-      auto it = targets.find(curRTs[0]);
+    if (!CC()->curRTs.empty()) {
+      auto it = targets.find(CC()->curRTs[0]);
       if (it != targets.end()) {
         vp.Width = static_cast<FLOAT>(it->second.w);
         vp.Height = static_cast<FLOAT>(it->second.h);
       }
     }
-    context->RSSetViewports(1, &vp);
+    Ctx()->RSSetViewports(1, &vp);
   }
   void ClearRenderTarget(RHIRenderTarget rt, float r, float g, float b, float a) override {
     auto it = targets.find(rt);
@@ -1076,18 +1134,18 @@ public:
       return;
     }
     float c[4] = { r, g, b, a };
-    context->ClearRenderTargetView(it->second.rtv.Get(), c);
+    Ctx()->ClearRenderTargetView(it->second.rtv.Get(), c);
   }
   void ClearDepth(RHIRenderTarget depthRT) override {
     auto it = targets.find(depthRT);
     if (it != targets.end() && it->second.dsv != nullptr) {
-      context->ClearDepthStencilView(it->second.dsv.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+      Ctx()->ClearDepthStencilView(it->second.dsv.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
       return;
     }
-    if (depthRT == lastCube && lastCubeFace >= 0 && lastCubeFace < 6) {
+    if (depthRT == CC()->lastCube && CC()->lastCubeFace >= 0 && CC()->lastCubeFace < 6) {
       auto cit = cubes.find(depthRT);
-      if (cit != cubes.end() && cit->second.dsv[lastCubeFace] != nullptr) {
-        context->ClearDepthStencilView(cit->second.dsv[lastCubeFace].Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
+      if (cit != cubes.end() && cit->second.dsv[CC()->lastCubeFace] != nullptr) {
+        Ctx()->ClearDepthStencilView(cit->second.dsv[CC()->lastCubeFace].Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
       }
     }
   }
@@ -1110,19 +1168,19 @@ public:
     return nullptr;
   }
   void BindBackbuffer() override {
-    bool same = (curRTs.size() == 1 && curRTs[0] == backId && curDepth == 0);
+    bool same = (CC()->curRTs.size() == 1 && CC()->curRTs[0] == backId && CC()->curDepth == 0);
     if (same) {
       Note(true);
       return;
     }
     Note(false);
-    curRTs.clear();
-    curRTs.push_back(backId);
-    curDepth = 0;
-    lastCube = 0;
-    lastCubeFace = -1;
+    CC()->curRTs.clear();
+    CC()->curRTs.push_back(backId);
+    CC()->curDepth = 0;
+    CC()->lastCube = 0;
+    CC()->lastCubeFace = -1;
     ID3D11RenderTargetView* rtv = backRTV.Get();
-    context->OMSetRenderTargets(1, &rtv, nullptr);
+    Ctx()->OMSetRenderTargets(1, &rtv, nullptr);
     D3D11_VIEWPORT vp;
     vp.TopLeftX = 0.0f;
     vp.TopLeftY = 0.0f;
@@ -1130,13 +1188,13 @@ public:
     vp.Height = static_cast<FLOAT>(h);
     vp.MinDepth = 0.0f;
     vp.MaxDepth = 1.0f;
-    context->RSSetViewports(1, &vp);
+    Ctx()->RSSetViewports(1, &vp);
   }
   void BeginEvent(const char* name) override {
     if (!annotationTried) {
       annotationTried = true;
       if (context.Get() != nullptr) {
-        context->QueryInterface(__uuidof(ID3DUserDefinedAnnotation), reinterpret_cast<void**>(annotation.GetAddressOf()));
+        Ctx()->QueryInterface(__uuidof(ID3DUserDefinedAnnotation), reinterpret_cast<void**>(annotation.GetAddressOf()));
       }
     }
     if (annotation.Get() != nullptr && name != nullptr) {
@@ -1225,23 +1283,23 @@ public:
   }
   void SetComputeShader(RHIComputeShader cs) override {
     auto it = csMap.find(cs);
-    context->CSSetShader(it == csMap.end() ? nullptr : it->second.Get(), nullptr, 0);
+    Ctx()->CSSetShader(it == csMap.end() ? nullptr : it->second.Get(), nullptr, 0);
   }
   void SetComputeConstantBuffer(uint32_t slot, RHIConstBuffer cb) override {
     auto it = cbuffers.find(cb);
     ID3D11Buffer* b = (it == cbuffers.end()) ? nullptr : it->second.Get();
-    context->CSSetConstantBuffers(slot, 1, &b);
+    Ctx()->CSSetConstantBuffers(slot, 1, &b);
   }
   void SetComputeSRV(uint32_t slot, RHIStructBuffer buf) override {
     auto it = structBufs.find(buf);
     ID3D11ShaderResourceView* v = (it == structBufs.end()) ? nullptr : it->second.srv.Get();
-    context->CSSetShaderResources(slot, 1, &v);
+    Ctx()->CSSetShaderResources(slot, 1, &v);
   }
   void SetComputeUAV(uint32_t slot, RHIStructBuffer buf) override {
     auto it = structBufs.find(buf);
     ID3D11UnorderedAccessView* v = (it == structBufs.end()) ? nullptr : it->second.uav.Get();
     UINT initial = 0;
-    context->CSSetUnorderedAccessViews(slot, 1, &v, &initial);
+    Ctx()->CSSetUnorderedAccessViews(slot, 1, &v, &initial);
   }
   void Dispatch(uint32_t x, uint32_t y, uint32_t z) override {
     if (x == 0 || y == 0 || z == 0) {
@@ -1256,7 +1314,7 @@ public:
     if (z > 64) {
       z = 64;
     }
-    context->Dispatch(x, y, z);
+    Ctx()->Dispatch(x, y, z);
   }
   bool ReadStructBuffer(RHIStructBuffer buf, void* dst, size_t bytes) override {
     if (dst == nullptr || bytes == 0) {
@@ -1281,13 +1339,13 @@ public:
     if (FAILED(device->CreateBuffer(&sd, nullptr, staging.GetAddressOf()))) {
       return false;
     }
-    context->CopyResource(staging.Get(), it->second.buf.Get());
+    Ctx()->CopyResource(staging.Get(), it->second.buf.Get());
     D3D11_MAPPED_SUBRESOURCE mapped;
-    if (FAILED(context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
+    if (FAILED(Ctx()->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
       return false;
     }
     std::memcpy(dst, mapped.pData, bytes);
-    context->Unmap(staging.Get(), 0);
+    Ctx()->Unmap(staging.Get(), 0);
     return true;
   }
   RHIStructBuffer CreateIndirectArgs() override {
@@ -1337,7 +1395,7 @@ public:
     if (it == structBufs.end()) {
       return;
     }
-    context->DrawIndexedInstancedIndirect(it->second.buf.Get(), 0);
+    Ctx()->DrawIndexedInstancedIndirect(it->second.buf.Get(), 0);
   }
   void ClearStructBufferUint(RHIStructBuffer buf, uint32_t v) override {
     auto it = structBufs.find(buf);
@@ -1345,7 +1403,7 @@ public:
       return;
     }
     UINT values[4] = { v, v, v, v };
-    context->ClearUnorderedAccessViewUint(it->second.uav.Get(), values);
+    Ctx()->ClearUnorderedAccessViewUint(it->second.uav.Get(), values);
   }
   bool UpdateStructBuffer(RHIStructBuffer buf, const void* data, size_t bytes) override {
     auto it = structBufs.find(buf);
@@ -1356,7 +1414,7 @@ public:
     if (bytes > total) {
       bytes = total;
     }
-    context->UpdateSubresource(it->second.buf.Get(), 0, nullptr, data, 0, 0);
+    Ctx()->UpdateSubresource(it->second.buf.Get(), 0, nullptr, data, 0, 0);
     return true;
   }
   void SetInstanceBufferStruct(RHIStructBuffer buf) override {
@@ -1364,7 +1422,7 @@ public:
     ID3D11Buffer* b = (it == structBufs.end()) ? nullptr : it->second.buf.Get();
     UINT stride = (it == structBufs.end() || it->second.stride == 0) ? 64 : it->second.stride;
     UINT offset = 0;
-    context->IASetVertexBuffers(1, 1, &b, &stride, &offset);
+    Ctx()->IASetVertexBuffers(1, 1, &b, &stride, &offset);
   }
   RHITexture CreateTextureArray(int tw, int th, int slices, int mipLevels, RHITextureFormat fmt) override {
     if (tw <= 0 || th <= 0 || slices <= 0 || slices > 32 || mipLevels <= 0 || mipLevels > 16) {
@@ -1421,7 +1479,7 @@ public:
       return false;
     }
     UINT sub = D3D11CalcSubresource(static_cast<UINT>(mip), static_cast<UINT>(slice), static_cast<UINT>(it->second.mips));
-    context->UpdateSubresource(it->second.tex.Get(), sub, nullptr, data, rowPitch, 0);
+    Ctx()->UpdateSubresource(it->second.tex.Get(), sub, nullptr, data, rowPitch, 0);
     return true;
   }
   bool UpdateTextureRegion(RHITexture tex, int mip, int x, int y, int w, int h, uint32_t rowPitch, const void* data, size_t bytes) override {
@@ -1455,14 +1513,14 @@ public:
     box.right = static_cast<UINT>(x + w);
     box.bottom = static_cast<UINT>(y + h);
     box.back = 1;
-    context->UpdateSubresource(it->second.tex.Get(), sub, &box, data, rowPitch, 0);
+    Ctx()->UpdateSubresource(it->second.tex.Get(), sub, &box, data, rowPitch, 0);
     it->second.resident.insert(mip);
     return true;
   }
   void SetPixelTexture(uint32_t slot, RHIRenderTarget rt) override {
     if (rt == 0) {
       ID3D11ShaderResourceView* nullSrv = nullptr;
-      context->PSSetShaderResources(slot, 1, &nullSrv);
+      Ctx()->PSSetShaderResources(slot, 1, &nullSrv);
       return;
     }
     ID3D11ShaderResourceView* srv = nullptr;
@@ -1475,7 +1533,7 @@ public:
         srv = cit->second.srv.Get();
       }
     }
-    context->PSSetShaderResources(slot, 1, &srv);
+    Ctx()->PSSetShaderResources(slot, 1, &srv);
   }
   void SetPixelTexture2D(uint32_t slot, RHITexture tex) override {
     ID3D11ShaderResourceView* srv = nullptr;
@@ -1485,7 +1543,7 @@ public:
         srv = it->second.srv.Get();
       }
     }
-    context->PSSetShaderResources(slot, 1, &srv);
+    Ctx()->PSSetShaderResources(slot, 1, &srv);
   }
   void SetPixelTexture3D(uint32_t slot, RHITexture3D tex) override {
     ID3D11ShaderResourceView* srv = nullptr;
@@ -1495,7 +1553,7 @@ public:
         srv = it->second.srv.Get();
       }
     }
-    context->PSSetShaderResources(slot, 1, &srv);
+    Ctx()->PSSetShaderResources(slot, 1, &srv);
   }
   RHISampler CreateSamplerLinear() override {
     D3D11_SAMPLER_DESC sd;
@@ -1619,14 +1677,14 @@ public:
     if (it == cubes.end() || it->second.dsv[face] == nullptr) {
       return;
     }
-    if (lastCube == cube && lastCubeFace == face) {
+    if (CC()->lastCube == cube && CC()->lastCubeFace == face) {
       return;
     }
-    lastCube = cube;
-    lastCubeFace = face;
-    curRTs.clear();
-    curDepth = 0;
-    context->OMSetRenderTargets(0, nullptr, it->second.dsv[face].Get());
+    CC()->lastCube = cube;
+    CC()->lastCubeFace = face;
+    CC()->curRTs.clear();
+    CC()->curDepth = 0;
+    Ctx()->OMSetRenderTargets(0, nullptr, it->second.dsv[face].Get());
   }
   RHISampler CreateSamplerShadow() override {
     D3D11_SAMPLER_DESC sd;
@@ -1654,7 +1712,7 @@ public:
   void SetPixelSampler(uint32_t slot, RHISampler sampler) override {
     auto it = samplers.find(sampler);
     ID3D11SamplerState* s = (it == samplers.end()) ? nullptr : it->second.Get();
-    context->PSSetSamplers(slot, 1, &s);
+    Ctx()->PSSetSamplers(slot, 1, &s);
   }
   RHITexture CreateTexture2D(int tw, int th, int mipLevels, RHITextureFormat fmt) override {
     if (tw <= 0 || th <= 0 || mipLevels <= 0 || mipLevels > 16) {
@@ -1700,7 +1758,7 @@ public:
       return false;
     }
     UINT sub = D3D11CalcSubresource(static_cast<UINT>(mip), 0, static_cast<UINT>(it->second.mips));
-    context->UpdateSubresource(it->second.tex.Get(), sub, nullptr, data, rowPitch, 0);
+    Ctx()->UpdateSubresource(it->second.tex.Get(), sub, nullptr, data, rowPitch, 0);
     it->second.resident.insert(mip);
     return true;
   }
@@ -1766,7 +1824,7 @@ public:
     if (bytes != static_cast<size_t>(slicePitch) * static_cast<size_t>(d)) {
       return false;
     }
-    context->UpdateSubresource(it->second.tex.Get(), 0, nullptr, data, rowPitch, slicePitch);
+    Ctx()->UpdateSubresource(it->second.tex.Get(), 0, nullptr, data, rowPitch, slicePitch);
     return true;
   }
   void DestroyTexture3D(RHITexture3D tex) override {
@@ -1794,7 +1852,7 @@ public:
       ++levels;
     }
     UINT sub = D3D11CalcSubresource(0, static_cast<UINT>(face), static_cast<UINT>(levels));
-    context->UpdateSubresource(it->second.tex.Get(), sub, nullptr, data, rowPitch, 0);
+    Ctx()->UpdateSubresource(it->second.tex.Get(), sub, nullptr, data, rowPitch, 0);
     return true;
   }
   RHITexture CreateEnvCube(int size) override {
@@ -1876,7 +1934,7 @@ public:
     if (it == textures.end() || !it->second.isCube || it->second.srv == nullptr) {
       return;
     }
-    context->GenerateMips(it->second.srv.Get());
+    Ctx()->GenerateMips(it->second.srv.Get());
   }
   int TextureResidentMips(RHITexture tex) const override {
     auto it = textures.find(tex);
@@ -1886,20 +1944,20 @@ public:
     return static_cast<int>(it->second.resident.size());
   }
   void DrawIndexed(uint32_t indexCount, uint32_t startIndex, int32_t baseVertex) override {
-    context->DrawIndexed(indexCount, startIndex, baseVertex);
+    Ctx()->DrawIndexed(indexCount, startIndex, baseVertex);
   }
   void DrawIndexedInstanced(uint32_t indexCount, uint32_t startIndex, int32_t baseVertex, uint32_t instanceCount) override {
-    context->DrawIndexedInstanced(indexCount, instanceCount, startIndex, baseVertex, 0);
+    Ctx()->DrawIndexedInstanced(indexCount, instanceCount, startIndex, baseVertex, 0);
   }
   void DrawFullscreenTriangle() override {
-    context->IASetVertexBuffers(0, 0, nullptr, nullptr, nullptr);
-    context->IASetIndexBuffer(nullptr, DXGI_FORMAT_R32_UINT, 0);
-    context->IASetInputLayout(nullptr);
-    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    curVB = 0;
-    curIB = 0;
-    curLayout = 0;
-    context->Draw(3, 0);
+    Ctx()->IASetVertexBuffers(0, 0, nullptr, nullptr, nullptr);
+    Ctx()->IASetIndexBuffer(nullptr, DXGI_FORMAT_R32_UINT, 0);
+    Ctx()->IASetInputLayout(nullptr);
+    Ctx()->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    CC()->curVB = 0;
+    CC()->curIB = 0;
+    CC()->curLayout = 0;
+    Ctx()->Draw(3, 0);
   }
   RHITimestamp CreateTimestamp() override {
     D3D11_QUERY_DESC qd;
@@ -1928,16 +1986,16 @@ public:
     if (it == tstamps.end()) {
       return;
     }
-    context->Begin(it->second.disjoint.Get());
-    context->End(it->second.begin.Get());
+    Ctx()->Begin(it->second.disjoint.Get());
+    Ctx()->End(it->second.begin.Get());
   }
   void EndTimestamp(RHITimestamp ts) override {
     auto it = tstamps.find(ts);
     if (it == tstamps.end()) {
       return;
     }
-    context->End(it->second.finish.Get());
-    context->End(it->second.disjoint.Get());
+    Ctx()->End(it->second.finish.Get());
+    Ctx()->End(it->second.disjoint.Get());
   }
   bool GetTimestampMs(RHITimestamp ts, double* ms) override {
     if (ms == nullptr) {
@@ -1948,7 +2006,7 @@ public:
       return false;
     }
     D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
-    if (context->GetData(it->second.disjoint.Get(), &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
+    if (Ctx()->GetData(it->second.disjoint.Get(), &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
       return false;
     }
     if (dj.Disjoint != FALSE) {
@@ -1956,10 +2014,10 @@ public:
     }
     UINT64 t0 = 0;
     UINT64 t1 = 0;
-    if (context->GetData(it->second.begin.Get(), &t0, sizeof(t0), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
+    if (Ctx()->GetData(it->second.begin.Get(), &t0, sizeof(t0), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
       return false;
     }
-    if (context->GetData(it->second.finish.Get(), &t1, sizeof(t1), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
+    if (Ctx()->GetData(it->second.finish.Get(), &t1, sizeof(t1), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
       return false;
     }
     if (dj.Frequency == 0 || t1 < t0) {
@@ -2020,14 +2078,14 @@ public:
     if (it == occQueries.end()) {
       return;
     }
-    context->Begin(it->second.query.Get());
+    Ctx()->Begin(it->second.query.Get());
   }
   void EndOcclusionQuery(RHIOcclusionQuery q) override {
     auto it = occQueries.find(q);
     if (it == occQueries.end()) {
       return;
     }
-    context->End(it->second.query.Get());
+    Ctx()->End(it->second.query.Get());
   }
   bool GetOcclusionSamples(RHIOcclusionQuery q, uint64_t* samples) override {
     if (samples == nullptr) {
@@ -2038,17 +2096,54 @@ public:
       return false;
     }
     UINT64 data = 0;
-    if (context->GetData(it->second.query.Get(), &data, sizeof(data), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
+    if (Ctx()->GetData(it->second.query.Get(), &data, sizeof(data), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
       return false;
     }
     *samples = static_cast<uint64_t>(data);
     return true;
   }
 private:
+  ID3D11DeviceContext* Ctx() {
+    return t_activeCtx != nullptr ? t_activeCtx : context.Get();
+  }
+  CtxCache* CC() {
+    return t_activeCache != nullptr ? t_activeCache : &immCache;
+  }
   void Note(bool dup) {
     ++total;
     if (dup) {
       ++discarded;
+    }
+  }
+  bool BeginCommandList() override {
+    std::lock_guard<std::mutex> lock(resMutex);
+    if (defCtx == nullptr) {
+      if (FAILED(device->CreateDeferredContext(0, defCtx.GetAddressOf()))) {
+        return false;
+      }
+    }
+    defCache.ResetFresh();
+    t_activeCtx = defCtx.Get();
+    t_activeCache = &defCache;
+    return true;
+  }
+  bool EndCommandList() override {
+    std::lock_guard<std::mutex> lock(resMutex);
+    if (defCtx.Get() == nullptr) {
+      return false;
+    }
+    HRESULT hr = defCtx->FinishCommandList(FALSE, cmdList.GetAddressOf());
+    return SUCCEEDED(hr) && cmdList.Get() != nullptr;
+  }
+  void ExecuteCommandList() override {
+    ComPtr<ID3D11CommandList> cl;
+    {
+      std::lock_guard<std::mutex> lock(resMutex);
+      cl = cmdList;
+      cmdList.Reset();
+    }
+    if (cl.Get() != nullptr) {
+      Ctx()->ExecuteCommandList(cl.Get(), FALSE);
     }
   }
   bool CreateBackbuffer() {
@@ -2060,7 +2155,7 @@ private:
       return false;
     }
     backId = nextId++;
-    context->OMSetRenderTargets(1, backRTV.GetAddressOf(), nullptr);
+    Ctx()->OMSetRenderTargets(1, backRTV.GetAddressOf(), nullptr);
     D3D11_VIEWPORT vp;
     vp.TopLeftX = 0.0f;
     vp.TopLeftY = 0.0f;
@@ -2068,10 +2163,10 @@ private:
     vp.Height = static_cast<FLOAT>(h);
     vp.MinDepth = 0.0f;
     vp.MaxDepth = 1.0f;
-    context->RSSetViewports(1, &vp);
-    curRTs.clear();
-    curRTs.push_back(backId);
-    curDepth = 0;
+    Ctx()->RSSetViewports(1, &vp);
+    CC()->curRTs.clear();
+    CC()->curRTs.push_back(backId);
+    CC()->curDepth = 0;
     return true;
   }
   bool CompileShader(const char* path, const char* entry, const char* target, ComPtr<ID3DBlob>& outBlob) {
@@ -2184,10 +2279,15 @@ private:
   int w;
   int h;
   uint64_t nextId;
-  uint64_t total;
-  uint64_t discarded;
+  std::atomic<uint64_t> total;
+  std::atomic<uint64_t> discarded;
   ComPtr<ID3D11Device> device;
   ComPtr<ID3D11DeviceContext> context;
+  ComPtr<ID3D11DeviceContext> defCtx;
+  ComPtr<ID3D11CommandList> cmdList;
+  CtxCache immCache;
+  CtxCache defCache;
+  mutable std::mutex resMutex;
   ComPtr<ID3DUserDefinedAnnotation> annotation;
   bool annotationTried = false;
   ComPtr<IDXGISwapChain> swapchain;
@@ -2227,8 +2327,8 @@ private:
   std::unordered_map<uint64_t, OccQuery> occQueries;
   std::unordered_map<uint64_t, ComPtr<ID3D11SamplerState>> samplers;
   std::unordered_map<uint64_t, ShadowCubeRes> cubes;
-  uint64_t lastCube = 0;
-  int lastCubeFace = -1;
+  uint64_t CC()->lastCube = 0;
+  int CC()->lastCubeFace = -1;
   struct TexEntry {
     ComPtr<ID3D11Texture2D> tex;
     ComPtr<ID3D11ShaderResourceView> srv;
@@ -2252,28 +2352,6 @@ private:
     RHITextureFormat fmt = RHITextureFormat::RGBA8_UNORM;
   };
   std::unordered_map<uint64_t, Tex3DEntry> tex3ds;
-  uint64_t curVS;
-  uint64_t curPS;
-  uint64_t curLayout;
-  uint64_t curVB;
-  uint32_t curVBOffset;
-  uint64_t curIB;
-  RHIRasterizer curRS;
-  RHIDepthStencil curDS;
-  RHIBlend curBlend;
-  RHIViewport curVP;
-  D3D11_PRIMITIVE_TOPOLOGY curTopoD3D;
-  ComPtr<ID3D11RasterizerState> rsCache;
-  ComPtr<ID3D11DepthStencilState> dsCache;
-  ComPtr<ID3D11BlendState> blendCache;
-  std::vector<uint64_t> curRTs;
-  uint64_t curDepth = 0;
-  bool hasRS;
-  bool hasDS;
-  bool hasBlend;
-  bool hasVP;
-  bool hasTopo = false;
-};
 IRHI* CreateD3D11RHI() {
   return new D3D11RHI();
 }

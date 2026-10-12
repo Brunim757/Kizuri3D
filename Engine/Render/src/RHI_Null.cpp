@@ -3,6 +3,8 @@
 #include <vector>
 #include <list>
 #include <cstring>
+#include <mutex>
+#include <atomic>
 #include <set>
 namespace Kizuri {
 class NullRHI : public IRHI {
@@ -109,6 +111,14 @@ public:
     (void)timeoutMs;
     return shaders.find(fence) != shaders.end();
   }
+  bool BeginCommandList() override {
+    return true;
+  }
+  bool EndCommandList() override {
+    return true;
+  }
+  void ExecuteCommandList() override {
+  }
   RHIBuffer CreateBuffer(uint64_t size, uint32_t stride, bool isIndex, const void* initialData) override {
     RHIBuffer id = CreateBufferEmpty(size, stride, isIndex);
     if (id != 0 && initialData != nullptr) {
@@ -117,6 +127,7 @@ public:
     return id;
   }
   RHIBuffer CreateBufferEmpty(uint64_t size, uint32_t stride, bool isIndex) override {
+    std::lock_guard<std::recursive_mutex> lock(resMutex);
     (void)stride;
     (void)isIndex;
     if (size == 0) {
@@ -129,6 +140,7 @@ public:
     return id;
   }
   bool UpdateBufferRange(RHIBuffer buf, uint64_t offset, const void* data, size_t bytes) override {
+    std::lock_guard<std::recursive_mutex> lock(resMutex);
     auto it = buffers.find(buf);
     if (it == buffers.end() || data == nullptr || bytes == 0) {
       return false;
@@ -140,6 +152,7 @@ public:
     return true;
   }
   bool UpdateBufferDiscard(RHIBuffer buf, const void* data, size_t bytes) override {
+    std::lock_guard<std::recursive_mutex> lock(resMutex);
     auto it = buffers.find(buf);
     if (it == buffers.end() || data == nullptr || bytes == 0) {
       return false;
@@ -151,9 +164,11 @@ public:
     return true;
   }
   void DestroyBuffer(RHIBuffer buf) override {
+    std::lock_guard<std::recursive_mutex> lock(resMutex);
     buffers.erase(buf);
   }
   void SetVertexBuffer(RHIBuffer buf, uint32_t offset) override {
+    std::lock_guard<std::recursive_mutex> lock(resMutex);
     (void)offset;
     if (curVB == buf) {
       Note(true);
@@ -163,6 +178,7 @@ public:
     curVB = buf;
   }
   void SetIndexBuffer(RHIBuffer buf) override {
+    std::lock_guard<std::recursive_mutex> lock(resMutex);
     if (curIB == buf) {
       Note(true);
       return;
@@ -345,6 +361,7 @@ public:
     curBlend = blend;
   }
   RHIRenderTarget CreateRenderTarget(int tw, int th, RHIFormat fmt) override {
+    std::lock_guard<std::recursive_mutex> lock(resMutex);
     if (tw <= 0 || th <= 0) {
       return 0;
     }
@@ -368,6 +385,7 @@ public:
     return id;
   }
   void DestroyRenderTarget(RHIRenderTarget rt) override {
+    std::lock_guard<std::recursive_mutex> lock(resMutex);
     auto it = targets.find(rt);
     if (it == targets.end()) {
       return;
@@ -772,10 +790,11 @@ private:
   int w;
   int h;
   uint64_t nextId;
-  uint64_t total;
-  uint64_t discarded;
+  std::atomic<uint64_t> total;
+  std::atomic<uint64_t> discarded;
   uint64_t poolHits = 0;
   uint64_t poolMiss = 0;
+  std::recursive_mutex resMutex;
   struct NullBuffer {
     std::vector<unsigned char> bytes;
   };
