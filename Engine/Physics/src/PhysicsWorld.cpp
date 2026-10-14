@@ -40,7 +40,7 @@ public:
   JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const override {
     return JPH::BroadPhaseLayer(inLayer);
   }
-  const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer inLayer) const override {
+  const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer inLayer) const {
     return inLayer == JPH::BroadPhaseLayer(1) ? "Moving" : "NonMoving";
   }
 };
@@ -582,6 +582,7 @@ void PhysicsWorld::DestroyConstraint(uint32_t handle) {
   }
   if (p->cons[slot].ptr != nullptr) {
     p->system.RemoveConstraint(p->cons[slot].ptr);
+    delete p->cons[slot].ptr;
     p->cons[slot].ptr = nullptr;
   }
   p->cons[slot].active = false;

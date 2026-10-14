@@ -34,10 +34,12 @@ int JobSystemEnki::GetMaxConcurrency() const {
 }
 JobSystemEnki::TaskSlot* JobSystemEnki::AcquireSlot() {
   std::lock_guard<std::mutex> lock(poolMutex);
-  if (!freeSlots.empty()) {
-    TaskSlot* slot = freeSlots.back();
-    freeSlots.pop_back();
-    return slot;
+  for (size_t i = 0; i < freeSlots.size(); ++i) {
+    if (freeSlots[i]->GetIsComplete()) {
+      TaskSlot* slot = freeSlots[i];
+      freeSlots.erase(freeSlots.begin() + i);
+      return slot;
+    }
   }
   if (ownedSlots.size() >= 512) {
     return nullptr;

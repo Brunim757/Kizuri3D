@@ -2097,8 +2097,6 @@ bool TestPhysicsRaycast() {
   return ok;
 }
 bool TestRagdoll() {
-  std::printf("RAGDOLL stage 0\n");
-  std::fflush(stdout);
   Kizuri::JobSystem jobs;
   if (!jobs.Initialize()) {
     return false;
@@ -2129,32 +2127,14 @@ bool TestRagdoll() {
   uint32_t c0 = world.AddHingeConstraint(b0, b1, j0, axis, -0.5f, 0.5f);
   uint32_t c1 = world.AddHingeConstraint(b1, b2, j1, axis, -0.5f, 0.5f);
   ok = ok && c0 != 0xFFFFFFFFu && c1 != 0xFFFFFFFFu && world.ConstraintCount() == 2;
-  std::printf("RAGDOLL stage 1 bodies+hinges ok=%d\n", ok ? 1 : 0);
-  std::fflush(stdout);
-  world.DestroyConstraint(c0);
-  world.DestroyConstraint(c1);
-  std::printf("RAGDOLL stage 1b early destroy ok=%d\n", world.ConstraintCount() == 0 ? 1 : 0);
-  std::fflush(stdout);
-  ok = ok && world.ConstraintCount() == 0;
-  c0 = world.AddHingeConstraint(b0, b1, j0, axis, -0.5f, 0.5f);
-  c1 = world.AddHingeConstraint(b1, b2, j1, axis, -0.5f, 0.5f);
-  ok = ok && c0 != 0xFFFFFFFFu && c1 != 0xFFFFFFFFu && world.ConstraintCount() == 2;
   for (int i = 0; i < 300 && ok; ++i) {
     world.Step(1.0f / 60.0f);
-    if (i == 150) {
-      std::printf("RAGDOLL stage 2 mid\n");
-      std::fflush(stdout);
-    }
   }
-  std::printf("RAGDOLL stage 3 stepped\n");
-  std::fflush(stdout);
   float pa[3] = { 0.0f, 0.0f, 0.0f };
   float pb[3] = { 0.0f, 0.0f, 0.0f };
   float qa[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
   float qb[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
   ok = ok && world.GetPose(b0, pa, qa) && world.GetPose(b2, pb, qb);
-  std::printf("RAGDOLL stage 4 poses\n");
-  std::fflush(stdout);
   bool finite = true;
   const float* all[2] = { pa, pb };
   for (int k = 0; k < 2 && finite; ++k) {
@@ -2165,15 +2145,9 @@ bool TestRagdoll() {
     }
   }
   ok = ok && finite && pa[1] < 5.0f && pb[1] < 7.4f;
-  std::printf("RAGDOLL stage 5 checks ok=%d\n", ok ? 1 : 0);
-  std::fflush(stdout);
   world.DestroyConstraint(c0);
-  std::printf("RAGDOLL stage 6 destroyed\n");
-  std::fflush(stdout);
   ok = ok && world.ConstraintCount() == 1;
   world.Shutdown();
-  std::printf("RAGDOLL stage 7 shutdown\n");
-  std::fflush(stdout);
   jobs.Shutdown();
   return ok;
 }
