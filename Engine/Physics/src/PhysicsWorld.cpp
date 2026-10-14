@@ -62,6 +62,7 @@ public:
 static void PhysTrace(const char* msg, ...) {
   (void)msg;
 }
+#ifdef JPH_ENABLE_ASSERTS
 static bool PhysAssert(const char* expr, const char* msg, const char* file, JPH::uint line) {
   (void)expr;
   (void)file;
@@ -69,6 +70,7 @@ static bool PhysAssert(const char* expr, const char* msg, const char* file, JPH:
   (void)msg;
   return true;
 }
+#endif
 struct PhysicsWorld::Impl {
   JPH::PhysicsSystem system;
   JPH::TempAllocatorImpl* tempAlloc = nullptr;
@@ -107,7 +109,9 @@ bool PhysicsWorld::Initialize(JobSystem* jobs) {
   }
   JPH::RegisterDefaultAllocator();
   JPH::Trace = PhysTrace;
+#ifdef JPH_ENABLE_ASSERTS
   JPH::AssertFailed = PhysAssert;
+#endif
   JPH::Factory::sInstance = new JPH::Factory();
   JPH::RegisterTypes();
   Impl* p = new Impl();
