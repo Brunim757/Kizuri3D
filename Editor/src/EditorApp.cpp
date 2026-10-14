@@ -551,6 +551,8 @@ bool EditorApp::Initialize() {
 }
 void EditorApp::Shutdown() {
   SaveEditorSettings();
+  physWorld.Shutdown();
+  physJobs.Shutdown();
   g_sinkLog = nullptr;
   SetLogSink(nullptr);
   if (!scene.IsDirty()) {

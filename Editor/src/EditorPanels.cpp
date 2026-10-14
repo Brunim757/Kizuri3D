@@ -1621,6 +1621,8 @@ void EditorApp::DrawViewport() {
   if (ImGui::RadioButton("Scale", curOp == ImGuizmo::SCALE)) {
     gizmoOp = static_cast<int>(ImGuizmo::SCALE);
   }
+  ImGui::SameLine();
+  ImGui::Checkbox("Simulate", &viewSimulate);
   if (ImGui::IsWindowHovered() && !ImGui::GetIO().WantTextInput && !RawInputPoll::IsMouseDown(VK_RBUTTON)) {
     if (ImGui::IsKeyPressed(ImGuiKey_W, false)) {
       gizmoOp = static_cast<int>(ImGuizmo::TRANSLATE);

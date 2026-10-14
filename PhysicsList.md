@@ -42,9 +42,9 @@
 
 ## 6. Ragdoll / Joints
 
-- [ ] API de constraints (point, hinge)
-- [ ] Montagem de ragdoll a partir de caixas
-- [ ] Teste: ragdoll cai sem explodir (posições finitas)
+- [x] API de constraints (point, hinge)
+- [x] Montagem de ragdoll a partir de caixas
+- [x] Teste: ragdoll cai sem explodir (posições finitas)
 
 ## 7. Editor
 

@@ -13,6 +13,8 @@
 #include <Jolt/Physics/Body/BodyActivationListener.h>
 #include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>
+#include <Jolt/Physics/Constraints/PointConstraint.h>
+#include <Jolt/Physics/Constraints/HingeConstraint.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
@@ -91,6 +93,13 @@ struct PhysicsWorld::Impl {
   std::vector<Slot> slots;
   std::vector<uint32_t> freeList;
   size_t liveCount = 0;
+  struct Con {
+    JPH::Constraint* ptr = nullptr;
+    bool active = false;
+  };
+  std::vector<Con> cons;
+  std::vector<uint32_t> consFree;
+  size_t liveCons = 0;
   float accumulator = 0.0f;
   float gravityY = -9.81f;
   std::mutex listMutex;
@@ -134,6 +143,18 @@ void PhysicsWorld::Shutdown() {
   initialized = false;
   if (p != nullptr) {
     {
+      std::lock_guard<std::mutex> lock(p->listMutex);
+      for (size_t i = 0; i < p->cons.size(); ++i) {
+        if (p->cons[i].active && p->cons[i].ptr != nullptr) {
+          p->system.RemoveConstraint(p->cons[i].ptr);
+          delete p->cons[i].ptr;
+          p->cons[i].active = false;
+          p->cons[i].ptr = nullptr;
+        }
+      }
+      p->cons.clear();
+      p->consFree.clear();
+      p->liveCons = 0;
       std::lock_guard<std::mutex> lock(p->listMutex);
       JPH::BodyInterface& bi = p->system.GetBodyInterface();
       for (size_t i = 0; i < p->slots.size(); ++i) {
@@ -429,5 +450,150 @@ bool PhysicsWorld::Raycast(const float origin[3], const float dir[3], float maxD
     }
   }
   return true;
+}
+uint32_t PhysicsWorld::AddPointConstraint(uint32_t handleA, uint32_t handleB, const float worldPivot[3]) {
+  if (!HasBody(handleA) || !HasBody(handleB) || worldPivot == nullptr || impl == nullptr) {
+    return 0xFFFFFFFFu;
+  }
+  Impl* p = impl;
+  std::lock_guard<std::mutex> lock(p->listMutex);
+  const JPH::BodyID idA = p->slots[handleA - 1].bodyId;
+  const JPH::BodyID idB = p->slots[handleB - 1].bodyId;
+  JPH::BodyLockWrite lockA(p->system.GetBodyLockInterface(), idA);
+  JPH::BodyLockWrite lockB(p->system.GetBodyLockInterface(), idB);
+  if (!lockA.Succeeded() || !lockB.Succeeded()) {
+    return 0xFFFFFFFFu;
+  }
+  JPH::PointConstraintSettings settings;
+  settings.mSpace = JPH::EConstraintSpace::WorldSpace;
+  settings.mPoint1 = JPH::RVec3(worldPivot[0], worldPivot[1], worldPivot[2]);
+  settings.mPoint2 = JPH::RVec3(worldPivot[0], worldPivot[1], worldPivot[2]);
+  JPH::Constraint* c = settings.Create(lockA.GetBody(), lockB.GetBody());
+  if (c == nullptr) {
+    return 0xFFFFFFFFu;
+  }
+  p->system.AddConstraint(c);
+  uint32_t slot = 0xFFFFFFFFu;
+  if (!p->consFree.empty()) {
+    slot = p->consFree.back();
+    p->consFree.pop_back();
+  } else {
+    slot = static_cast<uint32_t>(p->cons.size());
+    p->cons.emplace_back();
+  }
+  p->cons[slot].ptr = c;
+  p->cons[slot].active = true;
+  ++p->liveCons;
+  return slot + 1;
+}
+uint32_t PhysicsWorld::AddHingeConstraint(uint32_t handleA, uint32_t handleB, const float worldPivot[3], const float worldAxis[3], float minLimit, float maxLimit) {
+  if (!HasBody(handleA) || !HasBody(handleB) || worldPivot == nullptr || worldAxis == nullptr || impl == nullptr) {
+    return 0xFFFFFFFFu;
+  }
+  float ax = worldAxis[0];
+  float ay = worldAxis[1];
+  float az = worldAxis[2];
+  float al = std::sqrt(ax * ax + ay * ay + az * az);
+  if (al < 1e-6f) {
+    return 0xFFFFFFFFu;
+  }
+  ax /= al;
+  ay /= al;
+  az /= al;
+  float nx = 0.0f;
+  float ny = 1.0f;
+  float nz = 0.0f;
+  float dx = ay * nz - az * ny;
+  float dy = az * nx - ax * nz;
+  float dz = ax * ny - ay * nx;
+  float dl = std::sqrt(dx * dx + dy * dy + dz * dz);
+  if (dl < 1e-4f) {
+    nx = 1.0f;
+    ny = 0.0f;
+    nz = 0.0f;
+    dx = ay * nz - az * ny;
+    dy = az * nx - ax * nz;
+    dz = ax * ny - ay * nx;
+    dl = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (dl < 1e-4f) {
+      return 0xFFFFFFFFu;
+    }
+  }
+  dx /= dl;
+  dy /= dl;
+  dz /= dl;
+  if (minLimit < -3.14159265f) {
+    minLimit = -3.14159265f;
+  }
+  if (minLimit > 0.0f) {
+    minLimit = 0.0f;
+  }
+  if (maxLimit < 0.0f) {
+    maxLimit = 0.0f;
+  }
+  if (maxLimit > 3.14159265f) {
+    maxLimit = 3.14159265f;
+  }
+  Impl* p = impl;
+  std::lock_guard<std::mutex> lock(p->listMutex);
+  const JPH::BodyID idA = p->slots[handleA - 1].bodyId;
+  const JPH::BodyID idB = p->slots[handleB - 1].bodyId;
+  JPH::BodyLockWrite lockA(p->system.GetBodyLockInterface(), idA);
+  JPH::BodyLockWrite lockB(p->system.GetBodyLockInterface(), idB);
+  if (!lockA.Succeeded() || !lockB.Succeeded()) {
+    return 0xFFFFFFFFu;
+  }
+  JPH::HingeConstraintSettings settings;
+  settings.mSpace = JPH::EConstraintSpace::WorldSpace;
+  settings.mPoint1 = JPH::RVec3(worldPivot[0], worldPivot[1], worldPivot[2]);
+  settings.mHingeAxis1 = JPH::Vec3(ax, ay, az);
+  settings.mNormalAxis1 = JPH::Vec3(dx, dy, dz);
+  settings.mPoint2 = JPH::RVec3(worldPivot[0], worldPivot[1], worldPivot[2]);
+  settings.mHingeAxis2 = JPH::Vec3(ax, ay, az);
+  settings.mNormalAxis2 = JPH::Vec3(dx, dy, dz);
+  settings.mLimitsMin = minLimit;
+  settings.mLimitsMax = maxLimit;
+  JPH::Constraint* c = settings.Create(lockA.GetBody(), lockB.GetBody());
+  if (c == nullptr) {
+    return 0xFFFFFFFFu;
+  }
+  p->system.AddConstraint(c);
+  uint32_t slot = 0xFFFFFFFFu;
+  if (!p->consFree.empty()) {
+    slot = p->consFree.back();
+    p->consFree.pop_back();
+  } else {
+    slot = static_cast<uint32_t>(p->cons.size());
+    p->cons.emplace_back();
+  }
+  p->cons[slot].ptr = c;
+  p->cons[slot].active = true;
+  ++p->liveCons;
+  return slot + 1;
+}
+void PhysicsWorld::DestroyConstraint(uint32_t handle) {
+  if (!initialized || impl == nullptr || handle == 0) {
+    return;
+  }
+  Impl* p = impl;
+  std::lock_guard<std::mutex> lock(p->listMutex);
+  uint32_t slot = handle - 1;
+  if (slot >= p->cons.size() || !p->cons[slot].active) {
+    return;
+  }
+  if (p->cons[slot].ptr != nullptr) {
+    p->system.RemoveConstraint(p->cons[slot].ptr);
+    delete p->cons[slot].ptr;
+    p->cons[slot].ptr = nullptr;
+  }
+  p->cons[slot].active = false;
+  p->consFree.push_back(slot);
+  --p->liveCons;
+}
+size_t PhysicsWorld::ConstraintCount() const {
+  if (!initialized || impl == nullptr) {
+    return 0;
+  }
+  return impl->liveCons;
 }
 }

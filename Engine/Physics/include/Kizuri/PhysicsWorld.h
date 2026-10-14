@@ -44,6 +44,10 @@ public:
   float Alpha() const { return stepAlpha; }
   bool GetPose(uint32_t handle, float pos[3], float quat[4]) const;
   bool Raycast(const float origin[3], const float dir[3], float maxDist, float hitPos[3], float hitNormal[3], uint32_t* outHandle) const;
+  uint32_t AddPointConstraint(uint32_t handleA, uint32_t handleB, const float worldPivot[3]);
+  uint32_t AddHingeConstraint(uint32_t handleA, uint32_t handleB, const float worldPivot[3], const float worldAxis[3], float minLimit, float maxLimit);
+  void DestroyConstraint(uint32_t handle);
+  size_t ConstraintCount() const;
 private:
   struct Impl;
   Impl* impl;

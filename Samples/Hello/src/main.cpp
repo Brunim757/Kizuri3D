@@ -5,6 +5,7 @@
 #include "Kizuri/Audio.h"
 #include "Kizuri/Scripting.h"
 #include "Kizuri/Allocator.h"
+#include "Kizuri/PhysicsWorld.h"
 #include "Kizuri/JobSystem.h"
 #include "Kizuri/Origin.h"
 #include "Kizuri/Logger.h"
@@ -1989,8 +1990,208 @@ bool TestTriplanar() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
-bool TestMeshValidation() {
-  Kizuri::MeshAssetData bad;
+bool TestPhysicsFall() {
+  Kizuri::JobSystem jobs;
+  if (!jobs.Initialize()) {
+    return false;
+  }
+  Kizuri::PhysicsWorld world;
+  if (!world.Initialize(&jobs)) {
+    jobs.Shutdown();
+    return false;
+  }
+  Kizuri::PhysBodyDesc desc;
+  desc.motion = Kizuri::PhysMotionType::Dynamic;
+  desc.mass = 1.0f;
+  desc.collider = Kizuri::PhysColliderType::Sphere;
+  desc.extents[0] = 0.5f;
+  desc.extents[1] = 0.5f;
+  desc.extents[2] = 0.5f;
+  float pos[3] = { 0.0f, 10.0f, 0.0f };
+  float quat[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+  uint32_t body = world.CreateBody(desc, pos, quat);
+  bool ok = body != 0xFFFFFFFFu && world.HasBody(body) && world.BodyCount() == 1;
+  for (int i = 0; i < 60 && ok; ++i) {
+    world.Step(1.0f / 60.0f);
+  }
+  float p1[3] = { 0.0f, 0.0f, 0.0f };
+  float q1[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+  ok = ok && world.GetPose(body, p1, q1) && p1[1] < 9.0f;
+  world.DestroyBody(body);
+  ok = ok && !world.HasBody(body) && world.BodyCount() == 0;
+  world.Shutdown();
+  jobs.Shutdown();
+  return ok;
+}
+bool TestPhysicsFloor() {
+  Kizuri::JobSystem jobs;
+  if (!jobs.Initialize()) {
+    return false;
+  }
+  Kizuri::PhysicsWorld world;
+  if (!world.Initialize(&jobs)) {
+    jobs.Shutdown();
+    return false;
+  }
+  Kizuri::PhysBodyDesc floor;
+  floor.motion = Kizuri::PhysMotionType::Static;
+  floor.collider = Kizuri::PhysColliderType::Box;
+  floor.extents[0] = 5.0f;
+  floor.extents[1] = 0.5f;
+  floor.extents[2] = 5.0f;
+  float fpos[3] = { 0.0f, -0.5f, 0.0f };
+  float fquat[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+  uint32_t floorBody = world.CreateBody(floor, fpos, fquat);
+  Kizuri::PhysBodyDesc box;
+  box.motion = Kizuri::PhysMotionType::Dynamic;
+  box.mass = 2.0f;
+  box.collider = Kizuri::PhysColliderType::Box;
+  box.extents[0] = 0.5f;
+  box.extents[1] = 0.5f;
+  box.extents[2] = 0.5f;
+  float bpos[3] = { 0.0f, 5.0f, 0.0f };
+  float bquat[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+  uint32_t boxBody = world.CreateBody(box, bpos, bquat);
+  bool ok = floorBody != 0xFFFFFFFFu && boxBody != 0xFFFFFFFFu;
+  for (int i = 0; i < 300 && ok; ++i) {
+    world.Step(1.0f / 60.0f);
+  }
+  float p1[3] = { 0.0f, 0.0f, 0.0f };
+  float q1[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+  ok = ok && world.GetPose(boxBody, p1, q1) && p1[1] > 0.3f && p1[1] < 0.7f;
+  world.Shutdown();
+  jobs.Shutdown();
+  return ok;
+}
+bool TestPhysicsRaycast() {
+  Kizuri::JobSystem jobs;
+  if (!jobs.Initialize()) {
+    return false;
+  }
+  Kizuri::PhysicsWorld world;
+  if (!world.Initialize(&jobs)) {
+    jobs.Shutdown();
+    return false;
+  }
+  Kizuri::PhysBodyDesc floor;
+  floor.motion = Kizuri::PhysMotionType::Static;
+  floor.collider = Kizuri::PhysColliderType::Box;
+  floor.extents[0] = 5.0f;
+  floor.extents[1] = 0.5f;
+  floor.extents[2] = 5.0f;
+  float fpos[3] = { 0.0f, -0.5f, 0.0f };
+  float fquat[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+  uint32_t floorBody = world.CreateBody(floor, fpos, fquat);
+  bool ok = floorBody != 0xFFFFFFFFu;
+  float origin[3] = { 0.0f, 10.0f, 0.0f };
+  float dir[3] = { 0.0f, -1.0f, 0.0f };
+  float hitPos[3] = { 0.0f, 0.0f, 0.0f };
+  float hitNormal[3] = { 0.0f, 0.0f, 0.0f };
+  uint32_t hitBody = 0;
+  ok = ok && world.Raycast(origin, dir, 20.0f, hitPos, hitNormal, &hitBody);
+  ok = ok && hitBody == floorBody && hitPos[1] > -0.1f && hitPos[1] < 0.1f && hitNormal[1] > 0.9f;
+  float up[3] = { 0.0f, 1.0f, 0.0f };
+  ok = ok && !world.Raycast(origin, up, 20.0f, hitPos, hitNormal, nullptr);
+  world.Shutdown();
+  jobs.Shutdown();
+  return ok;
+}
+bool TestRagdoll() {
+  Kizuri::JobSystem jobs;
+  if (!jobs.Initialize()) {
+    return false;
+  }
+  Kizuri::PhysicsWorld world;
+  if (!world.Initialize(&jobs)) {
+    jobs.Shutdown();
+    return false;
+  }
+  Kizuri::PhysBodyDesc seg;
+  seg.motion = Kizuri::PhysMotionType::Dynamic;
+  seg.mass = 1.0f;
+  seg.collider = Kizuri::PhysColliderType::Box;
+  seg.extents[0] = 0.25f;
+  seg.extents[1] = 0.5f;
+  seg.extents[2] = 0.25f;
+  float q[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+  float p0[3] = { 0.0f, 5.0f, 0.0f };
+  float p1[3] = { 0.0f, 6.2f, 0.0f };
+  float p2[3] = { 0.0f, 7.4f, 0.0f };
+  uint32_t b0 = world.CreateBody(seg, p0, q);
+  uint32_t b1 = world.CreateBody(seg, p1, q);
+  uint32_t b2 = world.CreateBody(seg, p2, q);
+  bool ok = b0 != 0xFFFFFFFFu && b1 != 0xFFFFFFFFu && b2 != 0xFFFFFFFFu;
+  float axis[3] = { 1.0f, 0.0f, 0.0f };
+  float j0[3] = { 0.0f, 5.6f, 0.0f };
+  float j1[3] = { 0.0f, 6.8f, 0.0f };
+  uint32_t c0 = world.AddHingeConstraint(b0, b1, j0, axis, -0.5f, 0.5f);
+  uint32_t c1 = world.AddHingeConstraint(b1, b2, j1, axis, -0.5f, 0.5f);
+  ok = ok && c0 != 0xFFFFFFFFu && c1 != 0xFFFFFFFFu && world.ConstraintCount() == 2;
+  for (int i = 0; i < 300 && ok; ++i) {
+    world.Step(1.0f / 60.0f);
+  }
+  float pa[3] = { 0.0f, 0.0f, 0.0f };
+  float pb[3] = { 0.0f, 0.0f, 0.0f };
+  float qa[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+  float qb[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+  ok = ok && world.GetPose(b0, pa, qa) && world.GetPose(b2, pb, qb);
+  bool finite = true;
+  const float* all[2] = { pa, pb };
+  for (int k = 0; k < 2 && finite; ++k) {
+    for (int c = 0; c < 3; ++c) {
+      if (!(all[k][c] > -1000.0f && all[k][c] < 1000.0f)) {
+        finite = false;
+      }
+    }
+  }
+  ok = ok && finite && pa[1] < 5.0f && pb[1] < 7.4f;
+  world.DestroyConstraint(c0);
+  ok = ok && world.ConstraintCount() == 1;
+  world.Shutdown();
+  jobs.Shutdown();
+  return ok;
+}
+bool TestRigidbodySerialize() { Kizuri::Scene scene;
+  Kizuri::EntityId id = scene.CreateEntity("phys");
+  Kizuri::Entity* e = scene.Get(id);
+  if (e == nullptr) {
+    return false;
+  }
+  e->hasRigidbody = true;
+  e->rigidbody.motionType = 2;
+  e->rigidbody.mass = 3.5f;
+  e->rigidbody.colliderType = 2;
+  e->rigidbody.extents[0] = 0.4f;
+  e->rigidbody.extents[1] = 0.9f;
+  e->rigidbody.extents[2] = 0.4f;
+  e->rigidbody.friction = 0.7f;
+  e->rigidbody.restitution = 0.2f;
+  const char* tmp = "kizuri_test_rigidbody_tmp.kzscene";
+  if (!Kizuri::SaveSceneToFile(scene, tmp)) {
+    return false;
+  }
+  Kizuri::Scene back;
+  bool ok = Kizuri::LoadSceneFromFile(back, tmp, nullptr);
+  std::remove(tmp);
+  if (!ok) {
+    return false;
+  }
+  std::vector<Kizuri::EntityId> all = back.All();
+  for (size_t i = 0; i < all.size(); ++i) {
+    const Kizuri::Entity* be = back.Get(all[i]);
+    if (be != nullptr && be->hasRigidbody) {
+      ok = ok && be->rigidbody.motionType == 2;
+      ok = ok && be->rigidbody.mass == 3.5f;
+      ok = ok && be->rigidbody.colliderType == 2;
+      ok = ok && be->rigidbody.extents[1] == 0.9f;
+      ok = ok && be->rigidbody.friction == 0.7f;
+      ok = ok && be->rigidbody.restitution == 0.2f;
+      return ok;
+    }
+  }
+  return false;
+}
+bool TestMeshValidation() { Kizuri::MeshAssetData bad;
   bad.positions = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
   bad.normals = { 0, 0, 1, 0, 0, 1, 0, 0, 1 };
   bad.uvs = { 0, 0, 1, 0, 0, 1 };
@@ -9094,6 +9295,11 @@ int main() {
   failures += Check("TemporalUpsampling", TestTemporalUpsampling());
   failures += Check("MaterialNodes", TestMaterialNodes());
   failures += Check("MeshValidation", TestMeshValidation());
+  failures += Check("PhysicsFall", TestPhysicsFall());
+  failures += Check("PhysicsFloor", TestPhysicsFloor());
+  failures += Check("PhysicsRaycast", TestPhysicsRaycast());
+  failures += Check("RigidbodySerialize", TestRigidbodySerialize());
+  failures += Check("Ragdoll", TestRagdoll());
   failures += Check("LodCoverage", TestLodCoverage());
   failures += Check("Triplanar", TestTriplanar());
   failures += Check("VirtualTexture", TestVirtualTexture());
