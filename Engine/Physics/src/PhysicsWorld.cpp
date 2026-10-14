@@ -582,7 +582,6 @@ void PhysicsWorld::DestroyConstraint(uint32_t handle) {
   }
   if (p->cons[slot].ptr != nullptr) {
     p->system.RemoveConstraint(p->cons[slot].ptr);
-    delete p->cons[slot].ptr;
     p->cons[slot].ptr = nullptr;
   }
   p->cons[slot].active = false;
