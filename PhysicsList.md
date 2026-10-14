@@ -2,43 +2,43 @@
 
 ## 1. Integração Jolt
 
-- [ ] FetchContent Jolt (v5.0.0) no ThirdParty.cmake
-- [ ] Biblioteca KizuriPhysics (Engine/Physics)
-- [ ] Trace/Assert handlers do Jolt
-- [ ] Broadphase layers (estático/dinâmico) + filtros
-- [ ] TempAllocator (10MB)
-- [ ] Adaptador JobSystem Jolt → enkiTS (scheduler único, sem threads extras)
-- [ ] Factory + registro de tipos
+- [x] FetchContent Jolt (v5.0.0) no ThirdParty.cmake
+- [x] Biblioteca KizuriPhysics (Engine/Physics)
+- [x] Trace/Assert handlers do Jolt
+- [x] Broadphase layers (estático/dinâmico) + filtros
+- [x] TempAllocator (10MB)
+- [x] Adaptador JobSystem Jolt → enkiTS (scheduler único, sem threads extras)
+- [x] Factory + registro de tipos
 
 ## 2. Corpos Rígidos
 
-- [ ] Criação/destruição de corpos (static/dynamic/kinematic)
-- [ ] Massa customizada + inércia calculada
-- [ ] Atrito e restituição por corpo
-- [ ] Teleporte de estáticos/cinemáticos
-- [ ] Alvos de movimento cinemático (MoveKinematic por substep)
-- [ ] Mapa entidade → corpo com handles + geração
+- [x] Criação/destruição de corpos (static/dynamic/kinematic)
+- [x] Massa customizada + inércia calculada
+- [x] Atrito e restituição por corpo
+- [x] Teleporte de estáticos/cinemáticos
+- [x] Alvos de movimento cinemático (MoveKinematic por substep)
+- [x] Mapa entidade → corpo com handles + geração
 
 ## 3. Colisores
 
-- [ ] Box
-- [ ] Sphere
-- [ ] Capsule
-- [ ] Mesh (triângulos, estático)
+- [x] Box
+- [x] Sphere
+- [x] Capsule
+- [x] Mesh (triângulos, estático)
 
 ## 4. Simulação
 
-- [ ] Passo fixo 60Hz com acumulador (máx 4 substeps)
-- [ ] Interpolação posição/rotação passada ao render (anti-tremor)
-- [ ] Gravidade configurável
-- [ ] Velocidade de plataforma aplicada antes da colisão (MoveKinematic)
+- [x] Passo fixo 60Hz com acumulador (máx 4 substeps)
+- [x] Interpolação posição/rotação passada ao render (anti-tremor)
+- [x] Gravidade configurável
+- [x] Velocidade de plataforma aplicada antes da colisão (MoveKinematic)
 
 ## 5. Queries
 
-- [ ] Raycast (posição, normal, corpo atingido)
-- [ ] Teste: queda livre (gravidade reduz Y)
-- [ ] Teste: caixa repousa no chão (altura + repouso)
-- [ ] Teste: raycast acerta o chão
+- [x] Raycast (posição, normal, corpo atingido)
+- [x] Teste: queda livre (gravidade reduz Y)
+- [x] Teste: caixa repousa no chão (altura + repouso)
+- [x] Teste: raycast acerta o chão
 
 ## 6. Ragdoll / Joints
 
@@ -48,13 +48,13 @@
 
 ## 7. Editor
 
-- [ ] Componente Rigidbody no ECS (segue padrão hasX)
-- [ ] Undo/Redo (Add/Set/Remove via EditQueue)
-- [ ] Inspector de Rigidbody (tipo, massa, colisor, tamanhos, atrito)
-- [ ] Serialização RIGIDBODY na cena
-- [ ] Wireframe de colisores no Viewport (box/sphere/capsule)
-- [ ] Toggle Simulate no viewport + passo por frame
-- [ ] Poses interpoladas usadas no render sem sujar a cena
+- [x] Componente Rigidbody no ECS (segue padrão hasX)
+- [x] Undo/Redo (Add/Set/Remove via EditQueue)
+- [x] Inspector de Rigidbody (tipo, massa, colisor, tamanhos, atrito)
+- [x] Serialização RIGIDBODY na cena
+- [x] Wireframe de colisores no Viewport (box/sphere/capsule)
+- [x] Toggle Simulate no viewport + passo por frame
+- [x] Poses interpoladas usadas no render sem sujar a cena
 
 ## 8. Fora do escopo (v1)
 
