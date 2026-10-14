@@ -2131,6 +2131,14 @@ bool TestRagdoll() {
   ok = ok && c0 != 0xFFFFFFFFu && c1 != 0xFFFFFFFFu && world.ConstraintCount() == 2;
   std::printf("RAGDOLL stage 1 bodies+hinges ok=%d\n", ok ? 1 : 0);
   std::fflush(stdout);
+  world.DestroyConstraint(c0);
+  world.DestroyConstraint(c1);
+  std::printf("RAGDOLL stage 1b early destroy ok=%d\n", world.ConstraintCount() == 0 ? 1 : 0);
+  std::fflush(stdout);
+  ok = ok && world.ConstraintCount() == 0;
+  c0 = world.AddHingeConstraint(b0, b1, j0, axis, -0.5f, 0.5f);
+  c1 = world.AddHingeConstraint(b1, b2, j1, axis, -0.5f, 0.5f);
+  ok = ok && c0 != 0xFFFFFFFFu && c1 != 0xFFFFFFFFu && world.ConstraintCount() == 2;
   for (int i = 0; i < 300 && ok; ++i) {
     world.Step(1.0f / 60.0f);
     if (i == 150) {
