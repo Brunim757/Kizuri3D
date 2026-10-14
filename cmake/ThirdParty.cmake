@@ -129,6 +129,9 @@ FetchContent_Declare(
   SOURCE_SUBDIR Build
 )
 FetchContent_MakeAvailable(Jolt)
+if(MSVC)
+  target_compile_options(Jolt PRIVATE /WX-)
+endif()
 FetchContent_GetProperties(imgui)
 if(NOT imgui_POPULATED)
   FetchContent_Populate(imgui)
