@@ -2097,6 +2097,8 @@ bool TestPhysicsRaycast() {
   return ok;
 }
 bool TestRagdoll() {
+  std::printf("RAGDOLL stage 0\n");
+  std::fflush(stdout);
   Kizuri::JobSystem jobs;
   if (!jobs.Initialize()) {
     return false;
@@ -2127,9 +2129,17 @@ bool TestRagdoll() {
   uint32_t c0 = world.AddHingeConstraint(b0, b1, j0, axis, -0.5f, 0.5f);
   uint32_t c1 = world.AddHingeConstraint(b1, b2, j1, axis, -0.5f, 0.5f);
   ok = ok && c0 != 0xFFFFFFFFu && c1 != 0xFFFFFFFFu && world.ConstraintCount() == 2;
+  std::printf("RAGDOLL stage 1 bodies+hinges ok=%d\n", ok ? 1 : 0);
+  std::fflush(stdout);
   for (int i = 0; i < 300 && ok; ++i) {
     world.Step(1.0f / 60.0f);
+    if (i == 150) {
+      std::printf("RAGDOLL stage 2 mid\n");
+      std::fflush(stdout);
+    }
   }
+  std::printf("RAGDOLL stage 3 stepped\n");
+  std::fflush(stdout);
   float pa[3] = { 0.0f, 0.0f, 0.0f };
   float pb[3] = { 0.0f, 0.0f, 0.0f };
   float qa[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
