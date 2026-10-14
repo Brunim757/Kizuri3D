@@ -37,6 +37,9 @@ public:
   JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const override {
     return JPH::BroadPhaseLayer(inLayer);
   }
+  const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer inLayer) const override {
+    return inLayer == JPH::BroadPhaseLayer(1) ? "Moving" : "NonMoving";
+  }
 };
 class PhysObjectVsBroadPhase final : public JPH::ObjectVsBroadPhaseLayerFilter {
 public:
@@ -58,7 +61,7 @@ public:
 static void PhysTrace(const char* msg, ...) {
   (void)msg;
 }
-static bool PhysAssert(const char* expr, const char* file, int line, const char* msg) {
+static bool PhysAssert(const char* expr, const char* msg, const char* file, JPH::uint line) {
   (void)expr;
   (void)file;
   (void)line;
@@ -130,7 +133,7 @@ void PhysicsWorld::Shutdown() {
       JPH::BodyInterface& bi = p->system.GetBodyInterface();
       for (size_t i = 0; i < p->slots.size(); ++i) {
         if (p->slots[i].active) {
-          bi.RemoveBody(p->slots[i].bodyId, JPH::EActivation::DontActivate);
+          bi.RemoveBody(p->slots[i].bodyId);
           bi.DestroyBody(p->slots[i].bodyId);
           p->slots[i].active = false;
         }
@@ -193,7 +196,7 @@ uint32_t PhysicsWorld::CreateBody(const PhysBodyDesc& desc, const float pos[3], 
   } else if (desc.motion == PhysMotionType::Kinematic) {
     motion = JPH::EMotionType::Kinematic;
   }
-  JPH::BodyCreationSettings settings(shape.Get(), JPH::RVec3(pos[0], pos[1], pos[2]), JPH::Quat(quat[0], quat[1], quat[2], quat[3]), motion, layer);
+  JPH::BodyCreationSettings settings(shape.GetPtr(), JPH::RVec3(pos[0], pos[1], pos[2]), JPH::Quat(quat[0], quat[1], quat[2], quat[3]), motion, layer);
   settings.mFriction = desc.friction;
   settings.mRestitution = desc.restitution;
   if (desc.motion == PhysMotionType::Dynamic) {
@@ -244,7 +247,7 @@ void PhysicsWorld::DestroyBody(uint32_t handle) {
     return;
   }
   JPH::BodyInterface& bi = p->system.GetBodyInterface();
-  bi.RemoveBody(p->slots[slot].bodyId, JPH::EActivation::DontActivate);
+  bi.RemoveBody(p->slots[slot].bodyId);
   bi.DestroyBody(p->slots[slot].bodyId);
   p->slots[slot].active = false;
   p->freeList.push_back(slot);
@@ -388,7 +391,7 @@ bool PhysicsWorld::Raycast(const float origin[3], const float dir[3], float maxD
   JPH::RRayCast ray(JPH::RVec3(origin[0], origin[1], origin[2]), JPH::Vec3(dir[0] / len * maxDist, dir[1] / len * maxDist, dir[2] / len * maxDist));
   JPH::RayCastResult hit;
   bool had = impl->system.GetNarrowPhaseQuery().CastRay(ray, hit);
-  if (!had || !hit.mBodyID.IsValid()) {
+  if (!had || hit.mBodyID.IsInvalid()) {
     return false;
   }
   float f = hit.mFraction;
