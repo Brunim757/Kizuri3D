@@ -5,6 +5,10 @@ namespace Kizuri {
 struct JobSystemEnki::TaskSlot : public enki::ITaskSet {
   JPH::JobSystem::Job* joltJob = nullptr;
   JobSystemEnki* owner = nullptr;
+  TaskSlot() {
+    m_SetSize = 1;
+    m_MinRange = 1;
+  }
   void ExecuteRange(enki::TaskSetPartition range, uint32_t threadnum) override {
     (void)range;
     (void)threadnum;
