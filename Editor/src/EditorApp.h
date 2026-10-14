@@ -13,6 +13,8 @@
 #include "Kizuri/MeshLoader.h"
 #include "Kizuri/DeferredRenderer.h"
 #include "Kizuri/QualityPreset.h"
+#include "Kizuri/JobSystem.h"
+#include "Kizuri/PhysicsWorld.h"
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -26,6 +28,19 @@ struct EditorApp {
   LogStore log;
   NotificationCenter notifications;
   AssetDatabase assets;
+  JobSystem physJobs;
+  PhysicsWorld physWorld;
+  bool physReady;
+  bool viewSimulate;
+  struct PhysEntry {
+    uint32_t body = 0;
+    uint64_t descHash = 0;
+    float lastPos[3] = { 0.0f, 0.0f, 0.0f };
+    float lastRot[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    bool hasLast = false;
+  };
+  std::unordered_map<EntityId, PhysEntry, EntityIdHash> physBodies;
+  void SyncPhysics(float dt);
   bool showNotifHistory;
   EditQueue edits;
   UndoStack undo;
@@ -161,6 +176,7 @@ struct EditorApp {
   int viewDebug;
   EntityId soloLightId;
   bool viewShowBounds;
+  bool viewShowPhysics;
   bool viewShowLod;
   bool viewShowProbes;
   float viewX;

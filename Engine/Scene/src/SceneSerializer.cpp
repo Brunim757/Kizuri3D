@@ -210,6 +210,10 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
       const LightmapData& l = e->lightmap;
       std::fprintf(fp, "LIGHTMAP %.9g \"%s\"\n", l.intensity, EscapeName(l.texGuid).c_str());
     }
+    if (e->hasRigidbody) {
+      const RigidbodyData& r = e->rigidbody;
+      std::fprintf(fp, "RIGIDBODY %d %.9g %d %.9g %.9g %.9g %.9g %.9g\n", r.motionType, r.mass, r.colliderType, r.extents[0], r.extents[1], r.extents[2], r.friction, r.restitution);
+    }
     if (e->hasProbe) {
       const ProbeData& p = e->probe;
       std::fprintf(fp, "PROBE %.9g %.9g %.9g %.9g\n", p.size[0], p.size[1], p.size[2], p.intensity);
@@ -268,6 +272,8 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
     bool hasLod;
     LightmapData lightmap;
     bool hasLightmap;
+    RigidbodyData rigidbody;
+    bool hasRigidbody;
     ProbeData probe;
     bool hasProbe;
     PostData post;
@@ -303,6 +309,7 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       MakeDefaultDecal(pe.decal);
       MakeDefaultLod(pe.lod);
       MakeDefaultLightmap(pe.lightmap);
+      MakeDefaultRigidbody(pe.rigidbody);
       MakeDefaultProbe(pe.probe);
       MakeDefaultPost(pe.post);
       MakeDefaultFog(pe.fog);
@@ -313,6 +320,7 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       pe.hasDecal = false;
       pe.hasLod = false;
       pe.hasLightmap = false;
+      pe.hasRigidbody = false;
       pe.hasProbe = false;
       pe.hasPost = false;
       pe.hasFog = false;
@@ -1062,6 +1070,27 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
         current->hasLightmap = true;
         continue;
       }
+      if (field == "RIGIDBODY") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        float rv[8] = { 2.0f, 1.0f, 0.0f, 0.5f, 0.5f, 0.5f, 0.5f, 0.0f };
+        if (!ParseFloats(s, pos, rv, 8)) {
+          failed = true;
+          break;
+        }
+        MakeDefaultRigidbody(current->rigidbody);
+        int mt = static_cast<int>(rv[0]);
+        current->rigidbody.motionType = mt < 0 ? 0 : (mt > 2 ? 2 : mt);
+        current->rigidbody.mass = rv[1] < 0.01f ? 1.0f : rv[1];
+        int ct = static_cast<int>(rv[2]);
+        current->rigidbody.colliderType = ct < 0 ? 0 : (ct > 3 ? 3 : ct);
+        current->rigidbody.extents[0] = rv[3] < 0.01f ? 0.5f : rv[3];
+        current->rigidbody.extents[1] = rv[4] < 0.01f ? 0.5f : rv[4];
+        current->rigidbody.extents[2] = rv[5] < 0.01f ? 0.5f : rv[5];
+        current->rigidbody.friction = rv[6] < 0.0f ? 0.0f : rv[6];
+        current->rigidbody.restitution = rv[7] < 0.0f ? 0.0f : rv[7];
+        current->hasRigidbody = true;
+        continue;
+      }
       if (field == "PROBE") {
         size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
         float pv[4] = { 5.0f, 5.0f, 5.0f, 1.0f };
@@ -1191,6 +1220,8 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       createdEntity->hasPost = pending[i].hasPost;
       createdEntity->fog = pending[i].fog;
       createdEntity->hasFog = pending[i].hasFog;
+      createdEntity->rigidbody = pending[i].rigidbody;
+      createdEntity->hasRigidbody = pending[i].hasRigidbody;
       createdEntity->isStatic = pending[i].isStatic;
     }
     created.push_back(id);

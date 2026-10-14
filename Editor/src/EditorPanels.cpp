@@ -798,7 +798,209 @@ std::unordered_set<EntityId, EntityIdHash> EditorApp::SubmitStaticBatches(const 
   renderer.SetStaticBatchInfo(drawn, saved);
   return done;
 }
-void EditorApp::SubmitSceneDraws(const float cpos[3]) { renderer.ClearLights();
+static void EulerDegToQuat(const float euler[3], float quat[4]) {
+  Transform t;
+  MakeIdentityTransform(t);
+  t.rotation[0] = euler[0];
+  t.rotation[1] = euler[1];
+  t.rotation[2] = euler[2];
+  float m[16];
+  ComposeMatrix(t, m);
+  float trace = m[0] + m[5] + m[10];
+  if (trace > 0.0f) {
+    float s = std::sqrt(trace + 1.0f) * 2.0f;
+    quat[3] = 0.25f * s;
+    quat[0] = (m[9] - m[6]) / s;
+    quat[1] = (m[2] - m[8]) / s;
+    quat[2] = (m[4] - m[1]) / s;
+  } else if (m[0] > m[5] && m[0] > m[10]) {
+    float s = std::sqrt(1.0f + m[0] - m[5] - m[10]) * 2.0f;
+    quat[3] = (m[9] - m[6]) / s;
+    quat[0] = 0.25f * s;
+    quat[1] = (m[1] + m[4]) / s;
+    quat[2] = (m[2] + m[8]) / s;
+  } else if (m[5] > m[10]) {
+    float s = std::sqrt(1.0f + m[5] - m[0] - m[10]) * 2.0f;
+    quat[3] = (m[2] - m[8]) / s;
+    quat[0] = (m[1] + m[4]) / s;
+    quat[1] = 0.25f * s;
+    quat[2] = (m[6] + m[9]) / s;
+  } else {
+    float s = std::sqrt(1.0f + m[10] - m[0] - m[5]) * 2.0f;
+    quat[3] = (m[4] - m[1]) / s;
+    quat[0] = (m[2] + m[8]) / s;
+    quat[1] = (m[6] + m[9]) / s;
+    quat[2] = 0.25f * s;
+  }
+  float l = std::sqrt(quat[0] * quat[0] + quat[1] * quat[1] + quat[2] * quat[2] + quat[3] * quat[3]);
+  if (l > 1e-9f) {
+    quat[0] /= l;
+    quat[1] /= l;
+    quat[2] /= l;
+    quat[3] /= l;
+  }
+}
+static void ComposeMatrixPQ(const float pos[3], const float quat[4], const float scale[3], float m[16]) {
+  float x = quat[0];
+  float y = quat[1];
+  float z = quat[2];
+  float w = quat[3];
+  float l = std::sqrt(x * x + y * y + z * z + w * w);
+  if (l < 1e-9f) {
+    x = 0.0f;
+    y = 0.0f;
+    z = 0.0f;
+    w = 1.0f;
+    l = 1.0f;
+  }
+  x /= l;
+  y /= l;
+  z /= l;
+  w /= l;
+  float xx = x * x;
+  float yy = y * y;
+  float zz = z * z;
+  float xy = x * y;
+  float xz = x * z;
+  float yz = y * z;
+  float wx = w * x;
+  float wy = w * y;
+  float wz = w * z;
+  m[0] = (1.0f - 2.0f * (yy + zz)) * scale[0];
+  m[1] = 2.0f * (xy + wz) * scale[0];
+  m[2] = 2.0f * (xz - wy) * scale[0];
+  m[3] = 0.0f;
+  m[4] = 2.0f * (xy - wz) * scale[1];
+  m[5] = (1.0f - 2.0f * (xx + zz)) * scale[1];
+  m[6] = 2.0f * (yz + wx) * scale[1];
+  m[7] = 0.0f;
+  m[8] = 2.0f * (xz + wy) * scale[2];
+  m[9] = 2.0f * (yz - wx) * scale[2];
+  m[10] = (1.0f - 2.0f * (xx + yy)) * scale[2];
+  m[11] = 0.0f;
+  m[12] = pos[0];
+  m[13] = pos[1];
+  m[14] = pos[2];
+  m[15] = 1.0f;
+}
+static uint64_t RigidbodyDescHash(const RigidbodyData& r, const std::string& meshGuid) {
+  uint64_t h = 1469598103934665603ull;
+  auto mix = [&h](const void* data, size_t bytes) {
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(data);
+    for (size_t i = 0; i < bytes; ++i) {
+      h ^= static_cast<uint64_t>(p[i]);
+      h *= 1099511628211ull;
+    }
+  };
+  mix(&r.motionType, sizeof(r.motionType));
+  mix(&r.mass, sizeof(r.mass));
+  mix(&r.colliderType, sizeof(r.colliderType));
+  mix(r.extents, sizeof(r.extents));
+  mix(&r.friction, sizeof(r.friction));
+  mix(&r.restitution, sizeof(r.restitution));
+  mix(meshGuid.data(), meshGuid.size());
+  return h == 0 ? 1 : h;
+}
+void EditorApp::SyncPhysics(float dt) {
+  if (!viewSimulate) {
+    return;
+  }
+  if (!physReady) {
+    if (!physJobs.Initialize()) {
+      viewSimulate = false;
+      return;
+    }
+    if (!physWorld.Initialize(&physJobs)) {
+      viewSimulate = false;
+      return;
+    }
+    physReady = true;
+  }
+  std::vector<EntityId> all = scene.All();
+  for (size_t i = 0; i < all.size(); ++i) {
+    Entity* e = scene.Get(all[i]);
+    if (e == nullptr || !e->hasRigidbody) {
+      continue;
+    }
+    float equat[4];
+    EulerDegToQuat(e->transform.rotation, equat);
+    uint64_t h = RigidbodyDescHash(e->rigidbody, e->meshGuid);
+    auto it = physBodies.find(e->id);
+    bool recreate = it == physBodies.end() || it->second.descHash != h || !physWorld.HasBody(it->second.body);
+    if (recreate) {
+      if (it != physBodies.end() && physWorld.HasBody(it->second.body)) {
+        physWorld.DestroyBody(it->second.body);
+      }
+      PhysBodyDesc desc;
+      desc.motion = e->rigidbody.motionType == 0 ? PhysMotionType::Static : (e->rigidbody.motionType == 1 ? PhysMotionType::Kinematic : PhysMotionType::Dynamic);
+      desc.mass = e->rigidbody.mass;
+      desc.collider = e->rigidbody.colliderType == 1 ? PhysColliderType::Sphere : (e->rigidbody.colliderType == 2 ? PhysColliderType::Capsule : (e->rigidbody.colliderType == 3 ? PhysColliderType::Mesh : PhysColliderType::Box));
+      desc.extents[0] = e->rigidbody.extents[0];
+      desc.extents[1] = e->rigidbody.extents[1];
+      desc.extents[2] = e->rigidbody.extents[2];
+      const MeshRecord* mrec = nullptr;
+      if (e->rigidbody.colliderType == 3 && e->hasMesh && !e->meshGuid.empty()) {
+        mrec = assets.GetByGuid(e->meshGuid);
+        if (mrec != nullptr && mrec->loaded) {
+          desc.meshVerts = mrec->data.positions.data();
+          desc.meshVertCount = mrec->data.positions.size() / 3;
+          desc.meshIndices = mrec->data.indices.data();
+          desc.meshIndexCount = mrec->data.indices.size();
+        } else {
+          continue;
+        }
+      }
+      desc.friction = e->rigidbody.friction;
+      desc.restitution = e->rigidbody.restitution;
+      uint32_t b = physWorld.CreateBody(desc, e->transform.position, equat);
+      if (b == 0xFFFFFFFFu) {
+        continue;
+      }
+      PhysEntry entry;
+      entry.body = b;
+      entry.descHash = h;
+      entry.lastPos[0] = e->transform.position[0];
+      entry.lastPos[1] = e->transform.position[1];
+      entry.lastPos[2] = e->transform.position[2];
+      entry.lastRot[0] = equat[0];
+      entry.lastRot[1] = equat[1];
+      entry.lastRot[2] = equat[2];
+      entry.lastRot[3] = equat[3];
+      entry.hasLast = true;
+      physBodies[e->id] = entry;
+    } else {
+      PhysEntry& entry = it->second;
+      bool moved = !entry.hasLast || entry.lastPos[0] != e->transform.position[0] || entry.lastPos[1] != e->transform.position[1] || entry.lastPos[2] != e->transform.position[2] || entry.lastRot[0] != equat[0] || entry.lastRot[1] != equat[1] || entry.lastRot[2] != equat[2] || entry.lastRot[3] != equat[3];
+      if (moved && e->rigidbody.motionType != 2) {
+        physWorld.TeleportBody(entry.body, e->transform.position, equat);
+      }
+      if (e->rigidbody.motionType == 1) {
+        physWorld.SetKinematicTarget(entry.body, e->transform.position, equat);
+      }
+      entry.lastPos[0] = e->transform.position[0];
+      entry.lastPos[1] = e->transform.position[1];
+      entry.lastPos[2] = e->transform.position[2];
+      entry.lastRot[0] = equat[0];
+      entry.lastRot[1] = equat[1];
+      entry.lastRot[2] = equat[2];
+      entry.lastRot[3] = equat[3];
+      entry.hasLast = true;
+    }
+  }
+  for (auto it = physBodies.begin(); it != physBodies.end();) {
+    Entity* e = scene.Get(it->first);
+    if (e == nullptr || !e->hasRigidbody) {
+      physWorld.DestroyBody(it->second.body);
+      it = physBodies.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  physWorld.Step(dt);
+}
+void EditorApp::SubmitSceneDraws(const float cpos[3]) {
+  SyncPhysics(frameDt);
+  renderer.ClearLights();
   renderer.SetFallbackLight(!soloLightId.IsValid());
   renderer.ClearFogVolumes();
   {
@@ -981,6 +1183,16 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) { renderer.ClearLights();
     }
     float world[16];
     ComposeMatrix(e->transform, world);
+    if (viewSimulate && physReady && e->hasRigidbody) {
+      auto pbit = physBodies.find(e->id);
+      if (pbit != physBodies.end()) {
+        float ppos[3] = { 0.0f, 0.0f, 0.0f };
+        float prot[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+        if (physWorld.GetPose(pbit->second.body, ppos, prot)) {
+          ComposeMatrixPQ(ppos, prot, e->transform.scale, world);
+        }
+      }
+    }
     if (!e->hasMesh || e->meshGuid.empty()) {
       continue;
     }
@@ -1824,6 +2036,54 @@ void EditorApp::DrawDebugOverlays() {
       float nsize[3] = { -hsize[0], -hsize[1], -hsize[2] };
       DrawBoxEdges(dl, world, nsize, hsize, &vf.m[0][0], &pf.m[0][0], viewX, viewY, viewW, viewH, IM_COL32(120, 200, 220, 200));
       ++drawn;
+    }
+    if (viewShowPhysics && e->hasRigidbody) {
+      ImU32 pcol = IM_COL32(255, 150, 60, 220);
+      if (e->rigidbody.colliderType == 0) {
+        float ex = e->rigidbody.extents[0] < 0.01f ? 0.5f : e->rigidbody.extents[0];
+        float ey = e->rigidbody.extents[1] < 0.01f ? 0.5f : e->rigidbody.extents[1];
+        float ez = e->rigidbody.extents[2] < 0.01f ? 0.5f : e->rigidbody.extents[2];
+        float nsize[3] = { -ex, -ey, -ez };
+        float hsize[3] = { ex, ey, ez };
+        DrawBoxEdges(dl, world, nsize, hsize, &vf.m[0][0], &pf.m[0][0], viewX, viewY, viewW, viewH, pcol);
+        ++drawn;
+      } else if (e->rigidbody.colliderType == 1) {
+        float radius = e->rigidbody.extents[0] < 0.01f ? 0.5f : e->rigidbody.extents[0];
+        float center[3] = { world[12], world[13], world[14] };
+        for (int ax = 0; ax < 3; ++ax) {
+          float prev[3] = { 0.0f, 0.0f, 0.0f };
+          bool hasPrev = false;
+          for (int s = 0; s <= 16; ++s) {
+            float a = static_cast<float>(s) * 6.2831853f / 16.0f;
+            float pt[3] = { center[0], center[1], center[2] };
+            pt[(ax + 1) % 3] += std::cos(a) * radius;
+            pt[(ax + 2) % 3] += std::sin(a) * radius;
+            if (hasPrev) {
+              float ax2 = 0.0f;
+              float ay2 = 0.0f;
+              float bx2 = 0.0f;
+              float by2 = 0.0f;
+              if (ProjectWorldToScreen(&vf.m[0][0], &pf.m[0][0], prev, viewX, viewY, viewW, viewH, ax2, ay2) &&
+                  ProjectWorldToScreen(&vf.m[0][0], &pf.m[0][0], pt, viewX, viewY, viewW, viewH, bx2, by2)) {
+                dl->AddLine(ImVec2(ax2, ay2), ImVec2(bx2, by2), pcol, 1.0f);
+              }
+            }
+            prev[0] = pt[0];
+            prev[1] = pt[1];
+            prev[2] = pt[2];
+            hasPrev = true;
+          }
+        }
+        ++drawn;
+      } else {
+        float ex = e->rigidbody.extents[0] < 0.01f ? 0.5f : e->rigidbody.extents[0];
+        float ey = e->rigidbody.extents[1] < 0.01f ? 0.5f : e->rigidbody.extents[1];
+        float ez = e->rigidbody.extents[2] < 0.01f ? 0.5f : e->rigidbody.extents[2];
+        float nsize[3] = { -ex, -ey, -ez };
+        float hsize[3] = { ex, ey, ez };
+        DrawBoxEdges(dl, world, nsize, hsize, &vf.m[0][0], &pf.m[0][0], viewX, viewY, viewW, viewH, pcol);
+        ++drawn;
+      }
     }
   }
 }
@@ -2841,7 +3101,57 @@ void EditorApp::DrawInspector() {
       edits.PushFog(e->id, fg);
     }
   }
-  if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal || !e->hasLod || !e->hasLightmap || !e->hasProbe || !e->hasPost || !e->hasFog) {
+  if (e->hasRigidbody) {
+    ImGui::Separator();
+    ImGui::Text("Rigidbody");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Remove##rigidbody")) {
+      std::unique_ptr<Command> cmd(new RemoveRigidbodyCmd(e->id));
+      undo.Execute(std::move(cmd), scene);
+    }
+    RigidbodyData rb = e->rigidbody;
+    bool rbChanged = false;
+    int motion = rb.motionType < 0 ? 0 : (rb.motionType > 2 ? 2 : rb.motionType);
+    if (ImGui::Combo("Motion", &motion, "Static\0Kinematic\0Dynamic\0")) {
+      rb.motionType = motion;
+      rbChanged = true;
+    }
+    if (rb.motionType == 2 && ImGui::DragFloat("Mass", &rb.mass, 0.1f, 0.01f, 1000.0f)) {
+      rbChanged = true;
+    }
+    int collider = rb.colliderType < 0 ? 0 : (rb.colliderType > 3 ? 3 : rb.colliderType);
+    if (ImGui::Combo("Collider", &collider, "Box\0Sphere\0Capsule\0Mesh\0")) {
+      rb.colliderType = collider;
+      rbChanged = true;
+    }
+    if (rb.colliderType == 0 && ImGui::DragFloat3("Half Extents", rb.extents, 0.05f, 0.01f, 100.0f)) {
+      rbChanged = true;
+    }
+    if (rb.colliderType == 1 && ImGui::DragFloat("Radius", &rb.extents[0], 0.05f, 0.01f, 100.0f)) {
+      rbChanged = true;
+    }
+    if (rb.colliderType == 2) {
+      if (ImGui::DragFloat("Radius", &rb.extents[0], 0.05f, 0.01f, 100.0f)) {
+        rbChanged = true;
+      }
+      if (ImGui::DragFloat("Half Height", &rb.extents[1], 0.05f, 0.01f, 100.0f)) {
+        rbChanged = true;
+      }
+    }
+    if (rb.colliderType == 3) {
+      ImGui::TextDisabled("Uses entity mesh triangles (static only)");
+    }
+    if (ImGui::DragFloat("Friction", &rb.friction, 0.01f, 0.0f, 2.0f)) {
+      rbChanged = true;
+    }
+    if (ImGui::DragFloat("Restitution", &rb.restitution, 0.01f, 0.0f, 1.0f)) {
+      rbChanged = true;
+    }
+    if (rbChanged) {
+      edits.PushRigidbody(e->id, rb);
+    }
+  }
+  if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal || !e->hasLod || !e->hasLightmap || !e->hasProbe || !e->hasPost || !e->hasFog || !e->hasRigidbody) {
     ImGui::Separator();
     if (ImGui::Button("Add Component")) {
       ImGui::OpenPopup("AddComponent");
@@ -2897,6 +3207,10 @@ void EditorApp::DrawInspector() {
       }
       if (!e->hasFog && ImGui::MenuItem("Fog Volume")) {
         std::unique_ptr<Command> cmd(new AddFogCmd(e->id));
+        undo.Execute(std::move(cmd), scene);
+      }
+      if (!e->hasRigidbody && ImGui::MenuItem("Rigidbody")) {
+        std::unique_ptr<Command> cmd(new AddRigidbodyCmd(e->id));
         undo.Execute(std::move(cmd), scene);
       }
       ImGui::EndPopup();

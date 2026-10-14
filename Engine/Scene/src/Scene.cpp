@@ -145,6 +145,16 @@ void MakeDefaultFog(FogData& f) {
   f.color[1] = 0.65f;
   f.color[2] = 0.7f;
 }
+void MakeDefaultRigidbody(RigidbodyData& r) {
+  r.motionType = 2;
+  r.mass = 1.0f;
+  r.colliderType = 0;
+  r.extents[0] = 0.5f;
+  r.extents[1] = 0.5f;
+  r.extents[2] = 0.5f;
+  r.friction = 0.5f;
+  r.restitution = 0.0f;
+}
 void ComposeMatrix(const Transform& t, float m[16]) {  float rx = t.rotation[0] * 0.01745329252f;
   float ry = t.rotation[1] * 0.01745329252f;
   float rz = t.rotation[2] * 0.01745329252f;

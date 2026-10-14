@@ -624,6 +624,11 @@ bool BuildMergedMesh(const std::vector<StaticMergePart>& parts, MeshAssetData& o
     if (static_cast<size_t>(p.indexOffset) + static_cast<size_t>(p.indexCount) > p.data->indices.size()) {
       return false;
     }
+    for (uint32_t k = 0; k < p.indexCount; ++k) {
+      if (p.data->indices[static_cast<size_t>(p.indexOffset) + k] >= vc) {
+        return false;
+      }
+    }
     totalVerts += vc;
     totalIdx += p.indexCount;
     if (totalVerts > 1000000 || totalIdx > 3000000) {
@@ -741,6 +746,11 @@ bool BuildMeshlets(MeshAssetData& data, std::vector<MeshletRange>& outRanges) {
   if (vcount == 0 || data.indices.size() < 768 || data.indices.size() % 3 != 0) {
     return false;
   }
+  for (size_t i = 0; i < data.indices.size(); ++i) {
+    if (data.indices[i] >= vcount) {
+      return false;
+    }
+  }
   if (data.normals.size() != vcount * 3) {
     return false;
   }
@@ -807,9 +817,11 @@ bool BuildMeshlets(MeshAssetData& data, std::vector<MeshletRange>& outRanges) {
           }
         }
       }
-      std::vector<unsigned char> triDone(triCount, 0);
+  std::vector<unsigned char> triDone(triCount, 0);
       std::vector<unsigned int> vertMark(vcount, 0);
+      std::vector<unsigned int> seenMark(triCount, 0);
       unsigned int curMark = 1;
+      unsigned int curSeen = 1;
       for (size_t seed = 0; seed < triCount; ++seed) {
         if (triDone[seed]) {
           continue;
@@ -823,6 +835,10 @@ bool BuildMeshlets(MeshAssetData& data, std::vector<MeshletRange>& outRanges) {
           if (triDone[t]) {
             continue;
           }
+          if (seenMark[t] == curSeen) {
+            continue;
+          }
+          seenMark[t] = curSeen;
           unsigned int v0 = idx[t * 3 + 0];
           unsigned int v1 = idx[t * 3 + 1];
           unsigned int v2 = idx[t * 3 + 2];
@@ -870,6 +886,11 @@ bool BuildMeshlets(MeshAssetData& data, std::vector<MeshletRange>& outRanges) {
         if (curMark == 0) {
           std::fill(vertMark.begin(), vertMark.end(), 0);
           curMark = 1;
+        }
+        ++curSeen;
+        if (curSeen == 0) {
+          std::fill(seenMark.begin(), seenMark.end(), 0);
+          curSeen = 1;
         }
         if (!ml.tris.empty()) {
           localMeshlets.push_back(ml);

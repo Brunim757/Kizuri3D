@@ -997,6 +997,91 @@ bool RemoveLodCmd::Revert(Scene& scene) {
 const char* RemoveLodCmd::Name() const {
   return "Remove LOD";
 }
+SetRigidbodyCmd::SetRigidbodyCmd(EntityId t, const RigidbodyData& b, const RigidbodyData& a)
+  : target(t)
+  , before(b)
+  , after(a) {
+}
+bool SetRigidbodyCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasRigidbody) {
+    return false;
+  }
+  e->rigidbody = after;
+  scene.MarkDirty();
+  return true;
+}
+bool SetRigidbodyCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasRigidbody) {
+    return false;
+  }
+  e->rigidbody = before;
+  scene.MarkDirty();
+  return true;
+}
+const char* SetRigidbodyCmd::Name() const {
+  return "Set Rigidbody";
+}
+AddRigidbodyCmd::AddRigidbodyCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultRigidbody(prevRb);
+}
+bool AddRigidbodyCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || e->hasRigidbody) {
+    return false;
+  }
+  prevRb = e->rigidbody;
+  prevHas = e->hasRigidbody;
+  e->hasRigidbody = true;
+  MakeDefaultRigidbody(e->rigidbody);
+  scene.MarkDirty();
+  return true;
+}
+bool AddRigidbodyCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->rigidbody = prevRb;
+  e->hasRigidbody = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* AddRigidbodyCmd::Name() const {
+  return "Add Rigidbody";
+}
+RemoveRigidbodyCmd::RemoveRigidbodyCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultRigidbody(prevRb);
+}
+bool RemoveRigidbodyCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasRigidbody) {
+    return false;
+  }
+  prevRb = e->rigidbody;
+  prevHas = e->hasRigidbody;
+  e->hasRigidbody = false;
+  scene.MarkDirty();
+  return true;
+}
+bool RemoveRigidbodyCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->rigidbody = prevRb;
+  e->hasRigidbody = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* RemoveRigidbodyCmd::Name() const {
+  return "Remove Rigidbody";
+}
 SetLightmapCmd::SetLightmapCmd(EntityId t, const LightmapData& b, const LightmapData& a)
   : target(t)
   , before(b)

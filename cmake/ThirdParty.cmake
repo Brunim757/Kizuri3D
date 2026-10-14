@@ -121,6 +121,14 @@ FetchContent_Declare(
   GIT_TAG 0.11.25
   GIT_SHALLOW TRUE
 )
+FetchContent_Declare(
+  Jolt
+  GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
+  GIT_TAG v5.0.0
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR Build
+)
+FetchContent_MakeAvailable(Jolt)
 FetchContent_GetProperties(imgui)
 if(NOT imgui_POPULATED)
   FetchContent_Populate(imgui)

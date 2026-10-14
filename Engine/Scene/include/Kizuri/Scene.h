@@ -141,8 +141,15 @@ struct MaterialData {  float albedo[3];
   MaterialGraph graph;
   bool useNodes = false;
 };
-struct DecalData {
-  float size[3];
+struct RigidbodyData {
+  int motionType = 0;
+  float mass = 1.0f;
+  int colliderType = 0;
+  float extents[3] = { 0.5f, 0.5f, 0.5f };
+  float friction = 0.5f;
+  float restitution = 0.0f;
+};
+struct DecalData {  float size[3];
   float life;
   std::string texGuid;
   int matMask;
@@ -203,6 +210,8 @@ struct Entity {
   bool hasPost;
   FogData fog;
   bool hasFog;
+  RigidbodyData rigidbody;
+  bool hasRigidbody;
   EntityId parent;
   std::vector<EntityId> children;
   bool isStatic = false;
@@ -249,6 +258,7 @@ void MakeDefaultLightmap(LightmapData& l);
 void MakeDefaultProbe(ProbeData& p);
 void MakeDefaultPost(PostData& p);
 void MakeDefaultFog(FogData& f);
+void MakeDefaultRigidbody(RigidbodyData& r);
 void EntityForward(const Transform& t, float dir[3]);
 void ComposeMatrix(const Transform& t, float m[16]);
 bool InvertMatrix4(const float m[16], float invOut[16]);

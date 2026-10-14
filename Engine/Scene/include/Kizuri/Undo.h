@@ -384,6 +384,39 @@ private:
   LodData prevLod;
   bool prevHas;
 };
+class SetRigidbodyCmd : public Command {
+public:
+  SetRigidbodyCmd(EntityId target, const RigidbodyData& before, const RigidbodyData& after);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  RigidbodyData before;
+  RigidbodyData after;
+};
+class AddRigidbodyCmd : public Command {
+public:
+  explicit AddRigidbodyCmd(EntityId target);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  RigidbodyData prevRb;
+  bool prevHas;
+};
+class RemoveRigidbodyCmd : public Command {
+public:
+  explicit RemoveRigidbodyCmd(EntityId target);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  RigidbodyData prevRb;
+  bool prevHas;
+};
 class SetLightmapCmd : public Command {
 public:
   SetLightmapCmd(EntityId target, const LightmapData& before, const LightmapData& after);

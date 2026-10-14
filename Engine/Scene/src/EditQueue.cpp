@@ -57,6 +57,15 @@ void EditQueue::PushLod(EntityId target, const LodData& value) {
   e.value = value;
   lodEdits.push_back(e);
 }
+void EditQueue::PushRigidbody(EntityId target, const RigidbodyData& value) {
+  if (!target.IsValid()) {
+    return;
+  }
+  RigidbodyEdit e;
+  e.target = target;
+  e.value = value;
+  rigidbodyEdits.push_back(e);
+}
 void EditQueue::PushStatic(EntityId target, bool value) {
   if (!target.IsValid()) {
     return;
@@ -140,6 +149,9 @@ bool DecalEqual(const DecalData& a, const DecalData& b) {
 bool LodEqual(const LodData& a, const LodData& b) {
   return a.farGuid == b.farGuid && a.nearDist == b.nearDist && a.farDist == b.farDist;
 }
+bool RigidbodyEqual(const RigidbodyData& a, const RigidbodyData& b) {
+  return a.motionType == b.motionType && a.mass == b.mass && a.colliderType == b.colliderType && a.extents[0] == b.extents[0] && a.extents[1] == b.extents[1] && a.extents[2] == b.extents[2] && a.friction == b.friction && a.restitution == b.restitution;
+}
 bool LightmapEqual(const LightmapData& a, const LightmapData& b) {
   return a.texGuid == b.texGuid && a.intensity == b.intensity;
 }
@@ -153,7 +165,7 @@ bool FogEqual(const FogData& a, const FogData& b) {
   return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.density == b.density && a.color[0] == b.color[0] && a.color[1] == b.color[1] && a.color[2] == b.color[2];
 }
 size_t EditQueue::Pending() const {
-  return edits.size() + lightEdits.size() + materialEdits.size() + partMaterialEdits.size() + decalEdits.size() + lodEdits.size() + lightmapEdits.size() + probeEdits.size() + postEdits.size() + fogEdits.size() + staticEdits.size();
+  return edits.size() + lightEdits.size() + materialEdits.size() + partMaterialEdits.size() + decalEdits.size() + lodEdits.size() + rigidbodyEdits.size() + lightmapEdits.size() + probeEdits.size() + postEdits.size() + fogEdits.size() + staticEdits.size();
 }
 size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
   size_t applied = 0;
@@ -311,6 +323,30 @@ size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
     }
   }
   lodEdits.clear();
+  for (size_t i = 0; i < rigidbodyEdits.size(); ++i) {
+    bool last = true;
+    for (size_t j = i + 1; j < rigidbodyEdits.size(); ++j) {
+      if (rigidbodyEdits[j].target == rigidbodyEdits[i].target) {
+        last = false;
+        break;
+      }
+    }
+    if (!last) {
+      continue;
+    }
+    const Entity* e = scene.Get(rigidbodyEdits[i].target);
+    if (e == nullptr || !e->hasRigidbody) {
+      continue;
+    }
+    if (RigidbodyEqual(e->rigidbody, rigidbodyEdits[i].value)) {
+      continue;
+    }
+    std::unique_ptr<Command> cmd(new SetRigidbodyCmd(rigidbodyEdits[i].target, e->rigidbody, rigidbodyEdits[i].value));
+    if (undo.Execute(std::move(cmd), scene)) {
+      ++applied;
+    }
+  }
+  rigidbodyEdits.clear();
   for (size_t i = 0; i < staticEdits.size(); ++i) {
     bool last = true;
     for (size_t j = i + 1; j < staticEdits.size(); ++j) {
@@ -440,6 +476,7 @@ void EditQueue::Clear() {
   partMaterialEdits.clear();
   decalEdits.clear();
   lodEdits.clear();
+  rigidbodyEdits.clear();
   lightmapEdits.clear();
   probeEdits.clear();
   postEdits.clear();

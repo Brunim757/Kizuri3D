@@ -1989,8 +1989,37 @@ bool TestTriplanar() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
-bool TestMaterialNodes() {
-  Kizuri::MaterialGraph graph;
+bool TestMeshValidation() {
+  Kizuri::MeshAssetData bad;
+  bad.positions = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
+  bad.normals = { 0, 0, 1, 0, 0, 1, 0, 0, 1 };
+  bad.uvs = { 0, 0, 1, 0, 0, 1 };
+  bad.tangents = { 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1 };
+  bad.indices = { 0, 1, 99 };
+  std::vector<Kizuri::StaticMergePart> parts;
+  Kizuri::StaticMergePart part;
+  part.data = &bad;
+  part.indexOffset = 0;
+  part.indexCount = 3;
+  parts.push_back(part);
+  Kizuri::MeshAssetData merged;
+  if (Kizuri::BuildMergedMesh(parts, merged)) {
+    return false;
+  }
+  Kizuri::MeshAssetData big = bad;
+  big.indices.clear();
+  for (int i = 0; i < 300; ++i) {
+    big.indices.push_back(0);
+    big.indices.push_back(1);
+    big.indices.push_back(99);
+  }
+  std::vector<Kizuri::MeshletRange> ranges;
+  if (Kizuri::BuildMeshlets(big, ranges)) {
+    return false;
+  }
+  return true;
+}
+bool TestMaterialNodes() { Kizuri::MaterialGraph graph;
   Kizuri::MaterialNode c0;
   c0.id = 0;
   c0.type = 0;
@@ -9064,6 +9093,7 @@ int main() {
   failures += Check("RenderGraph", TestRenderGraph());
   failures += Check("TemporalUpsampling", TestTemporalUpsampling());
   failures += Check("MaterialNodes", TestMaterialNodes());
+  failures += Check("MeshValidation", TestMeshValidation());
   failures += Check("LodCoverage", TestLodCoverage());
   failures += Check("Triplanar", TestTriplanar());
   failures += Check("VirtualTexture", TestVirtualTexture());
