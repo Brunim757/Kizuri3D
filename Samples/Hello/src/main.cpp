@@ -2145,6 +2145,8 @@ bool TestRagdoll() {
   float qa[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
   float qb[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
   ok = ok && world.GetPose(b0, pa, qa) && world.GetPose(b2, pb, qb);
+  std::printf("RAGDOLL stage 4 poses\n");
+  std::fflush(stdout);
   bool finite = true;
   const float* all[2] = { pa, pb };
   for (int k = 0; k < 2 && finite; ++k) {
@@ -2155,9 +2157,15 @@ bool TestRagdoll() {
     }
   }
   ok = ok && finite && pa[1] < 5.0f && pb[1] < 7.4f;
+  std::printf("RAGDOLL stage 5 checks ok=%d\n", ok ? 1 : 0);
+  std::fflush(stdout);
   world.DestroyConstraint(c0);
+  std::printf("RAGDOLL stage 6 destroyed\n");
+  std::fflush(stdout);
   ok = ok && world.ConstraintCount() == 1;
   world.Shutdown();
+  std::printf("RAGDOLL stage 7 shutdown\n");
+  std::fflush(stdout);
   jobs.Shutdown();
   return ok;
 }
