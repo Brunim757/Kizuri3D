@@ -155,7 +155,6 @@ void PhysicsWorld::Shutdown() {
       p->cons.clear();
       p->consFree.clear();
       p->liveCons = 0;
-      std::lock_guard<std::mutex> lock(p->listMutex);
       JPH::BodyInterface& bi = p->system.GetBodyInterface();
       for (size_t i = 0; i < p->slots.size(); ++i) {
         if (p->slots[i].active) {
