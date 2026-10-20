@@ -149,6 +149,18 @@ struct RigidbodyData {
   float friction = 0.5f;
   float restitution = 0.0f;
 };
+struct AudioSourceData {
+  std::string clipPath;
+  float volume = 1.0f;
+  float minDistance = 1.0f;
+  float maxDistance = 20.0f;
+  float rolloff = 1.0f;
+  int rolloffModel = 1;
+  bool loop = false;
+  bool spatial = true;
+  bool playing = true;
+  int bus = 0;
+};
 struct DecalData {  float size[3];
   float life;
   std::string texGuid;
@@ -212,6 +224,8 @@ struct Entity {
   bool hasFog;
   RigidbodyData rigidbody;
   bool hasRigidbody;
+  AudioSourceData audioSource;
+  bool hasAudioSource;
   EntityId parent;
   std::vector<EntityId> children;
   bool isStatic = false;
@@ -259,6 +273,7 @@ void MakeDefaultProbe(ProbeData& p);
 void MakeDefaultPost(PostData& p);
 void MakeDefaultFog(FogData& f);
 void MakeDefaultRigidbody(RigidbodyData& r);
+void MakeDefaultAudioSource(AudioSourceData& a);
 void EntityForward(const Transform& t, float dir[3]);
 void ComposeMatrix(const Transform& t, float m[16]);
 bool InvertMatrix4(const float m[16], float invOut[16]);

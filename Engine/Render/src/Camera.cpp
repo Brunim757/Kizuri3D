@@ -27,6 +27,10 @@ void FreeCamera::GetPosition(float& x, float& y, float& z) const {
   y = py;
   z = pz;
 }
+void FreeCamera::GetYawPitch(float& outYaw, float& outPitch) const {
+  outYaw = yaw;
+  outPitch = pitch;
+}
 void FreeCamera::Update(float dt, bool fwd, bool back, bool left, bool right, bool up, bool down, float mouseDX, float mouseDY) {
   yaw += mouseDX * lookSpeed;
   pitch += mouseDY * lookSpeed;

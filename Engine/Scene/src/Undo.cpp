@@ -1082,6 +1082,91 @@ bool RemoveRigidbodyCmd::Revert(Scene& scene) {
 const char* RemoveRigidbodyCmd::Name() const {
   return "Remove Rigidbody";
 }
+SetAudioSourceCmd::SetAudioSourceCmd(EntityId t, const AudioSourceData& b, const AudioSourceData& a)
+  : target(t)
+  , before(b)
+  , after(a) {
+}
+bool SetAudioSourceCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasAudioSource) {
+    return false;
+  }
+  e->audioSource = after;
+  scene.MarkDirty();
+  return true;
+}
+bool SetAudioSourceCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasAudioSource) {
+    return false;
+  }
+  e->audioSource = before;
+  scene.MarkDirty();
+  return true;
+}
+const char* SetAudioSourceCmd::Name() const {
+  return "Set Audio Source";
+}
+AddAudioSourceCmd::AddAudioSourceCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultAudioSource(prevAs);
+}
+bool AddAudioSourceCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || e->hasAudioSource) {
+    return false;
+  }
+  prevAs = e->audioSource;
+  prevHas = e->hasAudioSource;
+  e->hasAudioSource = true;
+  MakeDefaultAudioSource(e->audioSource);
+  scene.MarkDirty();
+  return true;
+}
+bool AddAudioSourceCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->audioSource = prevAs;
+  e->hasAudioSource = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* AddAudioSourceCmd::Name() const {
+  return "Add Audio Source";
+}
+RemoveAudioSourceCmd::RemoveAudioSourceCmd(EntityId t)
+  : target(t)
+  , prevHas(false) {
+  MakeDefaultAudioSource(prevAs);
+}
+bool RemoveAudioSourceCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !e->hasAudioSource) {
+    return false;
+  }
+  prevAs = e->audioSource;
+  prevHas = e->hasAudioSource;
+  e->hasAudioSource = false;
+  scene.MarkDirty();
+  return true;
+}
+bool RemoveAudioSourceCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr) {
+    return false;
+  }
+  e->audioSource = prevAs;
+  e->hasAudioSource = prevHas;
+  scene.MarkDirty();
+  return true;
+}
+const char* RemoveAudioSourceCmd::Name() const {
+  return "Remove Audio Source";
+}
 SetLightmapCmd::SetLightmapCmd(EntityId t, const LightmapData& b, const LightmapData& a)
   : target(t)
   , before(b)

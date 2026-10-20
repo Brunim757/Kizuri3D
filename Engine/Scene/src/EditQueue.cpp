@@ -66,6 +66,15 @@ void EditQueue::PushRigidbody(EntityId target, const RigidbodyData& value) {
   e.value = value;
   rigidbodyEdits.push_back(e);
 }
+void EditQueue::PushAudioSource(EntityId target, const AudioSourceData& value) {
+  if (!target.IsValid()) {
+    return;
+  }
+  AudioSourceEdit e;
+  e.target = target;
+  e.value = value;
+  audioSourceEdits.push_back(e);
+}
 void EditQueue::PushStatic(EntityId target, bool value) {
   if (!target.IsValid()) {
     return;
@@ -152,6 +161,9 @@ bool LodEqual(const LodData& a, const LodData& b) {
 bool RigidbodyEqual(const RigidbodyData& a, const RigidbodyData& b) {
   return a.motionType == b.motionType && a.mass == b.mass && a.colliderType == b.colliderType && a.extents[0] == b.extents[0] && a.extents[1] == b.extents[1] && a.extents[2] == b.extents[2] && a.friction == b.friction && a.restitution == b.restitution;
 }
+bool AudioSourceEqual(const AudioSourceData& a, const AudioSourceData& b) {
+  return a.clipPath == b.clipPath && a.volume == b.volume && a.minDistance == b.minDistance && a.maxDistance == b.maxDistance && a.rolloff == b.rolloff && a.rolloffModel == b.rolloffModel && a.loop == b.loop && a.spatial == b.spatial && a.playing == b.playing && a.bus == b.bus;
+}
 bool LightmapEqual(const LightmapData& a, const LightmapData& b) {
   return a.texGuid == b.texGuid && a.intensity == b.intensity;
 }
@@ -165,7 +177,7 @@ bool FogEqual(const FogData& a, const FogData& b) {
   return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.density == b.density && a.color[0] == b.color[0] && a.color[1] == b.color[1] && a.color[2] == b.color[2];
 }
 size_t EditQueue::Pending() const {
-  return edits.size() + lightEdits.size() + materialEdits.size() + partMaterialEdits.size() + decalEdits.size() + lodEdits.size() + rigidbodyEdits.size() + lightmapEdits.size() + probeEdits.size() + postEdits.size() + fogEdits.size() + staticEdits.size();
+  return edits.size() + lightEdits.size() + materialEdits.size() + partMaterialEdits.size() + decalEdits.size() + lodEdits.size() + rigidbodyEdits.size() + audioSourceEdits.size() + lightmapEdits.size() + probeEdits.size() + postEdits.size() + fogEdits.size() + staticEdits.size();
 }
 size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
   size_t applied = 0;
@@ -347,6 +359,30 @@ size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
     }
   }
   rigidbodyEdits.clear();
+  for (size_t i = 0; i < audioSourceEdits.size(); ++i) {
+    bool last = true;
+    for (size_t j = i + 1; j < audioSourceEdits.size(); ++j) {
+      if (audioSourceEdits[j].target == audioSourceEdits[i].target) {
+        last = false;
+        break;
+      }
+    }
+    if (!last) {
+      continue;
+    }
+    const Entity* e = scene.Get(audioSourceEdits[i].target);
+    if (e == nullptr || !e->hasAudioSource) {
+      continue;
+    }
+    if (AudioSourceEqual(e->audioSource, audioSourceEdits[i].value)) {
+      continue;
+    }
+    std::unique_ptr<Command> cmd(new SetAudioSourceCmd(audioSourceEdits[i].target, e->audioSource, audioSourceEdits[i].value));
+    if (undo.Execute(std::move(cmd), scene)) {
+      ++applied;
+    }
+  }
+  audioSourceEdits.clear();
   for (size_t i = 0; i < staticEdits.size(); ++i) {
     bool last = true;
     for (size_t j = i + 1; j < staticEdits.size(); ++j) {
@@ -477,6 +513,7 @@ void EditQueue::Clear() {
   decalEdits.clear();
   lodEdits.clear();
   rigidbodyEdits.clear();
+  audioSourceEdits.clear();
   lightmapEdits.clear();
   probeEdits.clear();
   postEdits.clear();

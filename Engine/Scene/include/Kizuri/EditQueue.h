@@ -32,6 +32,10 @@ struct RigidbodyEdit {
   EntityId target;
   RigidbodyData value;
 };
+struct AudioSourceEdit {
+  EntityId target;
+  AudioSourceData value;
+};
 struct StaticEdit {
   EntityId target;
   bool value;
@@ -61,6 +65,7 @@ public:
   void PushDecal(EntityId target, const DecalData& value);
   void PushLod(EntityId target, const LodData& value);
   void PushRigidbody(EntityId target, const RigidbodyData& value);
+  void PushAudioSource(EntityId target, const AudioSourceData& value);
   void PushStatic(EntityId target, bool value);
   void PushLightmap(EntityId target, const LightmapData& value);
   void PushProbe(EntityId target, const ProbeData& value);
@@ -77,6 +82,7 @@ private:
   std::vector<DecalEdit> decalEdits;
   std::vector<LodEdit> lodEdits;
   std::vector<RigidbodyEdit> rigidbodyEdits;
+  std::vector<AudioSourceEdit> audioSourceEdits;
   std::vector<StaticEdit> staticEdits;
   std::vector<LightmapEdit> lightmapEdits;
   std::vector<ProbeEdit> probeEdits;

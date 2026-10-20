@@ -15,6 +15,7 @@
 #include "Kizuri/QualityPreset.h"
 #include "Kizuri/JobSystem.h"
 #include "Kizuri/PhysicsWorld.h"
+#include "Kizuri/Audio.h"
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -41,6 +42,21 @@ struct EditorApp {
   };
   std::unordered_map<EntityId, PhysEntry, EntityIdHash> physBodies;
   void SyncPhysics(float dt);
+  AudioEngine audio;
+  bool audioReady;
+  struct AudioEntry {
+    uint32_t sourceId = 0;
+    uint32_t clipId = 0xFFFFFFFFu;
+    std::string clipPath;
+    float volume = 1.0f;
+    bool playing = true;
+    bool spatial = true;
+    bool loop = false;
+    int bus = 0;
+  };
+  std::unordered_map<EntityId, AudioEntry, EntityIdHash> audioSources;
+  std::unordered_map<std::string, uint32_t> audioClipCache;
+  void SyncAudio(float dt);
   bool showNotifHistory;
   EditQueue edits;
   UndoStack undo;
@@ -63,6 +79,7 @@ struct EditorApp {
   bool showConsole;
   bool showViewport;
   bool showAssetBrowser;
+  bool showAudioMixer;
   bool showAbout;
   bool showSettings;
   bool debugCascades;
@@ -251,6 +268,8 @@ struct EditorApp {
   void DrawToasts();
   void Announce(LogLevel level, const std::string& text);
   void DrawAssetBrowser();
+  void DrawAudioMixer();
+  void DrawAudioSourceSection(Entity* e);
   void DrawSettings();
   void DrawMeshSection(Entity* e);
   void SubmitSceneDraws(const float cpos[3]);

@@ -901,6 +901,269 @@ static uint64_t RigidbodyDescHash(const RigidbodyData& r, const std::string& mes
   mix(meshGuid.data(), meshGuid.size());
   return h == 0 ? 1 : h;
 }
+void EditorApp::SyncAudio(float dt) {
+  (void)dt;
+  if (!audioReady) {
+    if (!audio.Initialize(48000, 2)) {
+      return;
+    }
+    audioReady = true;
+  }
+  float camX = 0.0f;
+  float camY = 0.0f;
+  float camZ = 0.0f;
+  camera.GetPosition(camX, camY, camZ);
+  float yaw = 0.0f;
+  float pitch = 0.0f;
+  camera.GetYawPitch(yaw, pitch);
+  const float listenerPos[3] = { camX, camY, camZ };
+  const float listenerFwd[3] = { std::sin(yaw) * std::cos(pitch), -std::sin(pitch), std::cos(yaw) * std::cos(pitch) };
+  const float listenerUp[3] = { 0.0f, 1.0f, 0.0f };
+  audio.SetListener(listenerPos, listenerFwd, listenerUp);
+  const std::string assetDir = ResolveAssetsDir();
+  std::vector<EntityId> all = scene.All();
+  for (size_t i = 0; i < all.size(); ++i) {
+    Entity* e = scene.Get(all[i]);
+    if (e == nullptr || !e->hasAudioSource) {
+      continue;
+    }
+    const AudioSourceData& a = e->audioSource;
+    auto it = audioSources.find(e->id);
+    if (it == audioSources.end()) {
+      if (a.clipPath.empty()) {
+        continue;
+      }
+      uint32_t clipId = 0xFFFFFFFFu;
+      auto cached = audioClipCache.find(a.clipPath);
+      if (cached != audioClipCache.end()) {
+        clipId = cached->second;
+      } else {
+        std::string full = a.clipPath;
+        if (!assetDir.empty() && !std::filesystem::path(a.clipPath).is_absolute()) {
+          full = assetDir + "/" + a.clipPath;
+        }
+        uint32_t loaded = 0xFFFFFFFFu;
+        if (audio.LoadClip(full, loaded)) {
+          audioClipCache[a.clipPath] = loaded;
+          clipId = loaded;
+        }
+      }
+      if (clipId == 0xFFFFFFFFu) {
+        continue;
+      }
+      const uint32_t sourceId = audio.AddSource(clipId, static_cast<uint32_t>(a.bus < 0 ? 0 : a.bus));
+      if (sourceId == 0) {
+        continue;
+      }
+      AudioEntry entry;
+      entry.sourceId = sourceId;
+      entry.clipId = clipId;
+      entry.clipPath = a.clipPath;
+      entry.volume = a.volume;
+      entry.playing = a.playing;
+      entry.spatial = a.spatial;
+      entry.loop = a.loop;
+      entry.bus = a.bus;
+      audioSources[e->id] = entry;
+      it = audioSources.find(e->id);
+    }
+    AudioEntry& entry = it->second;
+    if (entry.volume != a.volume) {
+      audio.SetSourceGain(entry.sourceId, a.volume);
+      entry.volume = a.volume;
+    }
+    if (entry.playing != a.playing) {
+      audio.SetSourcePlaying(entry.sourceId, a.playing);
+      entry.playing = a.playing;
+    }
+    if (entry.spatial != a.spatial) {
+      audio.SetSourceSpatial(entry.sourceId, a.spatial);
+      entry.spatial = a.spatial;
+    }
+    if (entry.loop != a.loop) {
+      audio.SetSourceLoop(entry.sourceId, a.loop);
+      entry.loop = a.loop;
+    }
+    if (entry.bus != a.bus) {
+      audio.SetSourceBus(entry.sourceId, static_cast<uint32_t>(a.bus < 0 ? 0 : a.bus));
+      entry.bus = a.bus;
+    }
+    if (a.spatial) {
+      audio.SetSourcePosition(entry.sourceId, e->transform.position);
+    }
+  }
+  for (auto it = audioSources.begin(); it != audioSources.end();) {
+    Entity* e = scene.Get(it->first);
+    if (e == nullptr || !e->hasAudioSource) {
+      audio.RemoveSource(it->second.sourceId);
+      it = audioSources.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  audio.Update();
+}
+void EditorApp::DrawAudioSourceSection(Entity* e) {
+  if (!e->hasAudioSource) {
+    return;
+  }
+  ImGui::Separator();
+  ImGui::Text("Audio Source");
+  ImGui::SameLine();
+  if (ImGui::SmallButton("Remove##audiosource")) {
+    std::unique_ptr<Command> cmd(new RemoveAudioSourceCmd(e->id));
+    undo.Execute(std::move(cmd), scene);
+    return;
+  }
+  AudioSourceData as = e->audioSource;
+  bool changed = false;
+  char clipBuf[256];
+  std::snprintf(clipBuf, sizeof(clipBuf), "%s", as.clipPath.c_str());
+  if (ImGui::InputText("Clip", clipBuf, sizeof(clipBuf))) {
+    as.clipPath = clipBuf;
+    changed = true;
+  }
+  if (ImGui::DragFloat("Volume", &as.volume, 0.01f, 0.0f, 4.0f)) {
+    changed = true;
+  }
+  if (ImGui::Checkbox("Spatial", &as.spatial)) {
+    changed = true;
+  }
+  if (as.spatial) {
+    if (ImGui::DragFloat("Min Distance", &as.minDistance, 0.1f, 0.01f, 1000.0f)) {
+      changed = true;
+    }
+    if (ImGui::DragFloat("Max Distance", &as.maxDistance, 0.1f, 0.01f, 10000.0f)) {
+      changed = true;
+    }
+    int model = as.rolloffModel < 0 ? 0 : (as.rolloffModel > 2 ? 2 : as.rolloffModel);
+    if (ImGui::Combo("Rolloff", &model, "Linear\0Inverse\0Exponential\0")) {
+      as.rolloffModel = model;
+      changed = true;
+    }
+    if (ImGui::DragFloat("Rolloff Factor", &as.rolloff, 0.05f, 0.01f, 16.0f)) {
+      changed = true;
+    }
+  }
+  if (ImGui::Checkbox("Loop", &as.loop)) {
+    changed = true;
+  }
+  if (ImGui::Checkbox("Playing", &as.playing)) {
+    changed = true;
+  }
+  const size_t busCount = audio.Mixer().BusCount();
+  if (busCount > 0) {
+    std::string names;
+    for (size_t i = 0; i < busCount; ++i) {
+      const AudioBusDesc* b = audio.Mixer().GetBus(static_cast<uint32_t>(i));
+      if (b == nullptr) {
+        continue;
+      }
+      if (!names.empty()) {
+        names.push_back('\0');
+      }
+      names += b->name;
+    }
+    int bus = as.bus < 0 ? 0 : (static_cast<size_t>(as.bus) < busCount ? as.bus : 0);
+    if (ImGui::Combo("Bus", &bus, names.c_str())) {
+      as.bus = bus;
+      changed = true;
+    }
+  }
+  if (changed) {
+    edits.PushAudioSource(e->id, as);
+  }
+}
+void EditorApp::DrawAudioMixer() {
+  if (!ImGui::Begin("Audio Mixer", &showAudioMixer)) {
+    ImGui::End();
+    return;
+  }
+  if (!audioReady) {
+    ImGui::TextDisabled("Audio engine not initialized");
+    ImGui::End();
+    return;
+  }
+  AudioMixer& mixer = audio.Mixer();
+  ImGui::Text("Buses");
+  ImGui::Separator();
+  const size_t busCount = mixer.BusCount();
+  for (size_t i = 0; i < busCount; ++i) {
+    AudioBusDesc* b = mixer.GetBusMutable(static_cast<uint32_t>(i));
+    if (b == nullptr) {
+      continue;
+    }
+    ImGui::PushID(static_cast<int>(i));
+    ImGui::Text("%s", b->name.c_str());
+    ImGui::SameLine();
+    if (i == 0) {
+      ImGui::TextDisabled("(master)");
+    }
+    float vol = b->volume;
+    if (ImGui::SliderFloat("Volume", &vol, 0.0f, 1.5f)) {
+      b->volume = vol;
+    }
+    bool muted = b->muted;
+    if (ImGui::Checkbox("Mute", &muted)) {
+      b->muted = muted;
+    }
+    ImGui::SameLine();
+    bool soloed = b->soloed;
+    if (ImGui::Checkbox("Solo", &soloed)) {
+      b->soloed = soloed;
+    }
+    ImGui::SameLine();
+    bool reverb = b->reverbEnabled;
+    if (ImGui::Checkbox("Reverb", &reverb)) {
+      b->reverbEnabled = reverb;
+    }
+    if (b->reverbEnabled) {
+      float wet = b->reverbWet;
+      if (ImGui::SliderFloat("Reverb Wet", &wet, 0.0f, 1.0f)) {
+        b->reverbWet = wet;
+      }
+      float room = b->reverbRoomSize;
+      if (ImGui::SliderFloat("Reverb Room", &room, 0.0f, 1.0f)) {
+        b->reverbRoomSize = room;
+      }
+      float damp = b->reverbDamping;
+      if (ImGui::SliderFloat("Reverb Damping", &damp, 0.0f, 1.0f)) {
+        b->reverbDamping = damp;
+      }
+    }
+    if (b->ducking.size() > 0) {
+      ImGui::Text("Ducking");
+      for (size_t d = 0; d < b->ducking.size(); ++d) {
+        AudioDuckLink& link = b->ducking[d];
+        const AudioBusDesc* target = link.targetBus >= 0 ? mixer.GetBus(static_cast<uint32_t>(link.targetBus)) : nullptr;
+        ImGui::Text("  -> %s", target != nullptr ? target->name.c_str() : "(none)");
+        ImGui::SameLine();
+        float db = link.amountDb;
+        if (ImGui::SliderFloat("dB", &db, -40.0f, 0.0f)) {
+          link.amountDb = db;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Remove")) {
+          b->ducking.erase(b->ducking.begin() + static_cast<long>(d));
+          break;
+        }
+      }
+    }
+    if (i != 0) {
+      ImGui::SameLine();
+      if (ImGui::SmallButton("Duck Target")) {
+        AudioDuckLink link;
+        link.targetBus = 0;
+        link.amountDb = -6.0f;
+        b->ducking.push_back(link);
+      }
+    }
+    ImGui::PopID();
+  }
+  ImGui::Separator();
+  ImGui::Text("Voices: %u", audio.ActiveVoiceCount());
+  ImGui::End();
+}
 void EditorApp::SyncPhysics(float dt) {
   if (!viewSimulate) {
     return;
@@ -1000,6 +1263,7 @@ void EditorApp::SyncPhysics(float dt) {
 }
 void EditorApp::SubmitSceneDraws(const float cpos[3]) {
   SyncPhysics(frameDt);
+  SyncAudio(frameDt);
   renderer.ClearLights();
   renderer.SetFallbackLight(!soloLightId.IsValid());
   renderer.ClearFogVolumes();
@@ -3153,7 +3417,8 @@ void EditorApp::DrawInspector() {
       edits.PushRigidbody(e->id, rb);
     }
   }
-  if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal || !e->hasLod || !e->hasLightmap || !e->hasProbe || !e->hasPost || !e->hasFog || !e->hasRigidbody) {
+  DrawAudioSourceSection(e);
+  if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal || !e->hasLod || !e->hasLightmap || !e->hasProbe || !e->hasPost || !e->hasFog || !e->hasRigidbody || !e->hasAudioSource) {
     ImGui::Separator();
     if (ImGui::Button("Add Component")) {
       ImGui::OpenPopup("AddComponent");
@@ -3213,6 +3478,10 @@ void EditorApp::DrawInspector() {
       }
       if (!e->hasRigidbody && ImGui::MenuItem("Rigidbody")) {
         std::unique_ptr<Command> cmd(new AddRigidbodyCmd(e->id));
+        undo.Execute(std::move(cmd), scene);
+      }
+      if (!e->hasAudioSource && ImGui::MenuItem("Audio Source")) {
+        std::unique_ptr<Command> cmd(new AddAudioSourceCmd(e->id));
         undo.Execute(std::move(cmd), scene);
       }
       ImGui::EndPopup();

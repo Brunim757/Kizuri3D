@@ -33,6 +33,7 @@ EditorApp::EditorApp()
   , showConsole(true)
   , showViewport(true)
   , showAssetBrowser(true)
+  , showAudioMixer(false)
   , showAbout(false)
   , showSettings(false)
   , debugCascades(false)
@@ -62,6 +63,7 @@ EditorApp::EditorApp()
   , viewTargetFps(0.0f)
   , viewMtShadows(false)
   , physReady(false)
+  , audioReady(false)
   , viewSimulate(false)
   , nodeDragId(-1)
   , nodeDragDX(0.0f)
@@ -553,6 +555,10 @@ void EditorApp::Shutdown() {
   SaveEditorSettings();
   physWorld.Shutdown();
   physJobs.Shutdown();
+  if (audioReady) {
+    audio.Shutdown();
+    audioReady = false;
+  }
   g_sinkLog = nullptr;
   SetLogSink(nullptr);
   if (!scene.IsDirty()) {
@@ -785,6 +791,9 @@ void EditorApp::Frame() {
   if (showAssetBrowser) {
     DrawAssetBrowser();
   }
+  if (showAudioMixer) {
+    DrawAudioMixer();
+  }
   if (showSettings) {
     DrawSettings();
   }
@@ -860,6 +869,7 @@ void EditorApp::DrawMenuBar() {
       ImGui::MenuItem("Inspector", nullptr, &showInspector);
       ImGui::MenuItem("Console", nullptr, &showConsole);
       ImGui::MenuItem("Asset Browser", nullptr, &showAssetBrowser);
+      ImGui::MenuItem("Audio Mixer", nullptr, &showAudioMixer);
       ImGui::MenuItem("Settings", nullptr, &showSettings);
       ImGui::EndMenu();
     }

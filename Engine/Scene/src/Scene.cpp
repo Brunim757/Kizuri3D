@@ -155,6 +155,18 @@ void MakeDefaultRigidbody(RigidbodyData& r) {
   r.friction = 0.5f;
   r.restitution = 0.0f;
 }
+void MakeDefaultAudioSource(AudioSourceData& a) {
+  a.clipPath.clear();
+  a.volume = 1.0f;
+  a.minDistance = 1.0f;
+  a.maxDistance = 20.0f;
+  a.rolloff = 1.0f;
+  a.rolloffModel = 1;
+  a.loop = false;
+  a.spatial = true;
+  a.playing = true;
+  a.bus = 0;
+}
 void ComposeMatrix(const Transform& t, float m[16]) {  float rx = t.rotation[0] * 0.01745329252f;
   float ry = t.rotation[1] * 0.01745329252f;
   float rz = t.rotation[2] * 0.01745329252f;
@@ -304,6 +316,8 @@ EntityId Scene::CreateEntity(const std::string& name) {
     s.entity.hasPost = false;
     MakeDefaultFog(s.entity.fog);
     s.entity.hasFog = false;
+    MakeDefaultAudioSource(s.entity.audioSource);
+    s.entity.hasAudioSource = false;
     s.entity.parent = EntityId::Invalid();
     s.entity.children.clear();
     id = s.entity.id;
@@ -333,6 +347,8 @@ EntityId Scene::CreateEntity(const std::string& name) {
     s.entity.hasPost = false;
     MakeDefaultFog(s.entity.fog);
     s.entity.hasFog = false;
+    MakeDefaultAudioSource(s.entity.audioSource);
+    s.entity.hasAudioSource = false;
     s.entity.parent = EntityId::Invalid();
     slots.push_back(s);
     id = slots.back().entity.id;

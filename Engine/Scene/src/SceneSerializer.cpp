@@ -214,6 +214,10 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
       const RigidbodyData& r = e->rigidbody;
       std::fprintf(fp, "RIGIDBODY %d %.9g %d %.9g %.9g %.9g %.9g %.9g\n", r.motionType, r.mass, r.colliderType, r.extents[0], r.extents[1], r.extents[2], r.friction, r.restitution);
     }
+    if (e->hasAudioSource) {
+      const AudioSourceData& a = e->audioSource;
+      std::fprintf(fp, "AUDIOSOURCE \"%s\" %.9g %.9g %.9g %.9g %d %d %d %d %d\n", EscapeName(a.clipPath).c_str(), a.volume, a.minDistance, a.maxDistance, a.rolloff, a.rolloffModel, a.loop ? 1 : 0, a.spatial ? 1 : 0, a.playing ? 1 : 0, a.bus);
+    }
     if (e->hasProbe) {
       const ProbeData& p = e->probe;
       std::fprintf(fp, "PROBE %.9g %.9g %.9g %.9g\n", p.size[0], p.size[1], p.size[2], p.intensity);
@@ -274,6 +278,8 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
     bool hasLightmap;
     RigidbodyData rigidbody;
     bool hasRigidbody;
+    AudioSourceData audioSource;
+    bool hasAudioSource;
     ProbeData probe;
     bool hasProbe;
     PostData post;
@@ -310,6 +316,7 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       MakeDefaultLod(pe.lod);
       MakeDefaultLightmap(pe.lightmap);
       MakeDefaultRigidbody(pe.rigidbody);
+      MakeDefaultAudioSource(pe.audioSource);
       MakeDefaultProbe(pe.probe);
       MakeDefaultPost(pe.post);
       MakeDefaultFog(pe.fog);
@@ -321,6 +328,7 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       pe.hasLod = false;
       pe.hasLightmap = false;
       pe.hasRigidbody = false;
+      pe.hasAudioSource = false;
       pe.hasProbe = false;
       pe.hasPost = false;
       pe.hasFog = false;
@@ -1091,6 +1099,33 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
         current->hasRigidbody = true;
         continue;
       }
+      if (field == "AUDIOSOURCE") {
+        size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
+        std::string clip;
+        if (!ParseQuoted(s, pos, clip)) {
+          failed = true;
+          break;
+        }
+        float av[9] = { 1.0f, 1.0f, 20.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f };
+        if (!ParseFloats(s, pos, av, 9)) {
+          failed = true;
+          break;
+        }
+        MakeDefaultAudioSource(current->audioSource);
+        current->audioSource.clipPath = clip;
+        current->audioSource.volume = av[0];
+        current->audioSource.minDistance = av[1] < 0.01f ? 0.01f : av[1];
+        current->audioSource.maxDistance = av[2] > current->audioSource.minDistance ? av[2] : current->audioSource.minDistance + 0.01f;
+        current->audioSource.rolloff = av[3] < 0.01f ? 0.01f : av[3];
+        const int model = static_cast<int>(av[4]);
+        current->audioSource.rolloffModel = model < 0 ? 0 : (model > 2 ? 2 : model);
+        current->audioSource.loop = av[5] != 0.0f;
+        current->audioSource.spatial = av[6] != 0.0f;
+        current->audioSource.playing = av[7] != 0.0f;
+        current->audioSource.bus = static_cast<int>(av[8]) < 0 ? 0 : static_cast<int>(av[8]);
+        current->hasAudioSource = true;
+        continue;
+      }
       if (field == "PROBE") {
         size_t pos = (sp == std::string::npos) ? s.size() : sp + 1;
         float pv[4] = { 5.0f, 5.0f, 5.0f, 1.0f };
@@ -1222,6 +1257,8 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
       createdEntity->hasFog = pending[i].hasFog;
       createdEntity->rigidbody = pending[i].rigidbody;
       createdEntity->hasRigidbody = pending[i].hasRigidbody;
+      createdEntity->audioSource = pending[i].audioSource;
+      createdEntity->hasAudioSource = pending[i].hasAudioSource;
       createdEntity->isStatic = pending[i].isStatic;
     }
     created.push_back(id);

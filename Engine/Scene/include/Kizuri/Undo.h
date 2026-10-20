@@ -417,6 +417,39 @@ private:
   RigidbodyData prevRb;
   bool prevHas;
 };
+class SetAudioSourceCmd : public Command {
+public:
+  SetAudioSourceCmd(EntityId target, const AudioSourceData& before, const AudioSourceData& after);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  AudioSourceData before;
+  AudioSourceData after;
+};
+class AddAudioSourceCmd : public Command {
+public:
+  explicit AddAudioSourceCmd(EntityId target);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  AudioSourceData prevAs;
+  bool prevHas;
+};
+class RemoveAudioSourceCmd : public Command {
+public:
+  explicit RemoveAudioSourceCmd(EntityId target);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  AudioSourceData prevAs;
+  bool prevHas;
+};
 class SetLightmapCmd : public Command {
 public:
   SetLightmapCmd(EntityId target, const LightmapData& before, const LightmapData& after);

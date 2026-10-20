@@ -1990,6 +1990,377 @@ bool TestTriplanar() {
   Kizuri::DestroyRHI(rhi);
   return ok;
 }
+bool TestAudioClipDecode() {
+  const char* path = "kizuri_test_audio_tmp.wav";
+  const int frames = 4800;
+  const int rate = 48000;
+  std::FILE* f = std::fopen(path, "wb");
+  if (f == nullptr) {
+    return false;
+  }
+  unsigned char hdr[44];
+  std::memset(hdr, 0, sizeof(hdr));
+  std::memcpy(hdr + 0, "RIFF", 4);
+  const uint32_t riffSize = static_cast<uint32_t>(36 + frames * 2);
+  std::memcpy(hdr + 4, &riffSize, 4);
+  std::memcpy(hdr + 8, "WAVE", 4);
+  std::memcpy(hdr + 12, "fmt ", 4);
+  const uint32_t fmtSize = 16;
+  std::memcpy(hdr + 16, &fmtSize, 4);
+  const uint16_t audioFormat = 1;
+  const uint16_t numChannels = 1;
+  const uint32_t sampleRate = static_cast<uint32_t>(rate);
+  const uint32_t byteRate = static_cast<uint32_t>(rate * 2);
+  const uint16_t blockAlign = 2;
+  const uint16_t bitsPerSample = 16;
+  std::memcpy(hdr + 20, &audioFormat, 2);
+  std::memcpy(hdr + 22, &numChannels, 2);
+  std::memcpy(hdr + 24, &sampleRate, 4);
+  std::memcpy(hdr + 28, &byteRate, 4);
+  std::memcpy(hdr + 32, &blockAlign, 2);
+  std::memcpy(hdr + 34, &bitsPerSample, 2);
+  std::memcpy(hdr + 36, "data", 4);
+  const uint32_t dataSize = static_cast<uint32_t>(frames * 2);
+  std::memcpy(hdr + 40, &dataSize, 4);
+  std::fwrite(hdr, 1, sizeof(hdr), f);
+  for (int i = 0; i < frames; ++i) {
+    const int16_t s = static_cast<int16_t>(30000.0f * std::sin(static_cast<float>(i) * 0.05f));
+    std::fwrite(&s, 1, 2, f);
+  }
+  std::fclose(f);
+  Kizuri::AudioClip clip;
+  const bool ok = Kizuri::LoadAudioClipFromFile(path, 48000, clip);
+  std::remove(path);
+  if (!ok) {
+    return false;
+  }
+  if (clip.channels != 2 || clip.sampleRate != 48000) {
+    return false;
+  }
+  if (clip.frameCount != static_cast<uint64_t>(frames)) {
+    return false;
+  }
+  if (clip.samples.size() != static_cast<size_t>(frames) * 2) {
+    return false;
+  }
+  float peak = 0.0f;
+  for (size_t i = 0; i < clip.samples.size(); ++i) {
+    const float a = clip.samples[i] < 0.0f ? -clip.samples[i] : clip.samples[i];
+    if (a > peak) {
+      peak = a;
+    }
+  }
+  return peak > 0.5f && peak <= 1.0f;
+}
+bool TestAudioMixerBuses() {
+  Kizuri::AudioMixer mixer;
+  if (mixer.BusCount() != 1) {
+    return false;
+  }
+  Kizuri::AudioBusDesc music;
+  music.name = "Music";
+  music.parent = 0;
+  music.volume = 0.5f;
+  const uint32_t m = mixer.AddBus(music);
+  Kizuri::AudioBusDesc sfx;
+  sfx.name = "SFX";
+  sfx.parent = 0;
+  const uint32_t s = mixer.AddBus(sfx);
+  if (mixer.BusCount() != 3 || m != 1 || s != 2) {
+    return false;
+  }
+  if (std::fabs(mixer.ResolveBusGain(m) - 0.5f) > 1e-5f) {
+    return false;
+  }
+  if (std::fabs(mixer.ResolveChainGain(m) - 0.5f) > 1e-5f) {
+    return false;
+  }
+  mixer.GetBusMutable(m)->muted = true;
+  if (mixer.ResolveBusGain(m) != 0.0f) {
+    return false;
+  }
+  mixer.GetBusMutable(m)->muted = false;
+  mixer.GetBusMutable(m)->soloed = true;
+  if (std::fabs(mixer.ResolveBusGain(m) - 0.5f) > 1e-5f) {
+    return false;
+  }
+  if (mixer.ResolveBusGain(s) != 0.0f) {
+    return false;
+  }
+  if (mixer.ResolveChainGain(s) != 0.0f) {
+    return false;
+  }
+  mixer.GetBusMutable(m)->soloed = false;
+  if (std::fabs(mixer.ResolveBusGain(s) - 1.0f) > 1e-5f) {
+    return false;
+  }
+  std::vector<uint32_t> order;
+  mixer.ComputeOrder(order);
+  if (order.size() != 3) {
+    return false;
+  }
+  if (order[order.size() - 1] != 0) {
+    return false;
+  }
+  return true;
+}
+bool TestAudioMixerSaveLoad() {
+  Kizuri::AudioMixer mixer;
+  Kizuri::AudioBusDesc music;
+  music.name = "Music";
+  music.parent = 0;
+  music.volume = 0.75f;
+  music.reverbEnabled = true;
+  music.reverbWet = 0.4f;
+  const uint32_t m = mixer.AddBus(music);
+  Kizuri::AudioDuckLink link;
+  link.targetBus = 0;
+  link.amountDb = -12.0f;
+  mixer.GetBusMutable(m)->ducking.push_back(link);
+  const char* path = "kizuri_test_mixer_tmp.kzmixer";
+  if (!mixer.SaveToFile(path)) {
+    return false;
+  }
+  Kizuri::AudioMixer loaded;
+  const bool ok = loaded.LoadFromFile(path);
+  std::remove(path);
+  if (!ok) {
+    return false;
+  }
+  if (loaded.BusCount() != 2) {
+    return false;
+  }
+  const Kizuri::AudioBusDesc* b = loaded.GetBus(1);
+  if (b == nullptr || b->name != "Music") {
+    return false;
+  }
+  if (std::fabs(b->volume - 0.75f) > 1e-5f) {
+    return false;
+  }
+  if (!b->reverbEnabled || std::fabs(b->reverbWet - 0.4f) > 1e-5f) {
+    return false;
+  }
+  if (b->ducking.size() != 1 || b->ducking[0].targetBus != 0) {
+    return false;
+  }
+  if (std::fabs(b->ducking[0].amountDb + 12.0f) > 1e-5f) {
+    return false;
+  }
+  return true;
+}
+bool TestAudioAttenuation() {
+  const float nearGain = Kizuri::AudioEngine::ComputeAttenuation(1.0f, 1.0f, 20.0f, Kizuri::AudioRolloffModel::Inverse, 1.0f);
+  const float midGain = Kizuri::AudioEngine::ComputeAttenuation(10.0f, 1.0f, 20.0f, Kizuri::AudioRolloffModel::Inverse, 1.0f);
+  const float farGain = Kizuri::AudioEngine::ComputeAttenuation(30.0f, 1.0f, 20.0f, Kizuri::AudioRolloffModel::Inverse, 1.0f);
+  if (!(nearGain > midGain && midGain > 0.0f)) {
+    return false;
+  }
+  if (farGain != 0.0f) {
+    return false;
+  }
+  const float lin = Kizuri::AudioEngine::ComputeAttenuation(10.5f, 1.0f, 20.0f, Kizuri::AudioRolloffModel::Linear, 1.0f);
+  if (std::fabs(lin - 0.5f) > 1e-3f) {
+    return false;
+  }
+  const float expo = Kizuri::AudioEngine::ComputeAttenuation(10.0f, 1.0f, 20.0f, Kizuri::AudioRolloffModel::Exponential, 1.0f);
+  if (!(expo > 0.0f && expo < 1.0f)) {
+    return false;
+  }
+  return true;
+}
+static Kizuri::AudioClip MakeTestTone() {
+  Kizuri::AudioClip clip;
+  clip.channels = 2;
+  clip.sampleRate = 48000;
+  clip.frameCount = 4800;
+  clip.samples.assign(static_cast<size_t>(clip.frameCount) * 2, 0.0f);
+  for (uint64_t i = 0; i < clip.frameCount; ++i) {
+    const float v = 0.5f * std::sin(static_cast<float>(i) * 0.05f);
+    clip.samples[static_cast<size_t>(i) * 2 + 0] = v;
+    clip.samples[static_cast<size_t>(i) * 2 + 1] = v;
+  }
+  return clip;
+}
+static float RenderPeak(Kizuri::AudioEngine& engine, uint32_t frames) {
+  std::vector<float> out(static_cast<size_t>(frames) * 2, 0.0f);
+  engine.Render(out.data(), frames);
+  float peak = 0.0f;
+  for (size_t i = 0; i < out.size(); ++i) {
+    const float a = out[i] < 0.0f ? -out[i] : out[i];
+    if (a > peak) {
+      peak = a;
+    }
+    if (!(out[i] == out[i])) {
+      return -1.0f;
+    }
+  }
+  return peak;
+}
+bool TestAudioEngineOffline() {
+  Kizuri::AudioEngine engine;
+  if (!engine.Initialize(48000, 2, false)) {
+    return false;
+  }
+  const Kizuri::AudioClip clip = MakeTestTone();
+  const uint32_t clipId = engine.AddClip(clip);
+  if (clipId == 0xFFFFFFFFu) {
+    engine.Shutdown();
+    return false;
+  }
+  const uint32_t src = engine.AddSource(clipId, 0);
+  if (src == 0) {
+    engine.Shutdown();
+    return false;
+  }
+  engine.SetSourceSpatial(src, false);
+  engine.SetSourcePlaying(src, true);
+  engine.Update();
+  const float peak = RenderPeak(engine, 480);
+  if (!(peak > 0.2f)) {
+    engine.Shutdown();
+    return false;
+  }
+  engine.Mixer().GetBusMutable(0)->muted = true;
+  engine.Update();
+  const float mutedPeak = RenderPeak(engine, 480);
+  if (mutedPeak != 0.0f) {
+    engine.Shutdown();
+    return false;
+  }
+  engine.Mixer().GetBusMutable(0)->muted = false;
+  engine.Update();
+  engine.SetSourcePlaying(src, false);
+  engine.Update();
+  const float stoppedPeak = RenderPeak(engine, 480);
+  engine.Shutdown();
+  return stoppedPeak == 0.0f;
+}
+bool TestAudioSpatialPan() {
+  Kizuri::AudioEngine engine;
+  if (!engine.Initialize(48000, 2, false)) {
+    return false;
+  }
+  const Kizuri::AudioClip clip = MakeTestTone();
+  const uint32_t clipId = engine.AddClip(clip);
+  const uint32_t src = engine.AddSource(clipId, 0);
+  if (clipId == 0xFFFFFFFFu || src == 0) {
+    engine.Shutdown();
+    return false;
+  }
+  engine.SetSourceSpatial(src, true);
+  const float listener[3] = { 0.0f, 0.0f, 0.0f };
+  const float forward[3] = { 0.0f, 0.0f, 1.0f };
+  const float up[3] = { 0.0f, 1.0f, 0.0f };
+  engine.SetListener(listener, forward, up);
+  const float right[3] = { 5.0f, 0.0f, 0.0f };
+  engine.SetSourcePosition(src, right);
+  engine.Update();
+  std::vector<float> out(480 * 2, 0.0f);
+  engine.Render(out.data(), 480);
+  float leftPeak = 0.0f;
+  float rightPeak = 0.0f;
+  for (uint32_t i = 0; i < 480; ++i) {
+    const float l = out[i * 2 + 0] < 0.0f ? -out[i * 2 + 0] : out[i * 2 + 0];
+    const float r = out[i * 2 + 1] < 0.0f ? -out[i * 2 + 1] : out[i * 2 + 1];
+    if (l > leftPeak) {
+      leftPeak = l;
+    }
+    if (r > rightPeak) {
+      rightPeak = r;
+    }
+  }
+  engine.Shutdown();
+  return rightPeak > leftPeak * 2.0f && rightPeak > 0.01f;
+}
+bool TestAudioDucking() {
+  Kizuri::AudioEngine engine;
+  if (!engine.Initialize(48000, 2, false)) {
+    return false;
+  }
+  const int musicBus = engine.Mixer().FindBusByName("Music");
+  const int voiceBus = engine.Mixer().FindBusByName("Voice");
+  if (musicBus < 0 || voiceBus < 0) {
+    engine.Shutdown();
+    return false;
+  }
+  const Kizuri::AudioClip clip = MakeTestTone();
+  const uint32_t clipId = engine.AddClip(clip);
+  const uint32_t musicSrc = engine.AddSource(clipId, static_cast<uint32_t>(musicBus));
+  if (clipId == 0xFFFFFFFFu || musicSrc == 0) {
+    engine.Shutdown();
+    return false;
+  }
+  engine.SetSourceSpatial(musicSrc, false);
+  engine.Update();
+  const float basePeak = RenderPeak(engine, 480);
+  if (!(basePeak > 0.2f)) {
+    engine.Shutdown();
+    return false;
+  }
+  const uint32_t voiceSrc = engine.AddSource(clipId, static_cast<uint32_t>(voiceBus));
+  if (voiceSrc == 0) {
+    engine.Shutdown();
+    return false;
+  }
+  engine.SetSourceSpatial(voiceSrc, false);
+  engine.SetSourceGain(voiceSrc, 0.0f);
+  engine.Update();
+  const float duckedPeak = RenderPeak(engine, 480);
+  engine.RemoveSource(voiceSrc);
+  engine.Update();
+  const float restoredPeak = RenderPeak(engine, 480);
+  engine.Shutdown();
+  if (duckedPeak <= 0.0f || duckedPeak >= basePeak * 0.9f) {
+    return false;
+  }
+  return std::fabs(restoredPeak - basePeak) < basePeak * 0.05f;
+}
+bool TestAudioSourceSerialize() {
+  Kizuri::Scene scene;
+  Kizuri::EntityId id = scene.CreateEntity("aud");
+  Kizuri::Entity* e = scene.Get(id);
+  if (e == nullptr) {
+    return false;
+  }
+  e->hasAudioSource = true;
+  Kizuri::MakeDefaultAudioSource(e->audioSource);
+  e->audioSource.clipPath = "sfx/hit.wav";
+  e->audioSource.volume = 0.75f;
+  e->audioSource.bus = 2;
+  e->audioSource.loop = true;
+  e->audioSource.spatial = false;
+  e->audioSource.rolloffModel = 2;
+  const char* tmp = "kizuri_test_audiosource_tmp.kzscene";
+  if (!Kizuri::SaveSceneToFile(scene, tmp)) {
+    return false;
+  }
+  Kizuri::Scene back;
+  const bool ok = Kizuri::LoadSceneFromFile(back, tmp, nullptr);
+  std::remove(tmp);
+  if (!ok) {
+    return false;
+  }
+  const std::vector<Kizuri::EntityId> all = back.All();
+  for (size_t i = 0; i < all.size(); ++i) {
+    const Kizuri::Entity* be = back.Get(all[i]);
+    if (be != nullptr && be->hasAudioSource) {
+      if (be->audioSource.clipPath != "sfx/hit.wav") {
+        return false;
+      }
+      if (std::fabs(be->audioSource.volume - 0.75f) > 1e-5f) {
+        return false;
+      }
+      if (be->audioSource.bus != 2 || !be->audioSource.loop || be->audioSource.spatial) {
+        return false;
+      }
+      if (be->audioSource.rolloffModel != 2) {
+        return false;
+      }
+      return true;
+    }
+  }
+  return false;
+}
 bool TestPhysicsFall() {
   Kizuri::JobSystem jobs;
   if (!jobs.Initialize()) {
@@ -9312,6 +9683,14 @@ int main() {
   failures += Check("PhysicsFall", TestPhysicsFall());
   failures += Check("PhysicsFloor", TestPhysicsFloor());
   failures += Check("PhysicsRaycast", TestPhysicsRaycast());
+  failures += Check("AudioClipDecode", TestAudioClipDecode());
+  failures += Check("AudioMixerBuses", TestAudioMixerBuses());
+  failures += Check("AudioMixerSaveLoad", TestAudioMixerSaveLoad());
+  failures += Check("AudioAttenuation", TestAudioAttenuation());
+  failures += Check("AudioEngineOffline", TestAudioEngineOffline());
+  failures += Check("AudioSpatialPan", TestAudioSpatialPan());
+  failures += Check("AudioDucking", TestAudioDucking());
+  failures += Check("AudioSourceSerialize", TestAudioSourceSerialize());
   failures += Check("RigidbodySerialize", TestRigidbodySerialize());
   failures += Check("Ragdoll", TestRagdoll());
   failures += Check("LodCoverage", TestLodCoverage());
