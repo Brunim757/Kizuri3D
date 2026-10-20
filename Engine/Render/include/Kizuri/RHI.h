@@ -90,6 +90,7 @@ public:
   virtual void Clear(float r, float g, float b, float a) = 0;
   virtual void Present(bool vsync) = 0;
   virtual const char* BackendName() const = 0;
+  virtual const char* LastError() const = 0;
   virtual int Width() const = 0;
   virtual int Height() const = 0;
   virtual void* GetNativeDevice() const = 0;

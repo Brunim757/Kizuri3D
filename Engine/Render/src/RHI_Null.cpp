@@ -68,6 +68,9 @@ public:
   const char* BackendName() const override {
     return "Null";
   }
+  const char* LastError() const override {
+    return "";
+  }
   int Width() const override {
     return w;
   }

@@ -5,6 +5,7 @@
 #include <d3d11.h>
 #include <d3d11_1.h>
 #include <dxgi.h>
+#include <dxgi1_2.h>
 #include <d3dcompiler.h>
 #include <wrl/client.h>
 #include <cstring>
@@ -248,9 +249,10 @@ public:
     w = desc.width;
     h = desc.height;
     if (hwnd == nullptr || w <= 0 || h <= 0) {
+      lastError = "janela invalida (handle nulo ou tamanho <= 0)";
       return false;
     }
-    DXGI_SWAP_CHAIN_DESC scd;
+    DXGI_SWAP_CHAIN_DESC scd = {};
     scd.BufferDesc.Width = static_cast<UINT>(w);
     scd.BufferDesc.Height = static_cast<UINT>(h);
     scd.BufferDesc.RefreshRate.Numerator = 60;
@@ -287,6 +289,7 @@ public:
       &obtained,
       context.GetAddressOf());
     if (FAILED(hr)) {
+      const HRESULT hwHr = hr;
       hr = D3D11CreateDeviceAndSwapChain(
         nullptr,
         D3D_DRIVER_TYPE_WARP,
@@ -301,12 +304,22 @@ public:
         &obtained,
         context.GetAddressOf());
       if (FAILED(hr)) {
-        return false;
+        const HRESULT warpHr = hr;
+        if (CreateDeviceAndSwapChainSeparately(requested, hwHr, warpHr)) {
+          lastError = "device criado por caminho alternativo (sem swapchain legado) apos falhar hardware 0x" + std::to_string(static_cast<unsigned int>(hwHr)) + " e WARP 0x" + std::to_string(static_cast<unsigned int>(warpHr)) + ". Adaptadores: " + EnumerateAdapters();
+        } else {
+          lastError = "D3D11CreateDeviceAndSwapChain falhou (hardware 0x" + std::to_string(static_cast<unsigned int>(hwHr)) + ", WARP 0x" + std::to_string(static_cast<unsigned int>(warpHr)) + "). Adaptadores: " + EnumerateAdapters();
+          return false;
+        }
+      } else {
+        lastError = "device criado em WARP (software) apos falha de hardware 0x" + std::to_string(static_cast<unsigned int>(hwHr)) + ". Adaptadores: " + EnumerateAdapters();
       }
     }
     if (!CreateBackbuffer()) {
+      lastError = "CreateBackbuffer falhou apos device criado (feature level 0x" + std::to_string(static_cast<unsigned int>(obtained)) + ")";
       return false;
     }
+    lastError.clear();
     return true;
   }
   void Shutdown() override {
@@ -371,6 +384,42 @@ public:
   }
   const char* BackendName() const override {
     return "D3D11";
+  }
+  const char* LastError() const override {
+    return lastError.c_str();
+  }
+  static std::string EnumerateAdapters() {
+    ComPtr<IDXGIFactory1> factory;
+    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(factory.GetAddressOf())))) {
+      return "IDXGIFactory1 indisponivel";
+    }
+    std::string out;
+    for (UINT i = 0;; ++i) {
+      ComPtr<IDXGIAdapter1> adapter;
+      if (factory->EnumAdapters1(i, adapter.GetAddressOf()) == DXGI_ERROR_NOT_FOUND) {
+        break;
+      }
+      if (adapter == nullptr) {
+        continue;
+      }
+      DXGI_ADAPTER_DESC1 ad;
+      if (FAILED(adapter->GetDesc1(&ad))) {
+        continue;
+      }
+      if (!out.empty()) {
+        out += " | ";
+      }
+      out += ad.Description;
+      out += " (VRAM ";
+      out += std::to_string(static_cast<unsigned int>(ad.DedicatedVideoMemory / (1024 * 1024)));
+      out += "MB, software=";
+      out += (ad.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) ? "1" : "0";
+      out += ")";
+    }
+    if (out.empty()) {
+      out = "nenhum adaptador enumerado";
+    }
+    return out;
   }
   int Width() const override {
     return w;
@@ -2228,6 +2277,76 @@ private:
     }
     Ctx()->CSSetSamplers(slot, 1, &s);
   }
+  bool CreateDeviceAndSwapChainSeparately(D3D_FEATURE_LEVEL* requested, HRESULT hwHr, HRESULT warpHr) {
+    (void)requested;
+    D3D_FEATURE_LEVEL obtained = D3D_FEATURE_LEVEL_11_0;
+    HRESULT hr = D3D11CreateDevice(
+      nullptr,
+      D3D_DRIVER_TYPE_HARDWARE,
+      nullptr,
+      0,
+      nullptr,
+      0,
+      D3D11_SDK_VERSION,
+      device.GetAddressOf(),
+      &obtained,
+      context.GetAddressOf());
+    if (FAILED(hr)) {
+      hr = D3D11CreateDevice(
+        nullptr,
+        D3D_DRIVER_TYPE_WARP,
+        nullptr,
+        0,
+        nullptr,
+        0,
+        D3D11_SDK_VERSION,
+        device.GetAddressOf(),
+        &obtained,
+        context.GetAddressOf());
+      if (FAILED(hr)) {
+        return false;
+      }
+    }
+    if (device == nullptr || context == nullptr) {
+      return false;
+    }
+    ComPtr<IDXGIDevice> dxgiDevice;
+    if (FAILED(device.As(&dxgiDevice))) {
+      return false;
+    }
+    ComPtr<IDXGIAdapter> adapter;
+    if (FAILED(dxgiDevice->GetAdapter(&adapter))) {
+      return false;
+    }
+    ComPtr<IDXGIFactory2> factory;
+    if (FAILED(adapter->GetParent(__uuidof(IDXGIFactory2), reinterpret_cast<void**>(factory.GetAddressOf())))) {
+      return false;
+    }
+    DXGI_SWAP_CHAIN_DESC scd = {};
+    scd.BufferDesc.Width = static_cast<UINT>(w);
+    scd.BufferDesc.Height = static_cast<UINT>(h);
+    scd.BufferDesc.RefreshRate.Numerator = 60;
+    scd.BufferDesc.RefreshRate.Denominator = 1;
+    scd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    scd.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
+    scd.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
+    scd.SampleDesc.Count = 1;
+    scd.SampleDesc.Quality = 0;
+    scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    scd.BufferCount = 1;
+    scd.OutputWindow = hwnd;
+    scd.Windowed = TRUE;
+    scd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+    scd.Flags = 0;
+    HRESULT scHr = factory->CreateSwapChainForHwnd(device.Get(), hwnd, &scd, nullptr, nullptr, swapchain.GetAddressOf());
+    if (FAILED(scHr)) {
+      swapchain.Reset();
+      device.Reset();
+      context.Reset();
+      return false;
+    }
+    return true;
+  }
   bool CreateBackbuffer() {
     ComPtr<ID3D11Texture2D> back;
     if (FAILED(swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(back.GetAddressOf())))) {
@@ -2360,6 +2479,7 @@ private:
   HWND hwnd;
   int w;
   int h;
+  std::string lastError;
   uint64_t nextId;
   std::atomic<uint64_t> total;
   std::atomic<uint64_t> discarded;

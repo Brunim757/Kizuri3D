@@ -457,6 +457,15 @@ bool EditorApp::Initialize() {
   rhi = CreateRHI(RHI_API::D3D11);
   if (rhi == nullptr || !rhi->Initialize(desc)) {
     initError = "DirectX 11 nao inicializado (device, driver ou Feature Level).";
+    if (rhi != nullptr) {
+      const char* rhiErr = rhi->LastError();
+      if (rhiErr != nullptr && rhiErr[0] != '\0') {
+        initError += " Detalhe: ";
+        initError += rhiErr;
+      }
+    } else {
+      initError += " Backend D3D11 nao criado.";
+    }
     return false;
   }
   IMGUI_CHECKVERSION();
