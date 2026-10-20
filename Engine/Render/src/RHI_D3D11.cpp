@@ -2331,8 +2331,8 @@ private:
     if (FAILED(dxgiDevice->GetAdapter(&adapter))) {
       return false;
     }
-    ComPtr<IDXGIFactory1> factory;
-    if (FAILED(adapter->GetParent(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(factory.GetAddressOf())))) {
+    ComPtr<IDXGIFactory> factory;
+    if (FAILED(adapter->GetParent(__uuidof(IDXGIFactory), reinterpret_cast<void**>(factory.GetAddressOf())))) {
       return false;
     }
     DXGI_SWAP_CHAIN_DESC scd = {};
@@ -2351,7 +2351,7 @@ private:
     scd.Windowed = TRUE;
     scd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
     scd.Flags = 0;
-    HRESULT scHr = factory->CreateSwapChainForHwnd(device.Get(), hwnd, &scd, nullptr, nullptr, swapchain.GetAddressOf());
+    HRESULT scHr = factory->CreateSwapChain(device.Get(), &scd, nullptr, nullptr, swapchain.GetAddressOf());
     if (FAILED(scHr)) {
       swapchain.Reset();
       device.Reset();
