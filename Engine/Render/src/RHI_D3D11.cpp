@@ -2351,7 +2351,7 @@ private:
     scd.Windowed = TRUE;
     scd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
     scd.Flags = 0;
-    HRESULT scHr = factory->CreateSwapChain(device.Get(), &scd, nullptr, nullptr, swapchain.GetAddressOf());
+    HRESULT scHr = factory->CreateSwapChain(device.Get(), &scd, swapchain.GetAddressOf());
     if (FAILED(scHr)) {
       swapchain.Reset();
       device.Reset();
