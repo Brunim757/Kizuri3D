@@ -1004,24 +1004,39 @@ void EditorApp::SyncAudio(float dt) {
   }
   audio.Update();
 }
+void EditorApp::PropertyLabel(const char* label) {
+  const float start = ImGui::GetCursorPosX();
+  ImGui::AlignTextToFramePadding();
+  ImGui::TextUnformatted(label);
+  ImGui::SameLine(start + 140.0f);
+  ImGui::SetNextItemWidth(-1.0f);
+}
+void EditorApp::PropertySection(const char* title) {
+  ImGui::Spacing();
+  ImGui::Separator();
+  ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.64f, 1.0f, 1.0f));
+  ImGui::TextUnformatted(title);
+  ImGui::PopStyleColor();
+}
 void EditorApp::DrawAudioSourceSection(Entity* e) {
   if (!e->hasAudioSource) {
     return;
   }
-  ImGui::Separator();
-  ImGui::Text("Audio Source");
+  PropertySection("Audio Source");
   ImGui::SameLine();
   if (ImGui::SmallButton("Remove##audiosource")) {
     std::unique_ptr<Command> cmd(new RemoveAudioSourceCmd(e->id));
     undo.Execute(std::move(cmd), scene);
     return;
   }
+  ImGui::PushID("AudioSource");
   AudioSourceData as = e->audioSource;
   bool changed = false;
   char clipBuf[256];
   std::snprintf(clipBuf, sizeof(clipBuf), "%s", as.clipPath.c_str());
+  PropertyLabel("Clip");
   ImGui::SetNextItemWidth(-70.0f);
-  if (ImGui::InputText("Clip", clipBuf, sizeof(clipBuf))) {
+  if (ImGui::InputText("##Clip", clipBuf, sizeof(clipBuf))) {
     as.clipPath = clipBuf;
     changed = true;
   }
@@ -1044,32 +1059,40 @@ void EditorApp::DrawAudioSourceSection(Entity* e) {
       }
     }
   }
-  if (ImGui::DragFloat("Volume", &as.volume, 0.01f, 0.0f, 4.0f)) {
+  PropertyLabel("Volume");
+  if (ImGui::DragFloat("##Volume", &as.volume, 0.01f, 0.0f, 4.0f)) {
     changed = true;
   }
-  if (ImGui::Checkbox("Spatial", &as.spatial)) {
+  PropertyLabel("Spatial");
+  if (ImGui::Checkbox("##Spatial", &as.spatial)) {
     changed = true;
   }
   if (as.spatial) {
-    if (ImGui::DragFloat("Min Distance", &as.minDistance, 0.1f, 0.01f, 1000.0f)) {
+    PropertyLabel("Min Distance");
+    if (ImGui::DragFloat("##Min Distance", &as.minDistance, 0.1f, 0.01f, 1000.0f)) {
       changed = true;
     }
-    if (ImGui::DragFloat("Max Distance", &as.maxDistance, 0.1f, 0.01f, 10000.0f)) {
+    PropertyLabel("Max Distance");
+    if (ImGui::DragFloat("##Max Distance", &as.maxDistance, 0.1f, 0.01f, 10000.0f)) {
       changed = true;
     }
     int model = as.rolloffModel < 0 ? 0 : (as.rolloffModel > 2 ? 2 : as.rolloffModel);
-    if (ImGui::Combo("Rolloff", &model, "Linear\0Inverse\0Exponential\0")) {
+    PropertyLabel("Rolloff");
+    if (ImGui::Combo("##Rolloff", &model, "Linear\0Inverse\0Exponential\0")) {
       as.rolloffModel = model;
       changed = true;
     }
-    if (ImGui::DragFloat("Rolloff Factor", &as.rolloff, 0.05f, 0.01f, 16.0f)) {
+    PropertyLabel("Rolloff Factor");
+    if (ImGui::DragFloat("##Rolloff Factor", &as.rolloff, 0.05f, 0.01f, 16.0f)) {
       changed = true;
     }
   }
-  if (ImGui::Checkbox("Loop", &as.loop)) {
+  PropertyLabel("Loop");
+  if (ImGui::Checkbox("##Loop", &as.loop)) {
     changed = true;
   }
-  if (ImGui::Checkbox("Playing", &as.playing)) {
+  PropertyLabel("Playing");
+  if (ImGui::Checkbox("##Playing", &as.playing)) {
     changed = true;
   }
   const size_t busCount = audio.Mixer().BusCount();
@@ -1086,7 +1109,8 @@ void EditorApp::DrawAudioSourceSection(Entity* e) {
       names += b->name;
     }
     int bus = as.bus < 0 ? 0 : (static_cast<size_t>(as.bus) < busCount ? as.bus : 0);
-    if (ImGui::Combo("Bus", &bus, names.c_str())) {
+    PropertyLabel("Bus");
+    if (ImGui::Combo("##Bus", &bus, names.c_str())) {
       as.bus = bus;
       changed = true;
     }
@@ -1094,6 +1118,7 @@ void EditorApp::DrawAudioSourceSection(Entity* e) {
   if (changed) {
     edits.PushAudioSource(e->id, as);
   }
+  ImGui::PopID();
 }
 void EditorApp::DrawAudioMixer() {
   if (!ImGui::Begin("Audio Mixer", &showAudioMixer)) {
@@ -3012,20 +3037,23 @@ void EditorApp::DrawInspector() {
     ImGui::Text("%llu selected", (unsigned long long)selection.Count());
   }
   bool stat = e->isStatic;
-  if (ImGui::Checkbox("Static", &stat)) {
+  PropertyLabel("Static");
+  if (ImGui::Checkbox("##Static", &stat)) {
     edits.PushStatic(e->id, stat);
   }
-  ImGui::Separator();
-  ImGui::Text("Transform");
+  PropertySection("Transform");
   Transform t = e->transform;
   bool changed = false;
-  if (ImGui::DragFloat3("Position", t.position, 0.05f)) {
+  PropertyLabel("Position");
+  if (ImGui::DragFloat3("##Position", t.position, 0.05f)) {
     changed = true;
   }
-  if (ImGui::DragFloat3("Rotation", t.rotation, 0.5f)) {
+  PropertyLabel("Rotation");
+  if (ImGui::DragFloat3("##Rotation", t.rotation, 0.5f)) {
     changed = true;
   }
-  if (ImGui::DragFloat3("Scale", t.scale, 0.02f)) {
+  PropertyLabel("Scale");
+  if (ImGui::DragFloat3("##Scale", t.scale, 0.02f)) {
     if (t.scale[0] < 0.01f) {
       t.scale[0] = 0.01f;
     }
@@ -3060,18 +3088,19 @@ void EditorApp::DrawInspector() {
     }
   }
   if (e->hasMesh) {
-    ImGui::Separator();
-    ImGui::Text("Mesh Renderer");
+    ImGui::PushID("Mesh");
+    PropertySection("Mesh Renderer");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##mesh")) {
       std::unique_ptr<Command> cmd(new RemoveMeshCmd(e->id));
       undo.Execute(std::move(cmd), scene);
     }
     DrawMeshSection(e);
+    ImGui::PopID();
   }
   if (e->hasLight) {
-    ImGui::Separator();
-    ImGui::Text("Light");
+    ImGui::PushID("Light");
+    PropertySection("Light");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##light")) {
       std::unique_ptr<Command> cmd(new RemoveLightCmd(e->id));
@@ -3092,40 +3121,50 @@ void EditorApp::DrawInspector() {
       lightMode = 0;
     }
     bool lightChanged = false;
-    if (ImGui::Combo("Type", &lightMode, "Point\0Spot\0Directional\0Rect\0")) {
+    PropertyLabel("Type");
+    if (ImGui::Combo("##Type", &lightMode, "Point\0Spot\0Directional\0Rect\0")) {
       light.type = lightMode;
       lightChanged = true;
     }
-    if (ImGui::SliderInt("Link Mask", &light.linkMask, 0, 255)) {
+    PropertyLabel("Link Mask");
+    if (ImGui::SliderInt("##Link Mask", &light.linkMask, 0, 255)) {
       lightChanged = true;
     }
-    if (ImGui::SliderInt("Layer", &light.layer, 0, 31)) {
+    PropertyLabel("Layer");
+    if (ImGui::SliderInt("##Layer", &light.layer, 0, 31)) {
       lightChanged = true;
     }
-    if (ImGui::ColorEdit3("Color", light.color)) {
+    PropertyLabel("Color");
+    if (ImGui::ColorEdit3("##Color", light.color)) {
       lightChanged = true;
     }
-    if (ImGui::DragFloat("Intensity", &light.intensity, 0.05f, 0.0f, 20.0f)) {
+    PropertyLabel("Intensity");
+    if (ImGui::DragFloat("##Intensity", &light.intensity, 0.05f, 0.0f, 20.0f)) {
       lightChanged = true;
     }
     if (light.type == static_cast<int>(LightType::Point) || light.type == static_cast<int>(LightType::Spot) || light.type == static_cast<int>(LightType::Rect)) {
-      if (ImGui::DragFloat("Radius", &light.radius, 0.1f, 0.5f, 100.0f)) {
+      PropertyLabel("Radius");
+      if (ImGui::DragFloat("##Radius", &light.radius, 0.1f, 0.5f, 100.0f)) {
         lightChanged = true;
       }
     }
     if (light.type == static_cast<int>(LightType::Rect)) {
-      if (ImGui::DragFloat("Area W", &light.areaW, 0.05f, 0.1f, 50.0f)) {
+      PropertyLabel("Area W");
+      if (ImGui::DragFloat("##Area W", &light.areaW, 0.05f, 0.1f, 50.0f)) {
         lightChanged = true;
       }
-      if (ImGui::DragFloat("Area H", &light.areaH, 0.05f, 0.1f, 50.0f)) {
+      PropertyLabel("Area H");
+      if (ImGui::DragFloat("##Area H", &light.areaH, 0.05f, 0.1f, 50.0f)) {
         lightChanged = true;
       }
     }
     if (light.type == static_cast<int>(LightType::Spot)) {
-      if (ImGui::DragFloat("Angle", &light.spotAngle, 0.5f, 1.0f, 170.0f)) {
+      PropertyLabel("Angle");
+      if (ImGui::DragFloat("##Angle", &light.spotAngle, 0.5f, 1.0f, 170.0f)) {
         lightChanged = true;
       }
-      if (ImGui::DragFloat("Falloff", &light.falloff, 0.01f, 0.01f, 0.5f)) {
+      PropertyLabel("Falloff");
+      if (ImGui::DragFloat("##Falloff", &light.falloff, 0.01f, 0.01f, 0.5f)) {
         lightChanged = true;
       }
       {
@@ -3143,7 +3182,8 @@ void EditorApp::DrawInspector() {
             ccur = static_cast<int>(cti) + 1;
           }
         }
-        if (ImGui::Combo("Cookie", &ccur, citems.c_str())) {
+        PropertyLabel("Cookie");
+        if (ImGui::Combo("##Cookie", &ccur, citems.c_str())) {
           light.cookieGuid.clear();
           if (ccur >= 1 && static_cast<size_t>(ccur - 1) < ctg.size()) {
             light.cookieGuid = ctg[static_cast<size_t>(ccur - 1)];
@@ -3153,12 +3193,14 @@ void EditorApp::DrawInspector() {
       }
     }
     bool showShadow = light.castShadow;
-    if (ImGui::Checkbox("Cast Shadow", &showShadow)) {
+    PropertyLabel("Cast Shadow");
+    if (ImGui::Checkbox("##Cast Shadow", &showShadow)) {
       light.castShadow = showShadow;
       lightChanged = true;
     }
     if (light.castShadow) {
-      if (ImGui::DragFloat("Light Size", &light.lightSize, 0.01f, 0.0f, 2.0f)) {
+      PropertyLabel("Light Size");
+      if (ImGui::DragFloat("##Light Size", &light.lightSize, 0.01f, 0.0f, 2.0f)) {
         lightChanged = true;
       }
       int resMode = 1;
@@ -3167,18 +3209,22 @@ void EditorApp::DrawInspector() {
       } else if (light.shadowSize == 2048) {
         resMode = 2;
       }
-      if (ImGui::Combo("Shadow Size", &resMode, "512\0""1024\0""2048\0")) {
+      PropertyLabel("Shadow Size");
+      if (ImGui::Combo("##Shadow Size", &resMode, "512\0""1024\0""2048\0")) {
         light.shadowSize = resMode == 0 ? 512 : (resMode == 2 ? 2048 : 1024);
         lightChanged = true;
       }
-      if (ImGui::DragFloat("Softness", &light.softness, 0.01f, 0.0f, 2.0f)) {
+      PropertyLabel("Softness");
+      if (ImGui::DragFloat("##Softness", &light.softness, 0.01f, 0.0f, 2.0f)) {
         lightChanged = true;
       }
       if (light.type == static_cast<int>(LightType::Directional)) {
-        if (ImGui::SliderInt("Cascades", &light.cascades, 2, 4)) {
+        PropertyLabel("Cascades");
+        if (ImGui::SliderInt("##Cascades", &light.cascades, 2, 4)) {
           lightChanged = true;
         }
-        if (ImGui::DragFloat("Lambda", &light.lambda, 0.01f, 0.0f, 1.0f)) {
+        PropertyLabel("Lambda");
+        if (ImGui::DragFloat("##Lambda", &light.lambda, 0.01f, 0.0f, 1.0f)) {
           lightChanged = true;
         }
       }
@@ -3186,10 +3232,11 @@ void EditorApp::DrawInspector() {
     if (lightChanged) {
       edits.PushLight(e->id, light);
     }
+    ImGui::PopID();
   }
   if (e->hasMaterial) {
-    ImGui::Separator();
-    ImGui::Text("Material");
+    ImGui::PushID("Material");
+    PropertySection("Material");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##material")) {
       std::unique_ptr<Command> cmd(new RemoveMaterialCmd(e->id));
@@ -3200,10 +3247,11 @@ void EditorApp::DrawInspector() {
       edits.PushMaterial(e->id, mat);
     }
     DrawMaterialSection(e);
+    ImGui::PopID();
   }
   if (e->hasDecal) {
-    ImGui::Separator();
-    ImGui::Text("Decal");
+    ImGui::PushID("Decal");
+    PropertySection("Decal");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##decal")) {
       std::unique_ptr<Command> cmd(new RemoveDecalCmd(e->id));
@@ -3211,22 +3259,27 @@ void EditorApp::DrawInspector() {
     }
     DecalData dec = e->decal;
     bool decChanged = false;
-    if (ImGui::DragFloat3("Decal Size", dec.size, 0.05f, 0.05f, 50.0f)) {
+    PropertyLabel("Decal Size");
+    if (ImGui::DragFloat3("##Decal Size", dec.size, 0.05f, 0.05f, 50.0f)) {
       decChanged = true;
     }
-    if (ImGui::DragFloat("Life", &dec.life, 0.1f, 0.0f, 300.0f)) {
+    PropertyLabel("Life");
+    if (ImGui::DragFloat("##Life", &dec.life, 0.1f, 0.0f, 300.0f)) {
       decChanged = true;
     }
     int dmask = dec.matMask < 0 ? 0 : (dec.matMask > 15 ? 15 : dec.matMask);
-    if (ImGui::Combo("Channels", &dmask, "Off\0Albedo\0Albedo+Normal/Rough\0Full\0Full+Emissive\0")) {
+    PropertyLabel("Channels");
+    if (ImGui::Combo("##Channels", &dmask, "Off\0Albedo\0Albedo+Normal/Rough\0Full\0Full+Emissive\0")) {
       dec.matMask = dmask == 0 ? 0 : (dmask == 1 ? 1 : (dmask == 2 ? 3 : (dmask == 3 ? 7 : 15)));
       decChanged = true;
     }
     if (dec.matMask >= 2) {
-      if (ImGui::SliderFloat("Decal Rough", &dec.matRough, 0.0f, 1.0f)) {
+      PropertyLabel("Decal Rough");
+      if (ImGui::SliderFloat("##Decal Rough", &dec.matRough, 0.0f, 1.0f)) {
         decChanged = true;
       }
-      if (ImGui::SliderFloat("Decal Metal", &dec.matMetal, 0.0f, 1.0f)) {
+      PropertyLabel("Decal Metal");
+      if (ImGui::SliderFloat("##Decal Metal", &dec.matMetal, 0.0f, 1.0f)) {
         decChanged = true;
       }
     }
@@ -3234,10 +3287,11 @@ void EditorApp::DrawInspector() {
       edits.PushDecal(e->id, dec);
     }
     DrawDecalSection(e);
+    ImGui::PopID();
   }
   if (e->hasLod) {
-    ImGui::Separator();
-    ImGui::Text("LOD");
+    ImGui::PushID("Lod");
+    PropertySection("LOD");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##lod")) {
       std::unique_ptr<Command> cmd(new RemoveLodCmd(e->id));
@@ -3245,10 +3299,12 @@ void EditorApp::DrawInspector() {
     }
     LodData lod = e->lod;
     bool lodChanged = false;
-    if (ImGui::DragFloat("Near Dist", &lod.nearDist, 0.5f, 1.0f, 500.0f)) {
+    PropertyLabel("Near Dist");
+    if (ImGui::DragFloat("##Near Dist", &lod.nearDist, 0.5f, 1.0f, 500.0f)) {
       lodChanged = true;
     }
-    if (ImGui::DragFloat("Far Dist", &lod.farDist, 0.5f, 2.0f, 1000.0f)) {
+    PropertyLabel("Far Dist");
+    if (ImGui::DragFloat("##Far Dist", &lod.farDist, 0.5f, 2.0f, 1000.0f)) {
       lodChanged = true;
     }
     if (lodChanged) {
@@ -3334,10 +3390,11 @@ void EditorApp::DrawInspector() {
         }
       }
     }
+    ImGui::PopID();
   }
   if (e->hasLightmap) {
-    ImGui::Separator();
-    ImGui::Text("Lightmap");
+    ImGui::PushID("Lightmap");
+    PropertySection("Lightmap");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##lightmap")) {
       std::unique_ptr<Command> cmd(new RemoveLightmapCmd(e->id));
@@ -3345,7 +3402,8 @@ void EditorApp::DrawInspector() {
     }
     LightmapData lm = e->lightmap;
     bool lmChanged = false;
-    if (ImGui::DragFloat("Lightmap Intensity", &lm.intensity, 0.05f, 0.0f, 4.0f)) {
+    PropertyLabel("Lightmap Intensity");
+    if (ImGui::DragFloat("##Lightmap Intensity", &lm.intensity, 0.05f, 0.0f, 4.0f)) {
       lmChanged = true;
     }
     if (lmChanged) {
@@ -3391,14 +3449,17 @@ void EditorApp::DrawInspector() {
     if (ImGui::Button("Bake Lightmap")) {
       BakeLightmap(e->id);
     }
-    if (ImGui::Combo("LM Format", &viewLmFormat, "BC1\0BC3\0BC7\0")) {
+    PropertyLabel("LM Format");
+    if (ImGui::Combo("##LM Format", &viewLmFormat, "BC1\0BC3\0BC7\0")) {
     }
-    if (ImGui::SliderFloat("LM Denoise", &viewLmDenoise, 0.0f, 3.0f)) {
+    PropertyLabel("LM Denoise");
+    if (ImGui::SliderFloat("##LM Denoise", &viewLmDenoise, 0.0f, 3.0f)) {
     }
+    ImGui::PopID();
   }
   if (e->hasProbe) {
-    ImGui::Separator();
-    ImGui::Text("Reflection Probe");
+    ImGui::PushID("Probe");
+    PropertySection("Reflection Probe");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##probe")) {
       std::unique_ptr<Command> cmd(new RemoveProbeCmd(e->id));
@@ -3406,10 +3467,12 @@ void EditorApp::DrawInspector() {
     }
     ProbeData pr = e->probe;
     bool prChanged = false;
-    if (ImGui::DragFloat3("Probe Size", pr.size, 0.1f, 0.5f, 100.0f)) {
+    PropertyLabel("Probe Size");
+    if (ImGui::DragFloat3("##Probe Size", pr.size, 0.1f, 0.5f, 100.0f)) {
       prChanged = true;
     }
-    if (ImGui::DragFloat("Probe Intensity", &pr.intensity, 0.05f, 0.0f, 4.0f)) {
+    PropertyLabel("Probe Intensity");
+    if (ImGui::DragFloat("##Probe Intensity", &pr.intensity, 0.05f, 0.0f, 4.0f)) {
       prChanged = true;
     }
     if (prChanged) {
@@ -3424,10 +3487,11 @@ void EditorApp::DrawInspector() {
     if (ImGui::Button("Bake Probe")) {
       BakeProbeEntity(e->id);
     }
+    ImGui::PopID();
   }
   if (e->hasPost) {
-    ImGui::Separator();
-    ImGui::Text("Post Volume");
+    ImGui::PushID("Post");
+    PropertySection("Post Volume");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##post")) {
       std::unique_ptr<Command> cmd(new RemovePostCmd(e->id));
@@ -3435,33 +3499,40 @@ void EditorApp::DrawInspector() {
     }
     PostData pv = e->post;
     bool pvChanged = false;
-    if (ImGui::DragFloat3("Volume Size", pv.size, 0.1f, 0.5f, 200.0f)) {
+    PropertyLabel("Volume Size");
+    if (ImGui::DragFloat3("##Volume Size", pv.size, 0.1f, 0.5f, 200.0f)) {
       pvChanged = true;
     }
-    if (ImGui::DragFloat("Exposure", &pv.exposure, 0.01f, 0.05f, 8.0f)) {
+    PropertyLabel("Exposure");
+    if (ImGui::DragFloat("##Exposure", &pv.exposure, 0.01f, 0.05f, 8.0f)) {
       pvChanged = true;
     }
     int ptm = pv.toneMap < 0 ? 0 : (pv.toneMap > 3 ? 3 : pv.toneMap);
-    if (ImGui::Combo("Tone Mapper", &ptm, "ACES\0Reinhard\0AgX\0None\0")) {
+    PropertyLabel("Tone Mapper");
+    if (ImGui::Combo("##Tone Mapper", &ptm, "ACES\0Reinhard\0AgX\0None\0")) {
       pv.toneMap = ptm;
       pvChanged = true;
     }
-    if (ImGui::DragFloat("Contrast", &pv.contrast, 0.01f, 0.2f, 2.0f)) {
+    PropertyLabel("Contrast");
+    if (ImGui::DragFloat("##Contrast", &pv.contrast, 0.01f, 0.2f, 2.0f)) {
       pvChanged = true;
     }
-    if (ImGui::DragFloat("Saturation", &pv.saturation, 0.01f, 0.0f, 3.0f)) {
+    PropertyLabel("Saturation");
+    if (ImGui::DragFloat("##Saturation", &pv.saturation, 0.01f, 0.0f, 3.0f)) {
       pvChanged = true;
     }
-    if (ImGui::DragFloat("Bloom", &pv.bloom, 0.01f, 0.0f, 2.0f)) {
+    PropertyLabel("Bloom");
+    if (ImGui::DragFloat("##Bloom", &pv.bloom, 0.01f, 0.0f, 2.0f)) {
       pvChanged = true;
     }
     if (pvChanged) {
       edits.PushPost(e->id, pv);
     }
+    ImGui::PopID();
   }
   if (e->hasFog) {
-    ImGui::Separator();
-    ImGui::Text("Fog Volume");
+    ImGui::PushID("Fog");
+    PropertySection("Fog Volume");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##fog")) {
       std::unique_ptr<Command> cmd(new RemoveFogCmd(e->id));
@@ -3469,22 +3540,26 @@ void EditorApp::DrawInspector() {
     }
     FogData fg = e->fog;
     bool fgChanged = false;
-    if (ImGui::DragFloat3("Volume Size", fg.size, 0.1f, 0.5f, 200.0f)) {
+    PropertyLabel("Volume Size");
+    if (ImGui::DragFloat3("##Volume Size", fg.size, 0.1f, 0.5f, 200.0f)) {
       fgChanged = true;
     }
-    if (ImGui::DragFloat("Density", &fg.density, 0.001f, 0.0f, 1.0f)) {
+    PropertyLabel("Density");
+    if (ImGui::DragFloat("##Density", &fg.density, 0.001f, 0.0f, 1.0f)) {
       fgChanged = true;
     }
-    if (ImGui::ColorEdit3("Fog Color", fg.color)) {
+    PropertyLabel("Fog Color");
+    if (ImGui::ColorEdit3("##Fog Color", fg.color)) {
       fgChanged = true;
     }
     if (fgChanged) {
       edits.PushFog(e->id, fg);
     }
+    ImGui::PopID();
   }
   if (e->hasRigidbody) {
-    ImGui::Separator();
-    ImGui::Text("Rigidbody");
+    ImGui::PushID("Rigidbody");
+    PropertySection("Rigidbody");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##rigidbody")) {
       std::unique_ptr<Command> cmd(new RemoveRigidbodyCmd(e->id));
@@ -3493,44 +3568,54 @@ void EditorApp::DrawInspector() {
     RigidbodyData rb = e->rigidbody;
     bool rbChanged = false;
     int motion = rb.motionType < 0 ? 0 : (rb.motionType > 2 ? 2 : rb.motionType);
-    if (ImGui::Combo("Motion", &motion, "Static\0Kinematic\0Dynamic\0")) {
+    PropertyLabel("Motion");
+    if (ImGui::Combo("##Motion", &motion, "Static\0Kinematic\0Dynamic\0")) {
       rb.motionType = motion;
       rbChanged = true;
     }
-    if (rb.motionType == 2 && ImGui::DragFloat("Mass", &rb.mass, 0.1f, 0.01f, 1000.0f)) {
+    PropertyLabel("Mass");
+    if (rb.motionType == 2 && ImGui::DragFloat("##Mass", &rb.mass, 0.1f, 0.01f, 1000.0f)) {
       rbChanged = true;
     }
     int collider = rb.colliderType < 0 ? 0 : (rb.colliderType > 3 ? 3 : rb.colliderType);
-    if (ImGui::Combo("Collider", &collider, "Box\0Sphere\0Capsule\0Mesh\0")) {
+    PropertyLabel("Collider");
+    if (ImGui::Combo("##Collider", &collider, "Box\0Sphere\0Capsule\0Mesh\0")) {
       rb.colliderType = collider;
       rbChanged = true;
     }
-    if (rb.colliderType == 0 && ImGui::DragFloat3("Half Extents", rb.extents, 0.05f, 0.01f, 100.0f)) {
+    PropertyLabel("Half Extents");
+    if (rb.colliderType == 0 && ImGui::DragFloat3("##Half Extents", rb.extents, 0.05f, 0.01f, 100.0f)) {
       rbChanged = true;
     }
-    if (rb.colliderType == 1 && ImGui::DragFloat("Radius", &rb.extents[0], 0.05f, 0.01f, 100.0f)) {
+    PropertyLabel("Radius");
+    if (rb.colliderType == 1 && ImGui::DragFloat("##Radius", &rb.extents[0], 0.05f, 0.01f, 100.0f)) {
       rbChanged = true;
     }
     if (rb.colliderType == 2) {
-      if (ImGui::DragFloat("Radius", &rb.extents[0], 0.05f, 0.01f, 100.0f)) {
+      PropertyLabel("Radius");
+      if (ImGui::DragFloat("##Radius", &rb.extents[0], 0.05f, 0.01f, 100.0f)) {
         rbChanged = true;
       }
-      if (ImGui::DragFloat("Half Height", &rb.extents[1], 0.05f, 0.01f, 100.0f)) {
+      PropertyLabel("Half Height");
+      if (ImGui::DragFloat("##Half Height", &rb.extents[1], 0.05f, 0.01f, 100.0f)) {
         rbChanged = true;
       }
     }
     if (rb.colliderType == 3) {
       ImGui::TextDisabled("Uses entity mesh triangles (static only)");
     }
-    if (ImGui::DragFloat("Friction", &rb.friction, 0.01f, 0.0f, 2.0f)) {
+    PropertyLabel("Friction");
+    if (ImGui::DragFloat("##Friction", &rb.friction, 0.01f, 0.0f, 2.0f)) {
       rbChanged = true;
     }
-    if (ImGui::DragFloat("Restitution", &rb.restitution, 0.01f, 0.0f, 1.0f)) {
+    PropertyLabel("Restitution");
+    if (ImGui::DragFloat("##Restitution", &rb.restitution, 0.01f, 0.0f, 1.0f)) {
       rbChanged = true;
     }
     if (rbChanged) {
       edits.PushRigidbody(e->id, rb);
     }
+    ImGui::PopID();
   }
   DrawAudioSourceSection(e);
   if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal || !e->hasLod || !e->hasLightmap || !e->hasProbe || !e->hasPost || !e->hasFog || !e->hasRigidbody || !e->hasAudioSource) {
@@ -3639,9 +3724,34 @@ void EditorApp::DrawConsole() {
     ImGui::EndChild();
     ImGui::Separator();
   }
+  ImGui::SetNextItemWidth(200.0f);
+  ImGui::InputTextWithHint("##logFilter", "Filtrar mensagens...", consoleFilterBuf, sizeof(consoleFilterBuf));
+  ImGui::SameLine();
+  int levelFilter = consoleLevelFilter;
+  if (ImGui::Combo("##logLevel", &levelFilter, "Todos\0Info\0Sucesso\0Aviso\0Erro\0")) {
+    consoleLevelFilter = levelFilter;
+  }
+  ImGui::SameLine();
+  ImGui::Separator();
+  const std::string needle = consoleFilterBuf;
   ImGui::BeginChild("ConsoleScroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
   for (size_t i = 0; i < log.Count(); ++i) {
     const LogEntry& entry = log.At(i);
+    if (consoleLevelFilter == 1 && entry.level != LogLevel::Info) {
+      continue;
+    }
+    if (consoleLevelFilter == 2 && entry.level != LogLevel::Success) {
+      continue;
+    }
+    if (consoleLevelFilter == 3 && entry.level != LogLevel::Warning) {
+      continue;
+    }
+    if (consoleLevelFilter == 4 && entry.level != LogLevel::Error) {
+      continue;
+    }
+    if (!needle.empty() && entry.text.find(needle) == std::string::npos) {
+      continue;
+    }
     ImVec4 color(0.8f, 0.8f, 0.8f, 1.0f);
     const char* tag = "INFO";
     if (entry.level == LogLevel::Success) {

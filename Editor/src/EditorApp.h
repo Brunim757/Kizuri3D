@@ -219,6 +219,8 @@ struct EditorApp {
   bool renameActive;
   EntityId renameTarget;
   char hierSearchBuf[128];
+  char consoleFilterBuf[128];
+  int consoleLevelFilter;
   char assetRenameBuf[256];
   std::string assetRenameGuid;
   bool assetRenameIsTex;
@@ -277,6 +279,8 @@ struct EditorApp {
   void DrawAssetBrowser();
   void DrawAudioMixer();
   void DrawAudioSourceSection(Entity* e);
+  void PropertyLabel(const char* label);
+  void PropertySection(const char* title);
   void DrawSettings();
   void DrawMeshSection(Entity* e);
   void SubmitSceneDraws(const float cpos[3]);
