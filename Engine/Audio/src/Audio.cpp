@@ -380,7 +380,7 @@ float AudioEngine::ComputeAttenuation(float distance, float minDistance, float m
     case AudioRolloffModel::Exponential: {
       const float factor = rolloff > 0.01f ? rolloff : 1.0f;
       const float dd = d < dmin ? dmin : d;
-      return std::pow(dd / dmax, -factor);
+      return std::pow(dmin / dd, factor);
     }
     case AudioRolloffModel::Inverse:
     default: {

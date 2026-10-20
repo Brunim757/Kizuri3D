@@ -2166,6 +2166,18 @@ bool TestAudioAttenuation() {
   if (!(expo > 0.0f && expo < 1.0f)) {
     return false;
   }
+  const float expoNear = Kizuri::AudioEngine::ComputeAttenuation(1.0f, 1.0f, 20.0f, Kizuri::AudioRolloffModel::Exponential, 1.0f);
+  if (std::fabs(expoNear - 1.0f) > 1e-4f) {
+    return false;
+  }
+  const float expoSteep = Kizuri::AudioEngine::ComputeAttenuation(10.0f, 1.0f, 20.0f, Kizuri::AudioRolloffModel::Exponential, 2.0f);
+  if (!(expoSteep < expo)) {
+    return false;
+  }
+  const float linearNear = Kizuri::AudioEngine::ComputeAttenuation(1.0f, 1.0f, 20.0f, Kizuri::AudioRolloffModel::Linear, 1.0f);
+  if (std::fabs(linearNear - 1.0f) > 1e-4f) {
+    return false;
+  }
   return true;
 }
 static Kizuri::AudioClip MakeTestTone() {
