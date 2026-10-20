@@ -56,7 +56,7 @@ A Fase 3 foi deliberadamente construída como uma fundação robusta (não um MV
 | 4 — Pipeline de Assets | ✅ concluída | Import glTF, texturas, codecs internos, Asset Browser, dependências entre assets, upload assíncrono |
 | 5 — Iluminação/sombras | ✅ concluída | CSM, PCF/PCSS, múltiplas luzes, clustered/Forward+, céu procedural, instancing, culling, FSR, Inspector de Light |
 | 6 — Física (Jolt) | ✅ concluída | Jolt integrado, corpos/coliders, passo fixo 60Hz + interpolação, raycasts, ragdoll/joints, Inspector de Rigidbody, wireframe de colliders, toggle Simulate |
-| 7 — Áudio + Mixer | ⏳ **próxima fase** | `Engine/Audio` ainda é stub. miniaudio já está vendorizado e linkado |
+| 7 — Áudio + Mixer | 🔄 **em andamento** | Núcleo pronto: miniaudio (device + decoder), mixer com hierarquia de buses (Master/Música/SFX/Voz/Ambiente), volume/mute/solo, ducking entre buses, reverb (Freeverb) por bus, camada 3D posicional própria (atenuação linear/inverse/exponential + pan direcional), componente `AudioSource` no ECS com Inspector e painel "Audio Mixer" no Editor, mixer salvo como asset `.kzmixer`. Falta: clips no Asset Browser |
 | 8 — Animação | ⏳ pendente | `Engine/Animation` ainda é stub |
 | 9 — Scripting C# | ⏳ pendente | `Engine/Scripting` ainda é stub |
 | 10–24 | ⏳ pendente | ECS/Gameplay, Prefabs, Scripting Visual, Câmera/Input, IA/Pathfinding, Rede, Save, VFX, UI de jogo, Level Design, Polimento, Docs, Launcher, Build, Vertical Slice |
@@ -64,6 +64,8 @@ A Fase 3 foi deliberadamente construída como uma fundação robusta (não um MV
 **Onde a Fase 6 travou (e foi resolvido):** o teste de ragdoll derrubava o CI com `exit code 1` (access violation) — dois bugs reais no `Engine/Physics`:
 1. *Double free* de constraint: no Jolt v5 `Constraint` é `RefTarget` e o `ConstraintManager` guarda `Array<Ref<Constraint>>`, logo `RemoveConstraint()` **já** libera o objeto; o `delete` manual do lado Kizuri destruía a mesma memória duas vezes. Agora o slot guarda `JPH::Ref<JPH::Constraint>` e quem controla a vida é o refcount do próprio Jolt.
 2. *Use-after-free* no adaptador `Jolt::JobSystem → enkiTS`: tasks do enkiTS ainda pendentes na fila chamavam `ReleaseSlot()` num `JobSystemEnki` já destruído (o `WaitforAllAndShutdown()` do enkiTS executa essas tasks na thread principal). Agora o pool é compartilhado por `weak_ptr`, o destrutor drena os jobs em voo antes de liberar os slots, e o `PhysicsWorld` derruba o adaptador **antes** de destruir os corpos.
+
+Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcount do próprio Jolt é a fonte da verdade (`Ref<T>`).
 
 ---
 

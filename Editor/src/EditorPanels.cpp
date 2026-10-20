@@ -1019,9 +1019,29 @@ void EditorApp::DrawAudioSourceSection(Entity* e) {
   bool changed = false;
   char clipBuf[256];
   std::snprintf(clipBuf, sizeof(clipBuf), "%s", as.clipPath.c_str());
+  ImGui::SetNextItemWidth(-70.0f);
   if (ImGui::InputText("Clip", clipBuf, sizeof(clipBuf))) {
     as.clipPath = clipBuf;
     changed = true;
+  }
+  ImGui::SameLine();
+  ImGui::SetNextItemWidth(60.0f);
+  if (ImGui::Button("Browse##clip")) {
+    std::string picked;
+    if (ShowOpenAudioDialog(window.NativeHandle(), picked)) {
+      std::error_code cec;
+      const std::string assetDir = ResolveAssetsDir();
+      std::filesystem::create_directories(std::filesystem::path(assetDir) / "Audio", cec);
+      const std::string rel = "Audio/" + std::filesystem::path(picked).filename().string();
+      const std::string dst = (std::filesystem::path(assetDir) / rel).string();
+      std::filesystem::copy_file(picked, dst, cec);
+      if (cec) {
+        Announce(LogLevel::Error, std::string("Could not copy audio clip: ") + picked);
+      } else {
+        as.clipPath = rel;
+        changed = true;
+      }
+    }
   }
   if (ImGui::DragFloat("Volume", &as.volume, 0.01f, 0.0f, 4.0f)) {
     changed = true;

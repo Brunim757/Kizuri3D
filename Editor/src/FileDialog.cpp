@@ -152,4 +152,24 @@ bool ShowOpenHdrDialog(void* hwnd, std::string& outPath) {
   ToNarrow(file, outPath);
   return !outPath.empty();
 }
+bool ShowOpenAudioDialog(void* hwnd, std::string& outPath) {
+  wchar_t file[1024];
+  file[0] = L'\0';
+  OPENFILENAMEW ofn;
+  ZeroMemory(&ofn, sizeof(ofn));
+  ofn.lStructSize = sizeof(ofn);
+  ofn.hwndOwner = static_cast<HWND>(hwnd);
+  ofn.lpstrFile = file;
+  ofn.nMaxFile = 1024;
+  ofn.lpstrFilter = L"Audio (*.wav;*.ogg;*.flac;*.mp3;*.aiff)\0*.wav;*.ogg;*.flac;*.mp3;*.aiff\0All Files (*.*)\0*.*\0";
+  ofn.nFilterIndex = 1;
+  ofn.lpstrDefExt = L"wav";
+  ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
+  if (GetOpenFileNameW(&ofn) == FALSE) {
+    g_lastErr = CommDlgExtendedError();
+    return false;
+  }
+  ToNarrow(file, outPath);
+  return !outPath.empty();
+}
 }

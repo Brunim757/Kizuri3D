@@ -7,5 +7,6 @@ bool ShowOpenGltfDialog(void* hwnd, std::string& outPath);
 bool ShowOpenImageDialog(void* hwnd, std::string& outPath);
 bool ShowOpenCubeDialog(void* hwnd, std::string& outPath);
 bool ShowOpenHdrDialog(void* hwnd, std::string& outPath);
+bool ShowOpenAudioDialog(void* hwnd, std::string& outPath);
 unsigned long GetLastDialogError();
 }
