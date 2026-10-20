@@ -52,7 +52,7 @@ A Fase 3 foi deliberadamente construída como uma fundação robusta (não um MV
 | 0 — Repositório | ✅ concluída | CI no GitHub Actions entrega artefato de build a cada push |
 | 1 — Núcleo (C++) | ✅ concluída | Alocadores, Job System (enkiTS), janela/input, Origin Rebasing, RHI + backend DX11 |
 | 2 — Renderer básico | ✅ concluída | Deferred + PBR + câmera livre + luz direcional. O renderer foi **muito além** desta fase: o `RendererList.md` está praticamente 100% (só restam N/A de DX11 e RT fora de escopo) |
-| 3 — Editor Shell | ✅ concluída | Viewport, Hierarquia, Inspector, Console, Asset Browser, Settings; serialização `.kzscene`, autosave, Undo/Redo, seleção múltipla, notificações, menus de contexto, ImGuizmo |
+| 3 — Editor Shell | ✅ concluída | Viewport, Hierarquia, Inspector, Console, Asset Browser, Settings; serialização `.kzscene`, autosave, Undo/Redo, seleção múltipla, notificações, menus de contexto, ImGuizmo. **UI/UX no estilo Roblox Studio**: tema próprio (paleta + escala compacta + Segoe UI), dock space real com layout Explorer/Properties/Viewport/Output, barra de ferramentas, Hierarquia como árvore com busca, Inspector como property grid, Output com filtro. Layout salvo em `%LOCALAPPDATA%/Kizuri/EditorLayout.ini` |
 | 4 — Pipeline de Assets | ✅ concluída | Import glTF, texturas, codecs internos, Asset Browser, dependências entre assets, upload assíncrono |
 | 5 — Iluminação/sombras | ✅ concluída | CSM, PCF/PCSS, múltiplas luzes, clustered/Forward+, céu procedural, instancing, culling, FSR, Inspector de Light |
 | 6 — Física (Jolt) | ✅ concluída | Jolt integrado, corpos/coliders, passo fixo 60Hz + interpolação, raycasts, ragdoll/joints, Inspector de Rigidbody, wireframe de colliders, toggle Simulate |
