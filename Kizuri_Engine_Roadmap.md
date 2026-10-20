@@ -56,8 +56,8 @@ A Fase 3 foi deliberadamente construída como uma fundação robusta (não um MV
 | 4 — Pipeline de Assets | ✅ concluída | Import glTF, texturas, codecs internos, Asset Browser, dependências entre assets, upload assíncrono |
 | 5 — Iluminação/sombras | ✅ concluída | CSM, PCF/PCSS, múltiplas luzes, clustered/Forward+, céu procedural, instancing, culling, FSR, Inspector de Light |
 | 6 — Física (Jolt) | ✅ concluída | Jolt integrado, corpos/coliders, passo fixo 60Hz + interpolação, raycasts, ragdoll/joints, Inspector de Rigidbody, wireframe de colliders, toggle Simulate |
-| 7 — Áudio + Mixer | 🔄 **em andamento** | Núcleo pronto: miniaudio (device + decoder), mixer com hierarquia de buses (Master/Música/SFX/Voz/Ambiente), volume/mute/solo, ducking entre buses, reverb (Freeverb) por bus, camada 3D posicional própria (atenuação linear/inverse/exponential + pan direcional), componente `AudioSource` no ECS com Inspector e painel "Audio Mixer" no Editor, mixer salvo como asset `.kzmixer`. Falta: clips no Asset Browser |
-| 8 — Animação | ⏳ pendente | `Engine/Animation` ainda é stub |
+| 7 — Áudio + Mixer | ✅ concluída | Núcleo sobre miniaudio (device + decoder), mixer próprio com hierarquia de buses (Master/Música/SFX/Voz/Ambiente), volume/mute/solo, ducking entre buses, reverb (Freeverb) por bus, camada 3D posicional própria (atenuação linear/inverse/exponential + pan direcional), componente `AudioSource` no ECS (Undo/Redo + EditQueue + serialização + Inspector), painel "Audio Mixer" no Editor, mixer salvo como asset `.kzmixer`. 9 testes no CI |
+| 8 — Animação | ⏳ **próxima fase** | `Engine/Animation` ainda é stub. O shader já tem skinning pronto (o renderer suporta skinned meshes), mas falta o sistema: esqueleto, blending em camadas, IK de pés/mãos, look-at, root motion, retargeting e state machine no Editor |
 | 9 — Scripting C# | ⏳ pendente | `Engine/Scripting` ainda é stub |
 | 10–24 | ⏳ pendente | ECS/Gameplay, Prefabs, Scripting Visual, Câmera/Input, IA/Pathfinding, Rede, Save, VFX, UI de jogo, Level Design, Polimento, Docs, Launcher, Build, Vertical Slice |
 
