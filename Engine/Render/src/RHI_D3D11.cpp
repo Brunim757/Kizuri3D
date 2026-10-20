@@ -177,6 +177,19 @@ struct CtxCache {
 };
 thread_local ID3D11DeviceContext* t_activeCtx = nullptr;
 thread_local CtxCache* t_activeCache = nullptr;
+std::string Narrow(const WCHAR* text) {
+  if (text == nullptr) {
+    return std::string();
+  }
+  int n = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);
+  if (n <= 1) {
+    return std::string();
+  }
+  std::string out(static_cast<size_t>(n), '\0');
+  WideCharToMultiByte(CP_UTF8, 0, text, -1, out.data(), n, nullptr, nullptr);
+  out.resize(static_cast<size_t>(n - 1));
+  return out;
+}
 uint64_t TargetBytes(int tw, int th, RHIFormat fmt) {
   uint64_t bpp = 4;
   if (fmt == RHIFormat::RGBA16F) {
@@ -409,7 +422,7 @@ public:
       if (!out.empty()) {
         out += " | ";
       }
-      out += ad.Description;
+      out += Narrow(ad.Description);
       out += " (VRAM ";
       out += std::to_string(static_cast<unsigned int>(ad.DedicatedVideoMemory / (1024 * 1024)));
       out += "MB, software=";
@@ -2318,8 +2331,8 @@ private:
     if (FAILED(dxgiDevice->GetAdapter(&adapter))) {
       return false;
     }
-    ComPtr<IDXGIFactory2> factory;
-    if (FAILED(adapter->GetParent(__uuidof(IDXGIFactory2), reinterpret_cast<void**>(factory.GetAddressOf())))) {
+    ComPtr<IDXGIFactory1> factory;
+    if (FAILED(adapter->GetParent(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(factory.GetAddressOf())))) {
       return false;
     }
     DXGI_SWAP_CHAIN_DESC scd = {};
