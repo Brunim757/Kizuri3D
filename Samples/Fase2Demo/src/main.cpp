@@ -65,6 +65,12 @@ int main() {
   Kizuri::IRHI* rhi = Kizuri::CreateRHI(Kizuri::RHI_API::D3D11);
   if (rhi == nullptr || !rhi->Initialize(desc)) {
     std::printf("RHI DX11 init failed\n");
+    if (rhi != nullptr) {
+      const char* reason = rhi->LastError();
+      if (reason != nullptr && reason[0] != '\0') {
+        std::printf("Detalhe: %s\n", reason);
+      }
+    }
     return 1;
   }
   const char* shaderDirs[4] = { "Shaders", "../Shaders", "../../Shaders", "build/bin/Release/Shaders" };

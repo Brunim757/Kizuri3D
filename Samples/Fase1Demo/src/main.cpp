@@ -47,6 +47,10 @@ int main() {
   }
   if (!rhi->Initialize(desc)) {
     std::printf("RHI DX11 init failed\n");
+    const char* reason = rhi->LastError();
+    if (reason != nullptr && reason[0] != '\0') {
+      std::printf("Detalhe: %s\n", reason);
+    }
     return 1;
   }
   std::printf("RHI backend: %s\n", rhi->BackendName());
