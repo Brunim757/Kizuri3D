@@ -1,6 +1,7 @@
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include "EditorApp.h"
+#include "EditorTheme.h"
 #include "Kizuri/Assets/EmbeddedSkies.h"
 #include "Kizuri/Input.h"
 #include "Kizuri/Path.h"
@@ -34,6 +35,7 @@ EditorApp::EditorApp()
   , showViewport(true)
   , showAssetBrowser(true)
   , showAudioMixer(false)
+  , dockLayoutBuilt(false)
   , showAbout(false)
   , showSettings(false)
   , debugCascades(false)
@@ -473,11 +475,7 @@ bool EditorApp::Initialize() {
   ImGuiIO& io = ImGui::GetIO();
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
   io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-  ImGui::StyleColorsDark();
-  ImGuiStyle& style = ImGui::GetStyle();
-  style.WindowRounding = 0.0f;
-  style.FrameRounding = 2.0f;
-  style.GrabRounding = 2.0f;
+  ApplyEditorTheme();
   ImGui_ImplWin32_Init(window.NativeHandle());
   ImGui_ImplDX11_Init(static_cast<ID3D11Device*>(rhi->GetNativeDevice()), static_cast<ID3D11DeviceContext*>(rhi->GetNativeContext()));
   std::string cubePath = FindAsset("cube.gltf");
@@ -523,6 +521,9 @@ bool EditorApp::Initialize() {
   log.Add(LogLevel::Success, "Kizuri3D Editor ready");
   gizmoOp = static_cast<int>(ImGuizmo::TRANSLATE);
   InitStoragePaths();
+  if (!layoutFilePath.empty()) {
+    ImGui::GetIO().IniFilename = layoutFilePath.c_str();
+  }
   LoadEditorSettings();
   g_sinkLog = &log;
   Kizuri::SetLogSink([](Kizuri::Severity level, const char* file, int line, const char* message) {
@@ -598,6 +599,9 @@ void EditorApp::Shutdown() {
     }
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
+    if (!layoutFilePath.empty()) {
+      ImGui::SaveIniSettingsToDisk(layoutFilePath.c_str());
+    }
     ImGui::DestroyContext();
     renderer.Shutdown();
     DestroyRHI(rhi);
@@ -799,6 +803,7 @@ void EditorApp::Frame() {
     }
   }
   DrawMenuBar();
+  DrawDockHost();
   if (showViewport) {
     DrawViewport();
   }
@@ -830,6 +835,106 @@ void EditorApp::Frame() {
   DrawSavePrompt();
   DrawRestorePrompt();
   DrawToasts();
+}
+void EditorApp::DrawDockHost() {
+  ImGuiViewport* vp = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(vp->WorkPos);
+  ImGui::SetNextWindowSize(vp->WorkSize);
+  ImGui::SetNextWindowViewport(vp->ID);
+  const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+                                ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
+                                ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBackground;
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+  ImGui::Begin("##KizuriDock", nullptr, flags);
+  ImGui::PopStyleVar(3);
+  const ImGuiID dockId = ImGui::GetID("KizuriDockSpace");
+  if (!dockLayoutBuilt) {
+    ImGui::DockBuilderRemoveNode(dockId);
+    ImGui::DockBuilderAddNode(dockId, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodeSize(dockId, vp->WorkSize);
+    ImGuiID center = dockId;
+    const ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.20f, nullptr, &center);
+    const ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
+    const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.28f, nullptr, &center);
+    ImGui::DockBuilderDockWindow("Hierarchy", left);
+    ImGui::DockBuilderDockWindow("Inspector", right);
+    ImGui::DockBuilderDockWindow("Console", bottom);
+    ImGui::DockBuilderDockWindow("Asset Browser", bottom);
+    ImGui::DockBuilderDockWindow("Viewport", center);
+    ImGui::DockBuilderFinish(dockId);
+    dockLayoutBuilt = true;
+  }
+  ImGui::DockSpace(dockId);
+  ImGui::End();
+}
+void EditorApp::DrawToolbar() {
+  const float width = ImGui::GetWindowWidth();
+  ImGui::SameLine(width - 430.0f);
+  ImGui::TextUnformatted("|");
+  ImGui::SameLine();
+  if (ImGui::Button("Salvar")) {
+    if (currentPath.empty()) {
+      saveDialogPrefill.clear();
+      saveDialogQueued = true;
+      afterSaveRunPending = false;
+    } else {
+      DoSaveTo(currentPath);
+    }
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Salvar cena (Ctrl+S)");
+  }
+  ImGui::SameLine();
+  const bool canUndo = undo.CanUndo();
+  const bool canRedo = undo.CanRedo();
+  ImGui::BeginDisabled(!canUndo);
+  if (ImGui::Button("Desfazer")) {
+    DoUndo();
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(undo.CanUndo() ? undo.UndoName() : "Nada para desfazer");
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  ImGui::BeginDisabled(!canRedo);
+  if (ImGui::Button("Refazer")) {
+    DoRedo();
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(undo.CanRedo() ? undo.RedoName() : "Nada para refazer");
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  if (ImGui::Button("Focar")) {
+    if (selection.HasSelection()) {
+      FocusEntity(selection.Get());
+    } else {
+      Announce(LogLevel::Warning, "Selecione uma entidade para focar");
+    }
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Focar a selecao na camera");
+  }
+  ImGui::SameLine();
+  ImGui::TextUnformatted("|");
+  ImGui::SameLine();
+  ImGui::BeginDisabled(selection.Count() == 0);
+  if (ImGui::Button("Duplicar")) {
+    if (selection.HasSelection()) {
+      DuplicateViaCommand(selection.Get());
+    }
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  ImGui::BeginDisabled(selection.Count() == 0);
+  if (ImGui::Button("Excluir")) {
+    if (selection.HasSelection()) {
+      DeleteViaCommand(selection.Get());
+    }
+  }
+  ImGui::EndDisabled();
 }
 void EditorApp::DrawMenuBar() {
   if (ImGui::BeginMainMenuBar()) {
@@ -902,6 +1007,7 @@ void EditorApp::DrawMenuBar() {
       }
       ImGui::EndMenu();
     }
+    DrawToolbar();
     ImGui::EndMainMenuBar();
   }
 }
@@ -1010,6 +1116,9 @@ void EditorApp::InitStoragePaths() {
   std::filesystem::path cfg(appDir);
   cfg /= "settings.ini";
   settingsFilePath = cfg.string();
+  std::filesystem::path layout(appDir);
+  layout /= "EditorLayout.ini";
+  layoutFilePath = layout.string();
 }
 void EditorApp::LoadEditorSettings() {
   if (settingsFilePath.empty()) {

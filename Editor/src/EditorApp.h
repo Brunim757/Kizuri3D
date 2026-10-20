@@ -80,6 +80,7 @@ struct EditorApp {
   bool showViewport;
   bool showAssetBrowser;
   bool showAudioMixer;
+  bool dockLayoutBuilt;
   bool showAbout;
   bool showSettings;
   bool debugCascades;
@@ -249,6 +250,7 @@ struct EditorApp {
   std::string tmpAutosaveDir;
   std::string sessionFilePath;
   std::string settingsFilePath;
+  std::string layoutFilePath;
   std::string initError;
   const std::string& LastInitError() const { return initError; }
   void LoadEditorSettings();
@@ -261,6 +263,8 @@ struct EditorApp {
   void Shutdown();
   void Frame();
   void DrawMenuBar();
+  void DrawToolbar();
+  void DrawDockHost();
   void DrawViewport();
   void DrawHierarchy();
   void DrawInspector();

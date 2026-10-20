@@ -1940,6 +1940,13 @@ void EditorApp::DrawViewport() {
     if (ImGui::IsKeyPressed(ImGuiKey_R, false)) {
       gizmoOp = static_cast<int>(ImGuizmo::SCALE);
     }
+    if (ImGui::IsKeyPressed(ImGuiKey_F, false)) {
+      if (selection.HasSelection()) {
+        FocusEntity(selection.Get());
+      } else {
+        Announce(LogLevel::Warning, "Selecione uma entidade para focar");
+      }
+    }
   }
   ImVec2 avail = ImGui::GetContentRegionAvail();
   float iw = avail.x > 8.0f ? avail.x : 8.0f;
