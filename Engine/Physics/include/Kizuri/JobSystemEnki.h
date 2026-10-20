@@ -20,7 +20,7 @@ private:
   struct TaskSlot;
   struct Pool;
   TaskSlot* AcquireSlot();
-  JobSystem* engineJobs;
+  Kizuri::JobSystem* engineJobs;
   std::shared_ptr<Pool> pool;
 };
 }
