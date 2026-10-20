@@ -4,6 +4,22 @@
 #include <cmath>
 #include <cstring>
 namespace Kizuri {
+const char* Audio_Version() {
+  return "0.1.0-fase7";
+}
+bool Audio_TestEngineNoDevice() {
+  ma_engine_config cfg = ma_engine_config_init();
+  cfg.noDevice = MA_TRUE;
+  cfg.channels = 2;
+  cfg.sampleRate = 48000;
+  ma_engine engine;
+  ma_result r = ma_engine_init(&cfg, &engine);
+  if (r != MA_SUCCESS) {
+    return false;
+  }
+  ma_engine_uninit(&engine);
+  return true;
+}
 bool LoadAudioClipFromFile(const std::string& path, uint32_t targetSampleRate, AudioClip& out) {
   if (path.empty()) {
     return false;
@@ -187,6 +203,7 @@ bool AudioEngine::SetSourcePlaying(uint32_t sourceId, bool playing) {
   VoiceCmd cmd;
   cmd.kind = VoiceCmd::Kind::Update;
   cmd.sourceId = sourceId;
+  cmd.fields = VoiceCmd::kFieldPlaying;
   cmd.playing = playing;
   {
     std::lock_guard<std::mutex> lock(commandMutex);
@@ -198,6 +215,7 @@ bool AudioEngine::SetSourceGain(uint32_t sourceId, float gain) {
   VoiceCmd cmd;
   cmd.kind = VoiceCmd::Kind::Update;
   cmd.sourceId = sourceId;
+  cmd.fields = VoiceCmd::kFieldGain;
   cmd.gain = gain;
   {
     std::lock_guard<std::mutex> lock(commandMutex);
@@ -212,6 +230,7 @@ bool AudioEngine::SetSourcePosition(uint32_t sourceId, const float pos[3]) {
   VoiceCmd cmd;
   cmd.kind = VoiceCmd::Kind::Update;
   cmd.sourceId = sourceId;
+  cmd.fields = VoiceCmd::kFieldPosition;
   cmd.position[0] = pos[0];
   cmd.position[1] = pos[1];
   cmd.position[2] = pos[2];
@@ -225,6 +244,7 @@ bool AudioEngine::SetSourceBus(uint32_t sourceId, uint32_t busId) {
   VoiceCmd cmd;
   cmd.kind = VoiceCmd::Kind::Update;
   cmd.sourceId = sourceId;
+  cmd.fields = VoiceCmd::kFieldBus;
   cmd.busId = busId;
   {
     std::lock_guard<std::mutex> lock(commandMutex);
@@ -236,6 +256,7 @@ bool AudioEngine::SetSourceSpatial(uint32_t sourceId, bool spatial) {
   VoiceCmd cmd;
   cmd.kind = VoiceCmd::Kind::Update;
   cmd.sourceId = sourceId;
+  cmd.fields = VoiceCmd::kFieldSpatial;
   cmd.spatial = spatial;
   {
     std::lock_guard<std::mutex> lock(commandMutex);
@@ -247,6 +268,7 @@ bool AudioEngine::SetSourceLoop(uint32_t sourceId, bool loop) {
   VoiceCmd cmd;
   cmd.kind = VoiceCmd::Kind::Update;
   cmd.sourceId = sourceId;
+  cmd.fields = VoiceCmd::kFieldLoop;
   cmd.loop = loop;
   {
     std::lock_guard<std::mutex> lock(commandMutex);
@@ -258,6 +280,7 @@ bool AudioEngine::SetSourceRolloff(uint32_t sourceId, AudioRolloffModel model, f
   VoiceCmd cmd;
   cmd.kind = VoiceCmd::Kind::Update;
   cmd.sourceId = sourceId;
+  cmd.fields = VoiceCmd::kFieldRolloff;
   cmd.rolloff = model;
   cmd.rolloffFactor = rolloff;
   {
@@ -427,16 +450,30 @@ void AudioEngine::ApplyCommands() {
         if (voice.sourceId != cmd.sourceId) {
           continue;
         }
-        voice.gain = cmd.gain;
-        voice.playing = cmd.playing;
-        voice.busId = cmd.busId;
-        voice.spatial = cmd.spatial;
-        voice.loop = cmd.loop;
-        voice.rolloff = cmd.rolloff;
-        voice.rolloffFactor = cmd.rolloffFactor;
-        voice.position[0] = cmd.position[0];
-        voice.position[1] = cmd.position[1];
-        voice.position[2] = cmd.position[2];
+        if ((cmd.fields & VoiceCmd::kFieldGain) != 0) {
+          voice.gain = cmd.gain;
+        }
+        if ((cmd.fields & VoiceCmd::kFieldPlaying) != 0) {
+          voice.playing = cmd.playing;
+        }
+        if ((cmd.fields & VoiceCmd::kFieldBus) != 0) {
+          voice.busId = cmd.busId;
+        }
+        if ((cmd.fields & VoiceCmd::kFieldSpatial) != 0) {
+          voice.spatial = cmd.spatial;
+        }
+        if ((cmd.fields & VoiceCmd::kFieldLoop) != 0) {
+          voice.loop = cmd.loop;
+        }
+        if ((cmd.fields & VoiceCmd::kFieldRolloff) != 0) {
+          voice.rolloff = cmd.rolloff;
+          voice.rolloffFactor = cmd.rolloffFactor;
+        }
+        if ((cmd.fields & VoiceCmd::kFieldPosition) != 0) {
+          voice.position[0] = cmd.position[0];
+          voice.position[1] = cmd.position[1];
+          voice.position[2] = cmd.position[2];
+        }
         break;
       }
     }

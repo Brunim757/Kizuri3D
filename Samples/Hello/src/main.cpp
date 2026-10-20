@@ -2361,6 +2361,39 @@ bool TestAudioSourceSerialize() {
   }
   return false;
 }
+bool TestAudioPartialUpdate() {
+  Kizuri::AudioEngine engine;
+  if (!engine.Initialize(48000, 2, false)) {
+    return false;
+  }
+  const Kizuri::AudioClip clip = MakeTestTone();
+  const uint32_t clipId = engine.AddClip(clip);
+  const uint32_t src = engine.AddSource(clipId, 0);
+  if (clipId == 0xFFFFFFFFu || src == 0) {
+    engine.Shutdown();
+    return false;
+  }
+  engine.SetSourceGain(src, 0.5f);
+  engine.SetSourcePlaying(src, true);
+  engine.SetSourceSpatial(src, false);
+  engine.Update();
+  const float peakA = RenderPeak(engine, 480);
+  const float pos[3] = { 3.0f, 0.0f, 0.0f };
+  engine.SetSourcePosition(src, pos);
+  engine.Update();
+  const float peakB = RenderPeak(engine, 480);
+  engine.SetSourceBus(src, 0);
+  engine.Update();
+  const float peakC = RenderPeak(engine, 480);
+  engine.Shutdown();
+  if (!(peakA > 0.1f)) {
+    return false;
+  }
+  if (std::fabs(peakA - peakB) > peakA * 0.2f) {
+    return false;
+  }
+  return std::fabs(peakA - peakC) <= peakA * 0.2f;
+}
 bool TestPhysicsFall() {
   Kizuri::JobSystem jobs;
   if (!jobs.Initialize()) {
@@ -9690,6 +9723,7 @@ int main() {
   failures += Check("AudioEngineOffline", TestAudioEngineOffline());
   failures += Check("AudioSpatialPan", TestAudioSpatialPan());
   failures += Check("AudioDucking", TestAudioDucking());
+  failures += Check("AudioPartialUpdate", TestAudioPartialUpdate());
   failures += Check("AudioSourceSerialize", TestAudioSourceSerialize());
   failures += Check("RigidbodySerialize", TestRigidbodySerialize());
   failures += Check("Ragdoll", TestRagdoll());

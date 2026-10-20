@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 namespace Kizuri {
+const char* Audio_Version();
+bool Audio_TestEngineNoDevice();
 enum class AudioRolloffModel : int {
   Linear = 0,
   Inverse = 1,
@@ -125,7 +127,17 @@ public:
 private:
   struct VoiceCmd {
     enum class Kind : int { Add = 0, Remove = 1, Update = 2 };
+    enum Field : uint32_t {
+      kFieldGain = 1u << 0,
+      kFieldPlaying = 1u << 1,
+      kFieldBus = 1u << 2,
+      kFieldSpatial = 1u << 3,
+      kFieldLoop = 1u << 4,
+      kFieldRolloff = 1u << 5,
+      kFieldPosition = 1u << 6
+    };
     Kind kind = Kind::Add;
+    uint32_t fields = 0;
     uint32_t sourceId = 0;
     uint32_t clipId = 0xFFFFFFFFu;
     uint32_t busId = 0;

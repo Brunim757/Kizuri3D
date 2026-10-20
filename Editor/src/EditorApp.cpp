@@ -207,8 +207,15 @@ std::string EditorApp::ResolveAssetsDir() {
   }
   return std::filesystem::absolute("Assets").string();
 }
-std::vector<RefUse> EditorApp::SceneMeshRefs() {
-  std::vector<RefUse> refs;
+std::string EditorApp::AudioMixerPath() {
+  std::error_code ec;
+  std::filesystem::path root = std::filesystem::path(ResolveAssetsDir()).parent_path();
+  if (root.empty()) {
+    root = std::filesystem::current_path(ec);
+  }
+  return (root / "Config" / "AudioMixer.kzmixer").string();
+}
+std::vector<RefUse> EditorApp::SceneMeshRefs() {  std::vector<RefUse> refs;
   std::vector<EntityId> all = scene.All();
   for (size_t i = 0; i < all.size(); ++i) {
     const Entity* e = scene.Get(all[i]);
@@ -525,6 +532,13 @@ bool EditorApp::Initialize() {
   });
   assets.SetAssetsDir(ResolveAssetsDir());
   assets.SetGpuRHI(rhi);
+  if (audio.Initialize(48000, 2)) {
+    audioReady = true;
+    if (audio.Mixer().LoadFromFile(AudioMixerPath())) {
+      audio.Update();
+      log.Add(LogLevel::Info, "Audio mixer loaded from " + AudioMixerPath());
+    }
+  }
   try {
     assets.Scan();
   } catch (...) {

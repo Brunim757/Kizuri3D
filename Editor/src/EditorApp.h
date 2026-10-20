@@ -290,6 +290,7 @@ struct EditorApp {
   void DrawLightGizmo();
   void DrawDebugOverlays();
   std::string ResolveAssetsDir();
+  std::string AudioMixerPath();
   std::vector<RefUse> SceneMeshRefs();
   void PumpAssets();
   void UploadDefaultCube();

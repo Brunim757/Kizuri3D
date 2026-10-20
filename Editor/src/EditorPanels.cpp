@@ -1162,6 +1162,29 @@ void EditorApp::DrawAudioMixer() {
   }
   ImGui::Separator();
   ImGui::Text("Voices: %u", audio.ActiveVoiceCount());
+  ImGui::SameLine();
+  ImGui::Text("Peak: %.3f", audio.MasterPeak());
+  ImGui::Separator();
+  if (ImGui::Button("Save Mixer")) {
+    const std::string path = AudioMixerPath();
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
+    if (audio.Mixer().SaveToFile(path)) {
+      Announce(LogLevel::Success, "Audio mixer saved to " + path);
+    } else {
+      Announce(LogLevel::Error, "Could not save audio mixer");
+    }
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Load Mixer")) {
+    const std::string path = AudioMixerPath();
+    if (audio.Mixer().LoadFromFile(path)) {
+      audio.Update();
+      Announce(LogLevel::Success, "Audio mixer loaded");
+    } else {
+      Announce(LogLevel::Warning, "No audio mixer found at " + path);
+    }
+  }
   ImGui::End();
 }
 void EditorApp::SyncPhysics(float dt) {
