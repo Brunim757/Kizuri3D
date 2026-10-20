@@ -16,6 +16,7 @@
 #include "Kizuri/JobSystem.h"
 #include "Kizuri/PhysicsWorld.h"
 #include "Kizuri/Audio.h"
+#include <map>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -217,6 +218,7 @@ struct EditorApp {
   char renameBuf[128];
   bool renameActive;
   EntityId renameTarget;
+  char hierSearchBuf[128];
   char assetRenameBuf[256];
   std::string assetRenameGuid;
   bool assetRenameIsTex;
@@ -267,6 +269,7 @@ struct EditorApp {
   void DrawDockHost();
   void DrawViewport();
   void DrawHierarchy();
+  void DrawHierarchyTree(EntityId parent, int depth, const std::map<uint32_t, std::vector<EntityId>>& byParent, const std::string& filter);
   void DrawInspector();
   void DrawConsole();
   void DrawToasts();

@@ -19,6 +19,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cmath>
+#include <cctype>
 #include <algorithm>
 #include <functional>
 #include <filesystem>
@@ -2847,28 +2848,67 @@ void EditorApp::DrawSettings() {
   }
   ImGui::End();
 }
-void EditorApp::DrawHierarchy() {
-  ImGui::Begin("Hierarchy", &showHierarchy);
-  if (ImGui::Button("Create Entity")) {
-    CreateEntityAt(0.0f, 0.0f, 0.0f);
+namespace {
+bool NameContainsFilter(const std::string& name, const std::string& filter) {
+  if (filter.empty()) {
+    return true;
   }
-  ImGui::Separator();
-  std::vector<EntityId> all = scene.All();
-  bool itemMenu = false;
-  for (size_t i = 0; i < all.size(); ++i) {
-    Entity* e = scene.Get(all[i]);
+  std::string lower = name;
+  std::string needle = filter;
+  for (size_t i = 0; i < lower.size(); ++i) {
+    lower[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(lower[i])));
+  }
+  for (size_t i = 0; i < needle.size(); ++i) {
+    needle[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(needle[i])));
+  }
+  return lower.find(needle) != std::string::npos;
+}
+}
+void EditorApp::DrawHierarchyTree(EntityId parent, int depth, const std::map<uint32_t, std::vector<EntityId>>& byParent, const std::string& filter) {
+  const uint32_t key = parent.IsValid() ? parent.index : 0xFFFFFFFFu;
+  std::map<uint32_t, std::vector<EntityId>>::const_iterator it = byParent.find(key);
+  if (it == byParent.end()) {
+    return;
+  }
+  for (size_t i = 0; i < it->second.size(); ++i) {
+    const EntityId id = it->second[i];
+    Entity* e = scene.Get(id);
     if (e == nullptr) {
       continue;
     }
-    ImGui::PushID(static_cast<int>(e->id.index * 1315423911u + e->id.generation));
-    bool isSel = selection.Contains(e->id);
-    if (renameActive && renameTarget == e->id) {
+    bool visible = filter.empty() || NameContainsFilter(e->name, filter);
+    if (!visible) {
+      std::map<uint32_t, std::vector<EntityId>>::const_iterator cit = byParent.find(id.index);
+      if (cit != byParent.end()) {
+        for (size_t c = 0; c < cit->second.size() && !visible; ++c) {
+          const Entity* ce = scene.Get(cit->second[c]);
+          if (ce != nullptr && NameContainsFilter(ce->name, filter)) {
+            visible = true;
+          }
+        }
+      }
+      if (!visible) {
+        continue;
+      }
+    }
+    ImGui::PushID(static_cast<int>(id.index * 1315423911u + id.generation));
+    const std::map<uint32_t, std::vector<EntityId>>::const_iterator hit = byParent.find(id.index);
+    const bool hasChildren = hit != byParent.end() && !hit->second.empty();
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+    if (!hasChildren) {
+      flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+    }
+    bool open = true;
+    if (renameActive && renameTarget == id) {
+      open = ImGui::TreeNodeEx("##node", flags, "%s", "");
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(-1.0f);
       ImGui::SetKeyboardFocusHere(0);
       if (ImGui::InputText("##rename", renameBuf, sizeof(renameBuf), ImGuiInputTextFlags_EnterReturnsTrue)) {
-        std::string oldName = e->name;
-        std::string newName = renameBuf;
+        const std::string oldName = e->name;
+        const std::string newName = renameBuf;
         if (oldName != newName) {
-          std::unique_ptr<Command> cmd(new RenameCmd(e->id, oldName, newName));
+          std::unique_ptr<Command> cmd(new RenameCmd(id, oldName, newName));
           if (undo.Execute(std::move(cmd), scene)) {
             log.Add(LogLevel::Info, std::string("Renamed to ") + newName);
           }
@@ -2879,49 +2919,74 @@ void EditorApp::DrawHierarchy() {
         renameActive = false;
       }
     } else {
-      if (ImGui::Selectable(e->name.c_str(), isSel)) {
+      open = ImGui::TreeNodeEx("##node", flags, "%s", e->name.c_str());
+      if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
         ImGuiIO& hio = ImGui::GetIO();
         if (hio.KeyShift) {
-          selection.Add(e->id);
+          selection.Add(id);
         } else if (hio.KeyCtrl) {
-          selection.Toggle(e->id);
+          selection.Toggle(id);
         } else {
-          selection.Select(e->id);
+          selection.Select(id);
         }
       }
       if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
         renameActive = true;
-        renameTarget = e->id;
+        renameTarget = id;
         std::strncpy(renameBuf, e->name.c_str(), sizeof(renameBuf) - 1);
         renameBuf[sizeof(renameBuf) - 1] = '\0';
       }
     }
     if (ImGui::BeginPopupContextItem("EntityContext")) {
-      itemMenu = true;
       if (ImGui::MenuItem("Create Entity")) {
         CreateEntityAt(0.0f, 0.0f, 0.0f);
       }
       if (ImGui::MenuItem("Duplicate")) {
-        DuplicateViaCommand(e->id);
+        DuplicateViaCommand(id);
       }
       if (ImGui::MenuItem("Delete")) {
-        DeleteViaCommand(e->id);
+        DeleteViaCommand(id);
       }
       if (ImGui::MenuItem("Rename")) {
         renameActive = true;
-        renameTarget = e->id;
+        renameTarget = id;
         std::strncpy(renameBuf, e->name.c_str(), sizeof(renameBuf) - 1);
         renameBuf[sizeof(renameBuf) - 1] = '\0';
       }
       if (ImGui::MenuItem("Focus")) {
-        FocusEntity(e->id);
+        FocusEntity(id);
       }
       ImGui::EndPopup();
     }
+    if (open) {
+      DrawHierarchyTree(id, depth + 1, byParent, filter);
+      ImGui::TreePop();
+    }
     ImGui::PopID();
   }
-  if (!itemMenu && ImGui::BeginPopupContextWindow("HierarchyContext")) {
-    if (ImGui::MenuItem("Create Entity")) {
+}
+void EditorApp::DrawHierarchy() {
+  ImGui::Begin("Hierarchy", &showHierarchy);
+  ImGui::SetNextItemWidth(-1.0f);
+  ImGui::InputTextWithHint("##hierSearch", "Buscar...", hierSearchBuf, sizeof(hierSearchBuf));
+  const std::string filter = hierSearchBuf;
+  if (ImGui::Button("Criar Entidade")) {
+    CreateEntityAt(0.0f, 0.0f, 0.0f);
+  }
+  ImGui::Separator();
+  std::map<uint32_t, std::vector<EntityId>> byParent;
+  const std::vector<EntityId> all = scene.All();
+  for (size_t i = 0; i < all.size(); ++i) {
+    const Entity* e = scene.Get(all[i]);
+    if (e == nullptr) {
+      continue;
+    }
+    const uint32_t key = e->parent.IsValid() ? e->parent.index : 0xFFFFFFFFu;
+    byParent[key].push_back(all[i]);
+  }
+  DrawHierarchyTree(EntityId::Invalid(), 0, byParent, filter);
+  if (ImGui::BeginPopupContextWindow("HierarchyContext")) {
+    if (ImGui::MenuItem("Criar Entidade")) {
       CreateEntityAt(0.0f, 0.0f, 0.0f);
     }
     ImGui::EndPopup();
