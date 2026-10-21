@@ -230,7 +230,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 - **Caminho de render de runtime**: luzes da cena + meshes + materiais + câmera, sem as ferramentas de edição (gizmos, overlays de debug, batching estático do editor)
 - **Entrada de runtime**: WASD move a câmera, mouse olha, ESC fecha
 
-**Pronto quando:** `KizuriRuntime.exe` abre uma cena e roda com passo fixo, a câmera responde ao input, a física simula e o áudio toca — e o mesmo `GameLoop` é o que o Editor usa (fonte única de verdade).
+**Pronto quando:** `KizuriRuntime.exe` abre uma cena e roda com passo fixo, a câmera responde ao input, a física simula e o áudio toca — e o Editor e o runtime compartilham o **mesmo** mundo, o mesmo material e as mesmas luzes (fonte única de verdade). O Play-in-Editor (rodar o `GameLoop` dentro do Editor) é a Fase 12.
 
 ---
 
