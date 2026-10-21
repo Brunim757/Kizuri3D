@@ -1,4 +1,7 @@
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
 #include "Kizuri/GameApp.h"
+#include <windows.h>
 #include "Kizuri/Clock.h"
 #include "Kizuri/Input.h"
 #include "Kizuri/Logger.h"

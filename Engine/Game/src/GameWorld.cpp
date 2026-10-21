@@ -290,8 +290,10 @@ void GameWorld::Render(float alpha) {
   float view[16];
   float proj[16];
   const float aspect = static_cast<float>(viewWidth) / (viewHeight > 0 ? static_cast<float>(viewHeight) : 1.0f);
-  const DirectX::XMMATRIX viewMat = camera.View();
-  const DirectX::XMMATRIX projMat = camera.Projection(aspect);
+  DirectX::XMFLOAT4X4 viewMat;
+  DirectX::XMFLOAT4X4 projMat;
+  DirectX::XMStoreFloat4x4(&viewMat, camera.View());
+  DirectX::XMStoreFloat4x4(&projMat, camera.Projection(aspect));
   for (int r = 0; r < 4; ++r) {
     for (int c = 0; c < 4; ++c) {
       view[r * 4 + c] = viewMat.m[r][c];
