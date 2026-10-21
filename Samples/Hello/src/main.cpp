@@ -37,6 +37,8 @@
 #include "Kizuri/Notifications.h"
 #include "Kizuri/Assets/Guid.h"
 #include "Kizuri/Assets/MeshCodec.h"
+#include "Kizuri/GameLoop.h"
+#include "Kizuri/GameWorld.h"
 #include "Kizuri/Assets/LightmapBaker.h"
 #include "Kizuri/Assets/MeshImporter.h"
 #include "Kizuri/Assets/AssetDatabase.h"
@@ -2405,6 +2407,140 @@ bool TestAudioPartialUpdate() {
     return false;
   }
   return std::fabs(peakA - peakC) <= peakA * 0.2f;
+}
+bool TestGameLoopFixedStep() {
+  Kizuri::GameLoop loop;
+  loop.SetFixedStep(1.0f / 60.0f);
+  loop.SetMaxStepsPerFrame(4);
+  int updates = 0;
+  float lastDt = 0.0f;
+  loop.AddUpdateSystem("test", [&updates, &lastDt](float dt, float alpha) {
+    (void)alpha;
+    ++updates;
+    lastDt = dt;
+  });
+  loop.Tick(1.0f / 60.0f);
+  if (updates != 1) {
+    return false;
+  }
+  if (std::fabs(lastDt - 1.0f / 60.0f) > 1e-6f) {
+    return false;
+  }
+  if (loop.StepCount() != 1) {
+    return false;
+  }
+  loop.Tick(0.0f);
+  if (updates != 1) {
+    return false;
+  }
+  loop.Tick(1.0f / 30.0f);
+  if (updates != 3) {
+    return false;
+  }
+  if (loop.StepCount() != 3) {
+    return false;
+  }
+  if (std::fabs(loop.SimulationTime() - 3.0f / 60.0f) > 1e-5f) {
+    return false;
+  }
+  loop.Tick(10.0f);
+  const uint64_t steps = loop.StepCount();
+  if (steps - 3 > 4) {
+    return false;
+  }
+  if (loop.FrameCount() != 4) {
+    return false;
+  }
+  return true;
+}
+bool TestGameLoopPause() {
+  Kizuri::GameLoop loop;
+  int updates = 0;
+  int renders = 0;
+  loop.AddUpdateSystem("u", [&updates](float dt, float alpha) {
+    (void)dt;
+    (void)alpha;
+    ++updates;
+  });
+  loop.AddRenderSystem("r", [&renders](float alpha) {
+    (void)alpha;
+    ++renders;
+  });
+  loop.Tick(1.0f / 60.0f);
+  if (updates != 1 || renders != 1) {
+    return false;
+  }
+  loop.SetState(Kizuri::GameState::Paused);
+  loop.Tick(1.0f / 60.0f);
+  if (updates != 1) {
+    return false;
+  }
+  if (renders != 2) {
+    return false;
+  }
+  loop.SetState(Kizuri::GameState::Running);
+  loop.Tick(1.0f / 60.0f);
+  if (updates != 2 || renders != 3) {
+    return false;
+  }
+  if (loop.QuitRequested()) {
+    return false;
+  }
+  loop.RequestQuit();
+  if (!loop.QuitRequested()) {
+    return false;
+  }
+  return true;
+}
+bool TestGameLoopSystemOrder() {
+  Kizuri::GameLoop loop;
+  std::string order;
+  loop.AddUpdateSystem("a", [&order](float dt, float alpha) {
+    (void)dt;
+    (void)alpha;
+    order += "a";
+  });
+  loop.AddUpdateSystem("b", [&order](float dt, float alpha) {
+    (void)dt;
+    (void)alpha;
+    order += "b";
+  });
+  loop.AddUpdateSystem("c", [&order](float dt, float alpha) {
+    (void)dt;
+    (void)alpha;
+    order += "c";
+  });
+  loop.Tick(1.0f / 60.0f);
+  if (order != "abc") {
+    return false;
+  }
+  if (loop.UpdateStats().size() != 3) {
+    return false;
+  }
+  if (loop.UpdateStats()[0].name != "a" || loop.UpdateStats()[2].name != "c") {
+    return false;
+  }
+  return true;
+}
+bool TestGameWorldScene() {
+  Kizuri::GameWorld world;
+  if (world.IsInitialized()) {
+    return false;
+  }
+  world.CreateFallbackScene();
+  const Kizuri::Scene& scene = world.GetScene();
+  const std::vector<Kizuri::EntityId> all = scene.All();
+  if (all.size() != 1) {
+    return false;
+  }
+  const Kizuri::Entity* e = scene.Get(all[0]);
+  if (e == nullptr || !e->hasLight) {
+    return false;
+  }
+  if (e->light.type != static_cast<int>(Kizuri::LightType::Directional)) {
+    return false;
+  }
+  return true;
 }
 bool TestPhysicsFall() {
   Kizuri::JobSystem jobs;
@@ -9737,6 +9873,10 @@ int main() {
   failures += Check("AudioDucking", TestAudioDucking());
   failures += Check("AudioPartialUpdate", TestAudioPartialUpdate());
   failures += Check("AudioSourceSerialize", TestAudioSourceSerialize());
+  failures += Check("GameLoopFixedStep", TestGameLoopFixedStep());
+  failures += Check("GameLoopPause", TestGameLoopPause());
+  failures += Check("GameLoopSystemOrder", TestGameLoopSystemOrder());
+  failures += Check("GameWorldScene", TestGameWorldScene());
   failures += Check("RigidbodySerialize", TestRigidbodySerialize());
   failures += Check("Ragdoll", TestRagdoll());
   failures += Check("LodCoverage", TestLodCoverage());

@@ -167,6 +167,48 @@ void MakeDefaultAudioSource(AudioSourceData& a) {
   a.playing = true;
   a.bus = 0;
 }
+void EulerDegToQuat(const float euler[3], float quat[4]) {
+  Transform t;
+  MakeIdentityTransform(t);
+  t.rotation[0] = euler[0];
+  t.rotation[1] = euler[1];
+  t.rotation[2] = euler[2];
+  float m[16];
+  ComposeMatrix(t, m);
+  float trace = m[0] + m[5] + m[10];
+  if (trace > 0.0f) {
+    float s = std::sqrt(trace + 1.0f) * 2.0f;
+    quat[3] = 0.25f * s;
+    quat[0] = (m[9] - m[6]) / s;
+    quat[1] = (m[2] - m[8]) / s;
+    quat[2] = (m[4] - m[1]) / s;
+  } else if (m[0] > m[5] && m[0] > m[10]) {
+    float s = std::sqrt(1.0f + m[0] - m[5] - m[10]) * 2.0f;
+    quat[3] = (m[9] - m[6]) / s;
+    quat[0] = 0.25f * s;
+    quat[1] = (m[1] + m[4]) / s;
+    quat[2] = (m[2] + m[8]) / s;
+  } else if (m[5] > m[10]) {
+    float s = std::sqrt(1.0f + m[5] - m[0] - m[10]) * 2.0f;
+    quat[3] = (m[2] - m[8]) / s;
+    quat[0] = (m[1] + m[4]) / s;
+    quat[1] = 0.25f * s;
+    quat[2] = (m[6] + m[9]) / s;
+  } else {
+    float s = std::sqrt(1.0f + m[10] - m[0] - m[5]) * 2.0f;
+    quat[3] = (m[4] - m[1]) / s;
+    quat[0] = (m[2] + m[8]) / s;
+    quat[1] = (m[6] + m[9]) / s;
+    quat[2] = 0.25f * s;
+  }
+  float l = std::sqrt(quat[0] * quat[0] + quat[1] * quat[1] + quat[2] * quat[2] + quat[3] * quat[3]);
+  if (l > 1e-9f) {
+    quat[0] /= l;
+    quat[1] /= l;
+    quat[2] /= l;
+    quat[3] /= l;
+  }
+}
 void ComposeMatrix(const Transform& t, float m[16]) {  float rx = t.rotation[0] * 0.01745329252f;
   float ry = t.rotation[1] * 0.01745329252f;
   float rz = t.rotation[2] * 0.01745329252f;
