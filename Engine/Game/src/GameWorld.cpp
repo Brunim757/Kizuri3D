@@ -1,6 +1,7 @@
 #include "Kizuri/GameWorld.h"
 #include "Kizuri/GameMaterial.h"
 #include "Kizuri/SceneSerializer.h"
+#include <DirectXMath.h>
 #include <cmath>
 #include <unordered_map>
 #include <vector>
@@ -289,8 +290,14 @@ void GameWorld::Render(float alpha) {
   float view[16];
   float proj[16];
   const float aspect = static_cast<float>(viewWidth) / (viewHeight > 0 ? static_cast<float>(viewHeight) : 1.0f);
-  camera.View().ToFloatArray(view);
-  camera.Projection(aspect).ToFloatArray(proj);
+  const DirectX::XMMATRIX viewMat = camera.View();
+  const DirectX::XMMATRIX projMat = camera.Projection(aspect);
+  for (int r = 0; r < 4; ++r) {
+    for (int c = 0; c < 4; ++c) {
+      view[r * 4 + c] = viewMat.m[r][c];
+      proj[r * 4 + c] = projMat.m[r][c];
+    }
+  }
   float camPos[3];
   camera.GetPosition(camPos[0], camPos[1], camPos[2]);
   renderer.Render(view, proj, camPos);

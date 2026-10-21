@@ -16,7 +16,11 @@ bool GameApp::Initialize(const GameAppDesc& inDesc) {
     return true;
   }
   desc = inDesc;
-  if (!window.Create(desc.windowTitle.size() > 0 ? desc.windowTitle.c_str() : L"Kizuri Game", desc.width, desc.height)) {
+  std::wstring title(desc.windowTitle.begin(), desc.windowTitle.end());
+  if (title.empty()) {
+    title = L"Kizuri Game";
+  }
+  if (!window.Create(title.c_str(), desc.width, desc.height)) {
     lastError = "Falha ao criar a janela";
     return false;
   }
@@ -43,11 +47,11 @@ bool GameApp::Initialize(const GameAppDesc& inDesc) {
     return false;
   }
   if (!desc.scenePath.empty() && world.LoadSceneFile(desc.scenePath)) {
-    Log(LogLevel::Info, "Cena carregada: %s", desc.scenePath.c_str());
+    KZ_LOG_INFO("Cena carregada: " + desc.scenePath);
   } else {
     world.CreateFallbackScene();
     if (!desc.scenePath.empty()) {
-      Log(LogLevel::Warning, "Cena nao carregada (%s); usando cena padrao", world.LastError().c_str());
+      KZ_LOG_WARN("Cena nao carregada (" + world.LastError() + "); usando cena padrao");
     }
   }
   loop.SetFixedStep(desc.fixedStep);
