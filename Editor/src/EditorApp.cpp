@@ -833,23 +833,23 @@ void EditorApp::Frame() {
   EnsureDocked("Console", dockBottomId);
   EnsureDocked("Asset Browser", dockBottomId);
   if (showViewport) {
-    ImGui::SetNextWindowDock(static_cast<ImGuiID>(dockCenterId), ImGuiCond_Once);
+    ImGui::SetNextWindowDockID(static_cast<ImGuiID>(dockCenterId), ImGuiCond_Once);
     DrawViewport();
   }
   if (showHierarchy) {
-    ImGui::SetNextWindowDock(static_cast<ImGuiID>(dockLeftId), ImGuiCond_Once);
+    ImGui::SetNextWindowDockID(static_cast<ImGuiID>(dockLeftId), ImGuiCond_Once);
     DrawHierarchy();
   }
   if (showInspector) {
-    ImGui::SetNextWindowDock(static_cast<ImGuiID>(dockRightId), ImGuiCond_Once);
+    ImGui::SetNextWindowDockID(static_cast<ImGuiID>(dockRightId), ImGuiCond_Once);
     DrawInspector();
   }
   if (showConsole) {
-    ImGui::SetNextWindowDock(static_cast<ImGuiID>(dockBottomId), ImGuiCond_Once);
+    ImGui::SetNextWindowDockID(static_cast<ImGuiID>(dockBottomId), ImGuiCond_Once);
     DrawConsole();
   }
   if (showAssetBrowser) {
-    ImGui::SetNextWindowDock(static_cast<ImGuiID>(dockBottomId), ImGuiCond_Once);
+    ImGui::SetNextWindowDockID(static_cast<ImGuiID>(dockBottomId), ImGuiCond_Once);
     DrawAssetBrowser();
   }
   if (showAudioMixer) {
