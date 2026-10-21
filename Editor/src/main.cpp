@@ -9,7 +9,7 @@
 #include <windows.h>
 #include <exception>
 #endif
-static void CrashHandler(EXCEPTION_POINTER* ep) {
+static void CrashHandler(EXCEPTION_POINTERS* ep) {
   if (ep != nullptr && ep->ExceptionRecord != nullptr) {
     const EXCEPTION_RECORD* rec = ep->ExceptionRecord;
     std::printf("\n[CRASH] codigo 0x%08X  endereco %p\n", rec->ExceptionCode, rec->ExceptionAddress);
