@@ -35,11 +35,11 @@ A Fase 3 foi deliberadamente construída como uma fundação robusta (não um MV
 | zstd | Fase 4 (bootstrap já validado na Fase 0) | Compressão de pacote de assets |
 | Jolt Physics | Fase 6 | Sistema de física |
 | miniaudio | Fase 7 | Sistema de áudio |
-| nethost / hostfxr | Fase 9 | Tooling .NET para hospedar o CoreCLR |
-| Roslyn (Microsoft.CodeAnalysis.CSharp) | Fase 9 | Compilador C# usado pelo scripting |
-| GameNetworkingSockets | Fase 15 | Rede P2P; toolchain pesado (OpenSSL/libsodium), isolado até esta fase |
-| FreeType | Fase 18 ou 20 | Renderização de texto (UI de jogo e/ou editor) |
-| Fork Awesome + IconFontCppHeaders | Fase 20 | Ícones do editor |
+| nethost / hostfxr | Fase 11 | Tooling .NET para hospedar o CoreCLR |
+| Roslyn (Microsoft.CodeAnalysis.CSharp) | Fase 11 | Compilador C# usado pelo scripting |
+| GameNetworkingSockets | Fase 17 | Rede P2P; toolchain pesado (OpenSSL/libsodium), isolado até esta fase |
+| FreeType | Fase 19 ou 20 | Renderização de texto (UI de jogo e/ou editor) |
+| Fork Awesome + IconFontCppHeaders | Fase 22 | Ícones do editor |
 
 **Nota sobre a Fase 0**: libs single-header/simples de baixo risco foram todas *bootstrapadas* já na Fase 0 (CMake + chamada real de API via `KizuriHello`). `DirectXTex`, `GameNetworkingSockets`, `Roslyn`/`nethost` e os ícones seguem fora da Fase 0 pelos motivos já descritos na tabela.
 
@@ -57,9 +57,10 @@ A Fase 3 foi deliberadamente construída como uma fundação robusta (não um MV
 | 5 — Iluminação/sombras | ✅ concluída | CSM, PCF/PCSS, múltiplas luzes, clustered/Forward+, céu procedural, instancing, culling, FSR, Inspector de Light |
 | 6 — Física (Jolt) | ✅ concluída | Jolt integrado, corpos/coliders, passo fixo 60Hz + interpolação, raycasts, ragdoll/joints, Inspector de Rigidbody, wireframe de colliders, toggle Simulate |
 | 7 — Áudio + Mixer | ✅ concluída | Núcleo sobre miniaudio (device + decoder), mixer próprio com hierarquia de buses (Master/Música/SFX/Voz/Ambiente), volume/mute/solo, ducking entre buses, reverb (Freeverb) por bus, camada 3D posicional própria (atenuação linear/inverse/exponential + pan direcional), componente `AudioSource` no ECS (Undo/Redo + EditQueue + serialização + Inspector), painel "Audio Mixer" no Editor, mixer salvo como asset `.kzmixer`. 9 testes no CI |
-| 8 — Animação | ⏳ **próxima fase** | `Engine/Animation` ainda é stub. O shader já tem skinning pronto (o renderer suporta skinned meshes), mas falta o sistema: esqueleto, blending em camadas, IK de pés/mãos, look-at, root motion, retargeting e state machine no Editor |
-| 9 — Scripting C# | ⏳ pendente | `Engine/Scripting` ainda é stub |
-| 10–24 | ⏳ pendente | ECS/Gameplay, Prefabs, Scripting Visual, Câmera/Input, IA/Pathfinding, Rede, Save, VFX, UI de jogo, Level Design, Polimento, Docs, Launcher, Build, Vertical Slice |
+| 8 — Runtime de Jogo | ✅ concluída | **A espinha**: `Engine/Game` com `GameLoop` (passo fixo determinístico + sistemas ordenados + estatísticas), `GameWorld` (cena + assets + renderer + física + áudio + câmera), `GameApp` (janela + RHI + loop) e o executável de jogo `KizuriRuntime.exe`. Material e luzes agora têm **uma implementação só** (Editor e runtime). 4 testes no CI |
+| 9 — Animação | ⏳ **próxima fase** | `Engine/Animation` ainda é stub. O shader já tem skinning pronto (o renderer suporta skinned meshes), mas falta o sistema: esqueleto, blending em camadas, IK de pés/mãos, look-at, root motion, retargeting e state machine no Editor |
+| 10 — Scripting C# | ⏳ pendente | `Engine/Scripting` ainda é stub |
+| 11–25 | ⏳ pendente | ECS/Gameplay, Prefabs, Scripting Visual, Câmera/Input, IA/Pathfinding, Rede, Save, VFX, UI de jogo, Level Design, Polimento, Docs, Launcher, Build, Vertical Slice |
 
 **Onde a Fase 6 travou (e foi resolvido):** o teste de ragdoll derrubava o CI com `exit code 1` (access violation) — dois bugs reais no `Engine/Physics`:
 1. *Double free* de constraint: no Jolt v5 `Constraint` é `RefTarget` e o `ConstraintManager` guarda `Array<Ref<Constraint>>`, logo `RemoveConstraint()` **já** libera o objeto; o `delete` manual do lado Kizuri destruía a mesma memória duas vezes. Agora o slot guarda `JPH::Ref<JPH::Constraint>` e quem controla a vida é o refcount do próprio Jolt.
@@ -125,15 +126,15 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 - Drag and drop básico (arrastar mesh já carregada para o Viewport cria entidade)
 - Menu Bar inicial (File/Edit/Window/Help)
 - **Menus de contexto (botão direito)**: Hierarquia (Criar Entity — sempre nasce só com Transform, sem redundância entre "vazio" e "cheio" já que adicionar qualquer outro componente é sempre um passo separado via Add Component ou drag-and-drop; Duplicar, Deletar, Renomear, Focar); Viewport (em objeto: Focar/Duplicar/Deletar; em espaço vazio: Criar Entity no ponto clicado); Inspector (Remover Componente, Resetar, Copiar/Colar valores) — cada painel novo em fases futuras ganha seu próprio menu de contexto na mesma entrega
-- **Localização de shaders**: HLSL em pasta externa (`Shaders/`) durante o desenvolvimento da engine (hot-reload sem rebuild de C++); no `KizuriRuntime.exe` final (Fase 23), shaders são compilados para bytecode e embutidos, não distribuídos soltos
+- **Localização de shaders**: HLSL em pasta externa (`Shaders/`) durante o desenvolvimento da engine (hot-reload sem rebuild de C++); no `KizuriRuntime.exe` final (Fase 25), shaders são compilados para bytecode e embutidos, não distribuídos soltos
 
 **Serialização de cena**
-- **Serialização genérica baseada em reflection**: capacidade central de serializar qualquer componente para disco (`.kzscene`) e recarregar — "Salvar Cena" funciona de verdade desde aqui, não fica de fachada. Reaproveitada depois pela Fase 10 (snapshot de Play-in-Editor), Fase 11 (Prefabs) e Fase 16 (Save System do jogo) — mesma peça central, quatro consumidores
+- **Serialização genérica baseada em reflection**: capacidade central de serializar qualquer componente para disco (`.kzscene`) e recarregar — "Salvar Cena" funciona de verdade desde aqui, não fica de fachada. Reaproveitada depois pela Fase 11 (snapshot de Play-in-Editor), Fase 12 (Prefabs) e Fase 17 (Save System do jogo) — mesma peça central, quatro consumidores
 - **Autosave e recuperação de crash**: autosave periódico (intervalo configurável) para um arquivo de recuperação separado da cena principal; se o Editor abrir e encontrar uma recuperação mais recente que o último save, oferece restaurar
 - **Indicador de alterações não salvas**: asterisco no título/aba da cena; prompt de confirmação ao fechar com mudanças pendentes
 
 **Undo/Redo genérico**
-- Sistema de Undo/Redo por **comando** (command pattern) e **diff incremental** (guarda só a mudança, não snapshot completo), cobrindo desde esta fase: criar/deletar entidade, adicionar/remover componente, editar valor no Inspector, mover/rotacionar/escalar via gizmo, parenting. A Fase 19 (Level Design) mais tarde **estende** este mesmo sistema para terreno/vegetação, em vez de implementar Undo/Redo do zero de novo
+- Sistema de Undo/Redo por **comando** (command pattern) e **diff incremental** (guarda só a mudança, não snapshot completo), cobrindo desde esta fase: criar/deletar entidade, adicionar/remover componente, editar valor no Inspector, mover/rotacionar/escalar via gizmo, parenting. A Fase 21 (Level Design) mais tarde **estende** este mesmo sistema para terreno/vegetação, em vez de implementar Undo/Redo do zero de novo
 
 **Seleção múltipla**
 - **Seleção por retângulo (rubber-band) no Viewport**: clicar e arrastar em espaço vazio desenha um retângulo; entidades cujo bounding box em tela intersecta o retângulo entram na seleção
@@ -142,7 +143,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 **Sistema de notificações (toasts)**
 - Painel de notificações transitórias no canto da tela, com variantes de cor (erro/aviso/info/sucesso), auto-somem após alguns segundos, com um pequeno histórico recente acessível
-- Usado sempre que uma ação não pode ser concluída (ex.: "Não é possível deletar: usado por 3 outros objetos", erro de build, falha de import) — complementa (não substitui) o sistema de validação contextual de componentes mal configurados (Fase 20)
+- Usado sempre que uma ação não pode ser concluída (ex.: "Não é possível deletar: usado por 3 outros objetos", erro de build, falha de import) — complementa (não substitui) o sistema de validação contextual de componentes mal configurados (Fase 22)
 
 **Pronto quando:** é possível criar entidades, selecionar várias por retângulo, mover o grupo pelo gizmo, desfazer/refazer qualquer uma dessas ações, salvar a cena (com indicador de não-salvo funcionando), e receber uma notificação clara quando uma ação for bloqueada — tudo sem editar código.
 
@@ -216,7 +217,24 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 8 — Animação (com retargeting)
+## Fase 8 — Runtime de Jogo (a espinha)
+
+**Objetivo:** transformar um conjunto de sistemas em **um jogo**. Até aqui a engine tinha renderer, editor, física e áudio — mas nada que rodasse um jogo de verdade. Esta fase entrega a espinha: um executável, um loop de passo fixo determinístico e um mundo onde tudo isso se conecta. Tudo o que vier depois (animação, scripting, ECS, prefabs) é **sistema** e se pluga aqui.
+
+- **Módulo `Engine/Game`** (novo), compartilhado entre o Editor e o jogo:
+  - `GameLoop` — passo fixo (60Hz) com acumulador e limite de passos (sem spiral of death), `alpha` de interpolação, pausa, quit, **registro ordenado de sistemas** (update/render) e estatísticas por sistema
+  - `GameWorld` — o mundo do jogo: cena + assets + renderer + física + áudio + câmera; carrega `.kzscene`, sincroniza a física com a cena e monta o caminho de render de runtime
+  - `GameApp` — janela + RHI + mundo + loop; input, resize, ESC sai
+  - `GameMaterial` — a conversão material→renderer em **uma implementação só** (o Editor e o runtime usam a mesma; o mesmo vale para a submissão de luzes)
+- **`KizuriRuntime.exe`** (o executável de jogo): abre uma cena (ou a cena padrão) e roda o loop — é o ancestral do stub que o sistema de Build da Fase 25 vai empacotar
+- **Caminho de render de runtime**: luzes da cena + meshes + materiais + câmera, sem as ferramentas de edição (gizmos, overlays de debug, batching estático do editor)
+- **Entrada de runtime**: WASD move a câmera, mouse olha, ESC fecha
+
+**Pronto quando:** `KizuriRuntime.exe` abre uma cena e roda com passo fixo, a câmera responde ao input, a física simula e o áudio toca — e o mesmo `GameLoop` é o que o Editor usa (fonte única de verdade).
+
+---
+
+## Fase 9 — Animação (com retargeting)
 
 **Objetivo:** o sistema mais crítico para o gênero souls-like — golpes, dashes, reações — e reaproveitamento de animação entre personagens diferentes.
 
@@ -233,7 +251,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 9 — Scripting em C# (Roslyn)
+## Fase 10 — Scripting em C# (Roslyn)
 
 **Objetivo:** abrir a engine para lógica de gameplay fora do C++.
 
@@ -251,7 +269,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 10 — ECS e Gameplay Framework
+## Fase 11 — ECS e Gameplay Framework
 
 **Objetivo:** a camada que conecta o núcleo C++ à experiência do dev em C#.
 
@@ -266,9 +284,9 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 11 — Sistema de Prefabs
+## Fase 12 — Sistema de Prefabs
 
-**Objetivo:** permitir criar um "molde" de entidade reutilizável, instanciado várias vezes, com propagação de mudanças — essencial para popular um nível souls-like com inimigos e itens repetidos sem duplicar trabalho manualmente. Depende do ECS (Fase 10), da serialização genérica (Fase 3) e do Asset Browser (Fase 4).
+**Objetivo:** permitir criar um "molde" de entidade reutilizável, instanciado várias vezes, com propagação de mudanças — essencial para popular um nível souls-like com inimigos e itens repetidos sem duplicar trabalho manualmente. Depende do ECS (Fase 12), da serialização genérica (Fase 3) e do Asset Browser (Fase 4).
 
 - **Prefab como asset próprio** (`.kzprefab`), serializado com a mesma serialização por reflection já existente
 - **Instâncias na cena referenciam o Prefab original**; alterar o Prefab propaga automaticamente para todas as instâncias
@@ -283,7 +301,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 12 — Scripting Visual (nós)
+## Fase 13 — Scripting Visual (nós)
 
 **Objetivo:** o diferencial técnico central da Kizuri.
 
@@ -295,13 +313,13 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 - **Exibição de erro de compilação**: dupla via Console (mensagem completa) e inline no nó problemático (ícone/borda vermelha diretamente no grafo, sem precisar caçar no log)
 - Debug de grafo: valores em tempo real, breakpoints
 - **Menu de contexto do editor de nós**: Adicionar Nó (busca por categoria), Deletar, Copiar/Colar nós
-- **Inspector**: um grafo de nós salvo aparece no componente Script (Fase 9) como mais uma opção de script anexável
+- **Inspector**: um grafo de nós salvo aparece no componente Script (Fase 11) como mais uma opção de script anexável
 
 **Pronto quando:** um grafo simples (`OnBeginPlay → PlayAnimation`) funciona no Play Mode, um erro proposital no grafo aparece tanto no Console quanto destacado no nó culpado, e o grafo pode ser anexado a uma entidade como qualquer outro script.
 
 ---
 
-## Fase 13 — Câmera e Input
+## Fase 14 — Câmera e Input
 
 **Objetivo:** os sistemas que todo jogo do gênero precisa, prontos de fábrica.
 
@@ -313,7 +331,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 14 — IA e Pathfinding
+## Fase 15 — IA e Pathfinding
 
 **Objetivo:** inimigos que se movem de forma inteligente pelo cenário.
 
@@ -327,7 +345,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 15 — Rede (P2P)
+## Fase 16 — Rede (P2P)
 
 **Objetivo:** suporte a co-op no estilo Dark Souls.
 
@@ -341,7 +359,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 16 — Save System (do jogo)
+## Fase 17 — Save System (do jogo)
 
 **Objetivo:** persistência de progresso do jogador — não confundir com "Salvar Cena" do Editor (Fase 3).
 
@@ -352,7 +370,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 17 — VFX
+## Fase 18 — VFX
 
 **Objetivo:** partículas de alta escala sem custo de CPU.
 
@@ -363,7 +381,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 18 — UI de jogo (HUD/menus)
+## Fase 19 — UI de jogo (HUD/menus)
 
 **Objetivo:** ferramenta para o dev construir a interface do jogo final.
 
@@ -374,7 +392,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 19 — Ferramentas de Level Design
+## Fase 20 — Ferramentas de Level Design
 
 **Objetivo:** construir níveis souls-like diretamente no editor.
 
@@ -387,7 +405,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 20 — Polimento do Editor
+## Fase 21 — Polimento do Editor
 
 **Objetivo:** as ferramentas transversais que tornam o editor profissional — os desenhadores de componente e as fundações de UX (Undo/Redo, notificações, seleção múltipla) já nasceram junto de cada sistema (Fases 3 a 17); esta fase cruza tudo isso.
 
@@ -401,7 +419,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 21 — Documentação integrada
+## Fase 22 — Documentação integrada
 
 **Objetivo:** documentação gerada junto com o código, navegável de dentro do editor.
 
@@ -413,7 +431,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 22 — Launcher e Instalador
+## Fase 23 — Launcher e Instalador
 
 **Objetivo:** distribuição real da engine, fora do ambiente de desenvolvimento.
 
@@ -426,7 +444,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 23 — Sistema de Build final
+## Fase 24 — Sistema de Build final
 
 **Objetivo:** gerar o executável do jogo, enxuto e funcional, sem exigir compilação C++ do dev.
 
@@ -439,7 +457,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 24 — Vertical Slice de validação
+## Fase 25 — Vertical Slice de validação
 
 **Objetivo:** provar que a engine cumpre a promessa de performance com conteúdo real.
 
@@ -474,21 +492,21 @@ Fase 4  → Pipeline de Assets + Asset Browser + dependência entre assets
 Fase 5  → Iluminação/sombras avançadas + céu procedural + Inspector de Light
 Fase 6  → Física (Jolt) + Inspector de Rigidbody/Ragdoll
 Fase 7  → Áudio + Mixer completo (buses, ducking, reverb) + Inspector de AudioSource
-Fase 8  → Animação + Retargeting + Inspector de Animator + editor de state machine
-Fase 9  → Scripting C#/Roslyn + Inspector de Script
-Fase 10 → ECS/Gameplay Framework + "Add Component" genérico + parenting
-Fase 11 → Sistema de Prefabs (overrides, variants, apply/revert)
-Fase 12 → Scripting Visual (nós) + exibição de erro inline
-Fase 13 → Câmera/Input + Inspector de Camera Controller
-Fase 14 → IA/Pathfinding + Inspector de NavAgent
-Fase 15 → Rede P2P + Inspector de NetworkIdentity
-Fase 16 → Save System do jogo (reaproveita serialização da Fase 3) + Inspector de Saveable
-Fase 17 → VFX + Editor de partículas
-Fase 18 → UI de jogo
-Fase 19 → Ferramentas de Level Design (reaproveita Undo/Redo da Fase 3)
-Fase 20 → Polimento do Editor (transversal)
-Fase 21 → Documentação integrada
-Fase 22 → Launcher/Instalador + versionamento engine/projeto
-Fase 23 → Sistema de Build final + Debug/Release
-Fase 24 → Vertical Slice de validação
+Fase 9  → Animação + Retargeting + Inspector de Animator + editor de state machine
+Fase 10  → Scripting C#/Roslyn + Inspector de Script
+Fase 11 → ECS/Gameplay Framework + "Add Component" genérico + parenting
+Fase 12 → Sistema de Prefabs (overrides, variants, apply/revert)
+Fase 13 → Scripting Visual (nós) + exibição de erro inline
+Fase 14 → Câmera/Input + Inspector de Camera Controller
+Fase 15 → IA/Pathfinding + Inspector de NavAgent
+Fase 16 → Rede P2P + Inspector de NetworkIdentity
+Fase 17 → Save System do jogo (reaproveita serialização da Fase 3) + Inspector de Saveable
+Fase 18 → VFX + Editor de partículas
+Fase 19 → UI de jogo
+Fase 20 → Ferramentas de Level Design (reaproveita Undo/Redo da Fase 3)
+Fase 21 → Polimento do Editor (transversal)
+Fase 22 → Documentação integrada
+Fase 23 → Launcher/Instalador + versionamento engine/projeto
+Fase 24 → Sistema de Build final + Debug/Release
+Fase 25 → Vertical Slice de validação
 ```
