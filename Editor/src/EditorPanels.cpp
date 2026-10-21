@@ -975,6 +975,13 @@ void EditorApp::SyncPhysics(float dt) {
       viewSimulate = false;
       return;
     }
+    if (optNoPhysics) {
+      physWorld.Shutdown();
+      physJobs.Shutdown();
+      physReady = false;
+      viewSimulate = false;
+      return;
+    }
     physReady = true;
   }
   std::vector<EntityId> all = scene.All();

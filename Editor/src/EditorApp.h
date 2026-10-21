@@ -82,6 +82,9 @@ struct EditorApp {
   bool showAssetBrowser;
   bool showAudioMixer;
   bool dockLayoutBuilt;
+  bool optNoAudio;
+  bool optNoAssets;
+  bool optNoPhysics;
   uint32_t dockLeftId;
   uint32_t dockRightId;
   uint32_t dockBottomId;
@@ -266,6 +269,9 @@ struct EditorApp {
   std::string pendingRestoreMain;
   bool restorePromptQueued;
   EditorApp();
+  void SetNoAudio(bool v) { optNoAudio = v; }
+  void SetNoAssets(bool v) { optNoAssets = v; }
+  void SetNoPhysics(bool v) { optNoPhysics = v; }
   bool Initialize();
   int Run();
   void Shutdown();

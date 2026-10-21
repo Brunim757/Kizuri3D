@@ -2,12 +2,13 @@
 #include "Kizuri/HardwareSpec.h"
 #include <cstdio>
 #include <exception>
+#include <string>
 #ifdef _WIN32
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #endif
-int main() {
+int main(int argc, char** argv) {
   try {
   {
     const Kizuri::HardwareSpec spec = Kizuri::DetectHardware();
@@ -15,6 +16,16 @@ int main() {
     std::fflush(stdout);
   }
   Kizuri::EditorApp app;
+  for (int i = 1; i < argc; ++i) {
+    const std::string arg = argv[i];
+    if (arg == "--no-audio") {
+      app.SetNoAudio(true);
+    } else if (arg == "--no-assets") {
+      app.SetNoAssets(true);
+    } else if (arg == "--no-physics") {
+      app.SetNoPhysics(true);
+    }
+  }
   if (!app.Initialize()) {
     std::printf("Editor init failed\n");
     std::string detail = app.LastInitError();

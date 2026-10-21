@@ -39,6 +39,9 @@ EditorApp::EditorApp()
   , showAssetBrowser(true)
   , showAudioMixer(false)
   , dockLayoutBuilt(false)
+  , optNoAudio(false)
+  , optNoAssets(false)
+  , optNoPhysics(false)
   , dockLeftId(0)
   , dockRightId(0)
   , dockBottomId(0)
@@ -577,7 +580,7 @@ bool EditorApp::Initialize() {
   });
   assets.SetAssetsDir(ResolveAssetsDir());
   assets.SetGpuRHI(rhi);
-  if (audio.Initialize(48000, 2)) {
+  if (!optNoAudio && audio.Initialize(48000, 2)) {
     audioReady = true;
     if (audio.Mixer().LoadFromFile(AudioMixerPath())) {
       audio.Update();
@@ -585,7 +588,9 @@ bool EditorApp::Initialize() {
     }
   }
   try {
-    assets.Scan();
+    if (!optNoAssets) {
+      assets.Scan();
+    }
   } catch (...) {
     initError = "Varredura de Assets falhou (pasta Assets corrompida ou sem permissao).";
     return false;
