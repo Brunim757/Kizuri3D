@@ -833,23 +833,23 @@ void EditorApp::Frame() {
   EnsureDocked("Console", dockBottomId);
   EnsureDocked("Asset Browser", dockBottomId);
   if (showViewport) {
-    ImGui::SetNextWindowDock(dockCenterId, ImGuiCond_Once);
+    ImGui::SetNextWindowDock(static_cast<ImGuiID>(dockCenterId), ImGuiCond_Once);
     DrawViewport();
   }
   if (showHierarchy) {
-    ImGui::SetNextWindowDock(dockLeftId, ImGuiCond_Once);
+    ImGui::SetNextWindowDock(static_cast<ImGuiID>(dockLeftId), ImGuiCond_Once);
     DrawHierarchy();
   }
   if (showInspector) {
-    ImGui::SetNextWindowDock(dockRightId, ImGuiCond_Once);
+    ImGui::SetNextWindowDock(static_cast<ImGuiID>(dockRightId), ImGuiCond_Once);
     DrawInspector();
   }
   if (showConsole) {
-    ImGui::SetNextWindowDock(dockBottomId, ImGuiCond_Once);
+    ImGui::SetNextWindowDock(static_cast<ImGuiID>(dockBottomId), ImGuiCond_Once);
     DrawConsole();
   }
   if (showAssetBrowser) {
-    ImGui::SetNextWindowDock(dockBottomId, ImGuiCond_Once);
+    ImGui::SetNextWindowDock(static_cast<ImGuiID>(dockBottomId), ImGuiCond_Once);
     DrawAssetBrowser();
   }
   if (showAudioMixer) {
@@ -888,10 +888,10 @@ void EditorApp::DrawDockHost() {
     ImGui::DockBuilderAddNode(dockId, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockId, vp->WorkSize);
     ImGuiID center = dockId;
-    dockLeftId = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.20f, nullptr, &center);
-    dockRightId = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
-    dockBottomId = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.28f, nullptr, &center);
-    dockCenterId = center;
+    dockLeftId = static_cast<uint32_t>(ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.20f, nullptr, &center));
+    dockRightId = static_cast<uint32_t>(ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center));
+    dockBottomId = static_cast<uint32_t>(ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.28f, nullptr, &center));
+    dockCenterId = static_cast<uint32_t>(center);
     ImGui::DockBuilderDockWindow("Hierarchy", dockLeftId);
     ImGui::DockBuilderDockWindow("Inspector", dockRightId);
     ImGui::DockBuilderDockWindow("Console", dockBottomId);
@@ -903,11 +903,11 @@ void EditorApp::DrawDockHost() {
   ImGui::DockSpace(dockId);
   ImGui::End();
 }
-void EditorApp::EnsureDocked(const char* name, ImGuiID nodeId) {
+void EditorApp::EnsureDocked(const char* name, uint32_t nodeId) {
   if (nodeId == 0) {
     return;
   }
-  ImGuiDockNode* node = ImGui::DockBuilderGetNode(nodeId);
+  ImGuiDockNode* node = ImGui::DockBuilderGetNode(static_cast<ImGuiID>(nodeId));
   if (node == nullptr) {
     return;
   }
@@ -915,7 +915,7 @@ void EditorApp::EnsureDocked(const char* name, ImGuiID nodeId) {
   if (w == nullptr || w->DockNode != nullptr) {
     return;
   }
-  ImGui::DockBuilderDockWindow(name, nodeId);
+  ImGui::DockBuilderDockWindow(name, static_cast<ImGuiID>(nodeId));
 }
 void EditorApp::DrawToolbar() {
   const float width = ImGui::GetWindowWidth();

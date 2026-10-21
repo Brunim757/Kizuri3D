@@ -82,10 +82,10 @@ struct EditorApp {
   bool showAssetBrowser;
   bool showAudioMixer;
   bool dockLayoutBuilt;
-  ImGuiID dockLeftId;
-  ImGuiID dockRightId;
-  ImGuiID dockBottomId;
-  ImGuiID dockCenterId;
+  uint32_t dockLeftId;
+  uint32_t dockRightId;
+  uint32_t dockBottomId;
+  uint32_t dockCenterId;
   bool showAbout;
   bool showSettings;
   bool debugCascades;
@@ -273,7 +273,7 @@ struct EditorApp {
   void DrawMenuBar();
   void DrawToolbar();
   void DrawDockHost();
-  void EnsureDocked(const char* name, ImGuiID nodeId);
+  void EnsureDocked(const char* name, uint32_t nodeId);
   void DrawViewport();
   void DrawHierarchy();
   void DrawHierarchyTree(EntityId parent, int depth, const std::map<uint32_t, std::vector<EntityId>>& byParent, const std::string& filter);
