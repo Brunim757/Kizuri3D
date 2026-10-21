@@ -1,6 +1,6 @@
 #include "Kizuri/GameApp.h"
-#include "Kizuri/Path.h"
 #include <cstdio>
+#include <filesystem>
 #include <string>
 namespace {
 std::string FindFirstExisting(const char* const* candidates, int count) {
