@@ -1,5 +1,6 @@
 #include "EditorApp.h"
 #include "Kizuri/HardwareSpec.h"
+#include "Kizuri/Core.h"
 #include <cstdio>
 #include <exception>
 #include <string>
@@ -9,7 +10,7 @@
 #include <windows.h>
 #include <exception>
 #endif
-static void CrashHandler(EXCEPTION_POINTERS* ep) {
+static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* ep) {
   if (ep != nullptr && ep->ExceptionRecord != nullptr) {
     const EXCEPTION_RECORD* rec = ep->ExceptionRecord;
     std::printf("\n[CRASH] codigo 0x%08X  endereco %p\n", rec->ExceptionCode, rec->ExceptionAddress);
@@ -19,6 +20,7 @@ static void CrashHandler(EXCEPTION_POINTERS* ep) {
   std::fflush(stdout);
   std::printf("Pressione Enter para fechar...\n");
   (void)std::getchar();
+  return EXCEPTION_EXECUTE_HANDLER;
 }
 int main(int argc, char** argv) {
   SetUnhandledExceptionFilter(&CrashHandler);
