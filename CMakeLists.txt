@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 project(KizuriEngine VERSION 0.0.1 LANGUAGES C CXX)
 string(TIMESTAMP KIZURI_BUILD_STAMP "%Y-%m-%d %H:%M" UTC)
-add_compile_definitions(KIZURI_BUILD_ID="${KIZURI_BUILD_STAMP} rev ${GIT_COMMIT_HASH}")
+add_compile_definitions(KIZURI_BUILD_ID="${KIZURI_BUILD_STAMP}")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

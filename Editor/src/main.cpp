@@ -25,7 +25,7 @@ int main(int argc, char** argv) {
   try {
   {
     const Kizuri::HardwareSpec spec = Kizuri::DetectHardware();
-    std::printf("Kizuri Editor | %s\n", spec.Summary().c_str());
+    std::printf("Kizuri Editor build %s | %s\n", Kizuri::BuildId(), spec.Summary().c_str());
     std::fflush(stdout);
   }
   Kizuri::EditorApp app;

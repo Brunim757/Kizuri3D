@@ -1,5 +1,6 @@
 #include "Kizuri/GameApp.h"
 #include "Kizuri/HardwareSpec.h"
+#include "Kizuri/Core.h"
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
@@ -59,7 +60,7 @@ int main(int argc, char** argv) {
     }
   }
   const Kizuri::HardwareSpec spec = Kizuri::DetectHardware();
-  std::printf("%s\n", spec.Summary().c_str());
+  std::printf("Kizuri Game build %s | %s\n", Kizuri::BuildId(), spec.Summary().c_str());
   if (spec.lowSpec) {
     std::printf("Hardware fraco: use --lowspec se precisar (render scale 0.5, sem SSR/bloom).\n");
   }
