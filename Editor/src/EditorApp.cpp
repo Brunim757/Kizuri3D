@@ -19,6 +19,7 @@
 #include <ImGuizmo.h>
 #include <DirectXMath.h>
 #include <cstdio>
+#include <fstream>
 #include <filesystem>
 #include <shellapi.h>
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -37,6 +38,10 @@ EditorApp::EditorApp()
   , showAssetBrowser(true)
   , showAudioMixer(false)
   , dockLayoutBuilt(false)
+  , dockLeftId(0)
+  , dockRightId(0)
+  , dockBottomId(0)
+  , dockCenterId(0)
   , consoleLevelFilter(0)
   , showAbout(false)
   , showSettings(false)
@@ -525,6 +530,22 @@ bool EditorApp::Initialize() {
   InitStoragePaths();
   if (!layoutFilePath.empty()) {
     ImGui::GetIO().IniFilename = layoutFilePath.c_str();
+    const std::string verPath = layoutFilePath + ".ver";
+    std::string ver;
+    {
+      std::ifstream vf(verPath);
+      if (vf) {
+        std::getline(vf, ver);
+      }
+    }
+    if (ver != "dock2") {
+      std::remove(layoutFilePath.c_str());
+      std::ofstream vf(verPath);
+      if (vf) {
+        vf << "dock2";
+      }
+      dockLayoutBuilt = false;
+    }
   }
   LoadEditorSettings();
   g_sinkLog = &log;
@@ -806,19 +827,29 @@ void EditorApp::Frame() {
   }
   DrawMenuBar();
   DrawDockHost();
+  EnsureDocked("Viewport", dockCenterId);
+  EnsureDocked("Hierarchy", dockLeftId);
+  EnsureDocked("Inspector", dockRightId);
+  EnsureDocked("Console", dockBottomId);
+  EnsureDocked("Asset Browser", dockBottomId);
   if (showViewport) {
+    ImGui::SetNextWindowDock(dockCenterId, ImGuiCond_Once);
     DrawViewport();
   }
   if (showHierarchy) {
+    ImGui::SetNextWindowDock(dockLeftId, ImGuiCond_Once);
     DrawHierarchy();
   }
   if (showInspector) {
+    ImGui::SetNextWindowDock(dockRightId, ImGuiCond_Once);
     DrawInspector();
   }
   if (showConsole) {
+    ImGui::SetNextWindowDock(dockBottomId, ImGuiCond_Once);
     DrawConsole();
   }
   if (showAssetBrowser) {
+    ImGui::SetNextWindowDock(dockBottomId, ImGuiCond_Once);
     DrawAssetBrowser();
   }
   if (showAudioMixer) {
@@ -857,19 +888,34 @@ void EditorApp::DrawDockHost() {
     ImGui::DockBuilderAddNode(dockId, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockId, vp->WorkSize);
     ImGuiID center = dockId;
-    const ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.20f, nullptr, &center);
-    const ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
-    const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.28f, nullptr, &center);
-    ImGui::DockBuilderDockWindow("Hierarchy", left);
-    ImGui::DockBuilderDockWindow("Inspector", right);
-    ImGui::DockBuilderDockWindow("Console", bottom);
-    ImGui::DockBuilderDockWindow("Asset Browser", bottom);
-    ImGui::DockBuilderDockWindow("Viewport", center);
+    dockLeftId = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.20f, nullptr, &center);
+    dockRightId = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
+    dockBottomId = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.28f, nullptr, &center);
+    dockCenterId = center;
+    ImGui::DockBuilderDockWindow("Hierarchy", dockLeftId);
+    ImGui::DockBuilderDockWindow("Inspector", dockRightId);
+    ImGui::DockBuilderDockWindow("Console", dockBottomId);
+    ImGui::DockBuilderDockWindow("Asset Browser", dockBottomId);
+    ImGui::DockBuilderDockWindow("Viewport", dockCenterId);
     ImGui::DockBuilderFinish(dockId);
     dockLayoutBuilt = true;
   }
   ImGui::DockSpace(dockId);
   ImGui::End();
+}
+void EditorApp::EnsureDocked(const char* name, ImGuiID nodeId) {
+  if (nodeId == 0) {
+    return;
+  }
+  ImGuiDockNode* node = ImGui::DockBuilderGetNode(nodeId);
+  if (node == nullptr) {
+    return;
+  }
+  ImGuiWindow* w = ImGui::FindWindowByName(name);
+  if (w == nullptr || w->DockNode != nullptr) {
+    return;
+  }
+  ImGui::DockBuilderDockWindow(name, nodeId);
 }
 void EditorApp::DrawToolbar() {
   const float width = ImGui::GetWindowWidth();

@@ -14,6 +14,7 @@
 #include <shellapi.h>
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
+#include <imgui_internal.h>
 #include <ImGuizmo.h>
 #include <DirectXMath.h>
 #include <cstring>
@@ -2867,6 +2868,24 @@ void EditorApp::DrawSettings() {
         ImGui::Text("GPU n/a");
       }
       ImGui::Text("Mem tex %.1fMB targets %.1fMB bufs %.1fMB", rst.textureBytes / 1048576.0, rst.targetBytes / 1048576.0, rst.bufferBytes / 1048576.0);
+      ImGui::Separator();
+      ImGui::Text("Docking");
+      {
+        const char* names[5] = { "Viewport", "Hierarchy", "Inspector", "Console", "Asset Browser" };
+        for (int i = 0; i < 5; ++i) {
+          ImGuiWindow* w = ImGui::FindWindowByName(names[i]);
+          if (w == nullptr) {
+            ImGui::Text("%s: inexistente", names[i]);
+            continue;
+          }
+          if (w->DockNode == nullptr) {
+            ImGui::Text("%s: FLUTUANTE pos %.0f,%.0f tam %.0fx%.0f", names[i], w->Pos.x, w->Pos.y, w->Size.x, w->Size.y);
+            continue;
+          }
+          ImGui::Text("%s: dockado em %.0f,%.0f tam %.0fx%.0f", names[i], w->DockNode->Pos.x, w->DockNode->Pos.y, w->DockNode->Size.x, w->DockNode->Size.y);
+        }
+        ImGui::Text("nos: esq %u dir %u baixo %u centro %u", (unsigned int)dockLeftId, (unsigned int)dockRightId, (unsigned int)dockBottomId, (unsigned int)dockCenterId);
+      }
       ImGui::EndTabItem();
     }
     ImGui::EndTabBar();
