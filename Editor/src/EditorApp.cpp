@@ -6,6 +6,7 @@
 #include "Kizuri/Input.h"
 #include "Kizuri/Path.h"
 #include "Kizuri/QualityPreset.h"
+#include "Kizuri/HardwareSpec.h"
 #include "Kizuri/Settings.h"
 #include "Kizuri/Logger.h"
 #include "Kizuri/SceneSerializer.h"
@@ -547,7 +548,18 @@ bool EditorApp::Initialize() {
       dockLayoutBuilt = false;
     }
   }
-  LoadEditorSettings();
+  {
+    const bool firstStart = !std::filesystem::exists(settingsFilePath);
+    LoadEditorSettings();
+    if (firstStart) {
+      const HardwareSpec spec = DetectHardware();
+      if (spec.lowSpec) {
+        viewQuality = static_cast<int>(QualityLevel::Low);
+        viewScale = 0.5f;
+        log.Add(LogLevel::Warning, "Hardware fraco (" + spec.Summary() + "): modo low-spec ativado. Ajuste em Settings > Quality.");
+      }
+    }
+  }
   g_sinkLog = &log;
   Kizuri::SetLogSink([](Kizuri::Severity level, const char* file, int line, const char* message) {
     (void)file;

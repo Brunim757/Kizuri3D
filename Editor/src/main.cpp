@@ -1,11 +1,13 @@
 #include "EditorApp.h"
 #include <cstdio>
+#include <exception>
 #ifdef _WIN32
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #endif
 int main() {
+  try {
   Kizuri::EditorApp app;
   if (!app.Initialize()) {
     std::printf("Editor init failed\n");
@@ -23,4 +25,15 @@ int main() {
   int code = app.Run();
   app.Shutdown();
   return code;
+  } catch (const std::exception& e) {
+    std::printf("Editor: excecao nao tratada: %s\n", e.what());
+    std::printf("Pressione Enter para fechar...\n");
+    (void)std::getchar();
+    return 1;
+  } catch (...) {
+    std::printf("Editor: excecao desconhecida\n");
+    std::printf("Pressione Enter para fechar...\n");
+    (void)std::getchar();
+    return 1;
+  }
 }

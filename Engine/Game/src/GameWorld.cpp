@@ -95,7 +95,26 @@ GameWorld::GameWorld() {
 GameWorld::~GameWorld() {
   Shutdown();
 }
-bool GameWorld::Initialize(IRHI* rhi, int width, int height, const std::string& shaderDir, const std::string& assetsDir) {
+void ApplyQualityToRenderer(DeferredRenderer& renderer, const QualitySettings& q) {
+  renderer.SetSsao(q.ssao, 1.0f, 1.0f);
+  renderer.SetAoMode(q.aoMode);
+  renderer.SetSsr(q.ssr);
+  renderer.SetSsrTemporal(q.ssrTemporal, 0.9f);
+  renderer.SetContact(q.contact);
+  renderer.SetSsgi(q.ssgi);
+  renderer.SetDof(q.dof, 10.0f, 10.0f);
+  renderer.SetMotionBlur(q.motionBlur, 0.5f);
+  renderer.SetFxaa(q.fxaa);
+  renderer.SetTaa(q.taa);
+  renderer.SetTaaSharpening(q.taaSharp);
+  renderer.SetBloom(q.bloom);
+  renderer.SetShadowFilter(q.shadowFilter);
+  renderer.SetDynamicResolution(q.dynRes, 16.6f, 0.5f, 1.0f);
+  renderer.SetOcclusionCulling(q.occ);
+  renderer.SetGodRays(q.godRays, 0.5f, 0.9f, 0.2f);
+  renderer.SetFsr(q.renderScale, 0.5f);
+}
+bool GameWorld::Initialize(IRHI* rhi, int width, int height, const std::string& shaderDir, const std::string& assetsDir, const GameWorldOptions& options) {
   if (initialized) {
     return true;
   }
@@ -109,7 +128,12 @@ bool GameWorld::Initialize(IRHI* rhi, int width, int height, const std::string& 
     lastError = "Falha ao inicializar o renderer em " + shaderDir;
     return false;
   }
-  if (!assetsDir.empty()) {
+  if (options.lowSpec) {
+    QualitySettings low = ApplyQualityPreset(QualityLevel::Low);
+    low.renderScale = options.renderScale > 0.0f ? options.renderScale : 0.5f;
+    ApplyQualityToRenderer(renderer, low);
+  }
+  if (options.loadAssets && !assetsDir.empty()) {
     assets.SetAssetsDir(assetsDir);
     assets.SetGpuRHI(rhi);
     assets.Scan();
@@ -119,11 +143,13 @@ bool GameWorld::Initialize(IRHI* rhi, int width, int height, const std::string& 
     lastError = "Falha ao iniciar o Job System";
     return false;
   }
-  if (!physics.Initialize(&jobs)) {
+  if (options.enablePhysics && !physics.Initialize(&jobs)) {
     lastError = "Falha ao inicializar a fisica";
     return false;
   }
-  audio.Initialize(48000, 2);
+  if (options.enableAudio) {
+    audio.Initialize(48000, 2);
+  }
   camera.SetPosition(0.0f, 4.0f, -10.0f);
   camera.SetYawPitch(0.0f, 0.15f);
   initialized = true;
@@ -186,7 +212,7 @@ void GameWorld::Update(float dt) {
   SyncAudio(dt);
 }
 void GameWorld::SyncPhysics(float dt) {
-  if (!initialized) {
+  if (!initialized || !physics.IsInitialized()) {
     return;
   }
   const std::vector<EntityId> ids = scene.All();
@@ -253,7 +279,7 @@ void GameWorld::SyncPhysics(float dt) {
 }
 void GameWorld::SyncAudio(float dt) {
   (void)dt;
-  if (!initialized) {
+  if (!initialized || !audio.IsInitialized()) {
     return;
   }
   audio.Update();

@@ -14,6 +14,11 @@ struct GameAppDesc {
   std::string shaderDir;
   bool vsync = true;
   bool vsyncFixedStep = true;
+  bool loadAssets = true;
+  bool enablePhysics = true;
+  bool enableAudio = true;
+  bool lowSpec = false;
+  float renderScale = 1.0f;
   float fixedStep = 1.0f / 60.0f;
   int maxStepsPerFrame = 4;
 };

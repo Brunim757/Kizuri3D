@@ -5,16 +5,26 @@
 #include "Kizuri/DeferredRenderer.h"
 #include "Kizuri/JobSystem.h"
 #include "Kizuri/PhysicsWorld.h"
+#include "Kizuri/QualityPreset.h"
 #include "Kizuri/Scene.h"
 #include <string>
 #include <unordered_map>
 namespace Kizuri {
 bool SubmitSceneLights(DeferredRenderer& renderer, const Scene& scene, const EntityId& soloLight);
+struct GameWorldOptions {
+  bool loadAssets = true;
+  bool enablePhysics = true;
+  bool enableAudio = true;
+  bool lowSpec = false;
+  float renderScale = 1.0f;
+  int shadowAtlasSize = 4096;
+};
+void ApplyQualityToRenderer(DeferredRenderer& renderer, const QualitySettings& q);
 class GameWorld {
 public:
   GameWorld();
   ~GameWorld();
-  bool Initialize(IRHI* rhi, int width, int height, const std::string& shaderDir, const std::string& assetsDir);
+  bool Initialize(IRHI* rhi, int width, int height, const std::string& shaderDir, const std::string& assetsDir, const GameWorldOptions& options);
   void Shutdown();
   bool LoadSceneFile(const std::string& path);
   void CreateFallbackScene();

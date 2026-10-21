@@ -45,7 +45,13 @@ bool GameApp::Initialize(const GameAppDesc& inDesc) {
     }
     return false;
   }
-  if (!world.Initialize(rhi, window.Width(), window.Height(), desc.shaderDir, desc.assetsDir)) {
+  GameWorldOptions wopts;
+  wopts.loadAssets = desc.loadAssets;
+  wopts.enablePhysics = desc.enablePhysics;
+  wopts.enableAudio = desc.enableAudio;
+  wopts.lowSpec = desc.lowSpec;
+  wopts.renderScale = desc.renderScale;
+  if (!world.Initialize(rhi, window.Width(), window.Height(), desc.shaderDir, desc.assetsDir, wopts)) {
     lastError = world.LastError();
     return false;
   }
