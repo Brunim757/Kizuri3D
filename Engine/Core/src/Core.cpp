@@ -7,6 +7,13 @@
 #include <cstring>
 #include <atomic>
 namespace Kizuri {
+const char* BuildId() {
+#ifdef KIZURI_BUILD_ID
+  return KIZURI_BUILD_ID;
+#else
+  return "desconhecido";
+#endif
+}
 namespace {
 struct FillTask : public enki::ITaskSet {
   std::atomic<int>* out;

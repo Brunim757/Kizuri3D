@@ -5,6 +5,11 @@
 #include <exception>
 #include <filesystem>
 #include <string>
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 namespace {
 std::string FindFirstExisting(const char* const* candidates, int count) {
   for (int i = 0; i < count; ++i) {
@@ -15,7 +20,19 @@ std::string FindFirstExisting(const char* const* candidates, int count) {
   return std::string();
 }
 }
+static void CrashHandler(EXCEPTION_POINTER* ep) {
+  if (ep != nullptr && ep->ExceptionRecord != nullptr) {
+    const EXCEPTION_RECORD* rec = ep->ExceptionRecord;
+    std::printf("\n[CRASH] codigo 0x%08X  endereco %p\n", rec->ExceptionCode, rec->ExceptionAddress);
+  } else {
+    std::printf("\n[CRASH] excecao desconhecida\n");
+  }
+  std::fflush(stdout);
+  std::printf("Pressione Enter para fechar...\n");
+  (void)std::getchar();
+}
 int main(int argc, char** argv) {
+  SetUnhandledExceptionFilter(&CrashHandler);
   Kizuri::GameAppDesc desc;
   desc.windowTitle = "Kizuri Game";
   desc.width = 1280;
@@ -43,10 +60,8 @@ int main(int argc, char** argv) {
   }
   const Kizuri::HardwareSpec spec = Kizuri::DetectHardware();
   std::printf("%s\n", spec.Summary().c_str());
-  if (spec.lowSpec && !desc.lowSpec) {
-    desc.lowSpec = true;
-    desc.renderScale = 0.5f;
-    std::printf("Hardware fraco: modo low-spec ativado (render scale 0.5, sem SSR/bloom). Use --no-assets/--no-audio/--no-physics para isolar.\n");
+  if (spec.lowSpec) {
+    std::printf("Hardware fraco: use --lowspec se precisar (render scale 0.5, sem SSR/bloom).\n");
   }
   if (desc.shaderDir.empty()) {
     std::printf("Kizuri Game: pasta Shaders/ nao encontrada\n");

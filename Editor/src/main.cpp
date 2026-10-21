@@ -7,8 +7,21 @@
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <exception>
 #endif
+static void CrashHandler(EXCEPTION_POINTER* ep) {
+  if (ep != nullptr && ep->ExceptionRecord != nullptr) {
+    const EXCEPTION_RECORD* rec = ep->ExceptionRecord;
+    std::printf("\n[CRASH] codigo 0x%08X  endereco %p\n", rec->ExceptionCode, rec->ExceptionAddress);
+  } else {
+    std::printf("\n[CRASH] excecao desconhecida\n");
+  }
+  std::fflush(stdout);
+  std::printf("Pressione Enter para fechar...\n");
+  (void)std::getchar();
+}
 int main(int argc, char** argv) {
+  SetUnhandledExceptionFilter(&CrashHandler);
   try {
   {
     const Kizuri::HardwareSpec spec = Kizuri::DetectHardware();
