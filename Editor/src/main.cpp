@@ -1,4 +1,5 @@
 #include "EditorApp.h"
+#include "Kizuri/HardwareSpec.h"
 #include <cstdio>
 #include <exception>
 #ifdef _WIN32
@@ -8,6 +9,11 @@
 #endif
 int main() {
   try {
+  {
+    const Kizuri::HardwareSpec spec = Kizuri::DetectHardware();
+    std::printf("Kizuri Editor | %s\n", spec.Summary().c_str());
+    std::fflush(stdout);
+  }
   Kizuri::EditorApp app;
   if (!app.Initialize()) {
     std::printf("Editor init failed\n");
