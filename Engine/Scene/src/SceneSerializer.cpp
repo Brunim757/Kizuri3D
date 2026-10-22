@@ -320,7 +320,7 @@ static bool ReadMesh(const std::string& field, const std::string& rest, void* en
           }
           e->meshGuid = guid;
           e->hasMesh = true;
-          continue;
+          return true;
   }
   return false;
 }
@@ -408,7 +408,7 @@ static bool ReadLight(const std::string& field, const std::string& rest, void* e
             }
           }
           e->hasLight = true;
-          continue;
+          return true;
   }
 
   if (field == "LIGHTCOOKIE") {
@@ -418,7 +418,7 @@ static bool ReadLight(const std::string& field, const std::string& rest, void* e
             return false;
           }
           e->light.cookieGuid = guid;
-          continue;
+          return true;
   }
   return false;
 }
@@ -455,7 +455,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
             e->material.heightTex = height;
           }
           e->hasMaterial = true;
-          continue;
+          return true;
   }
 
   if (field == "MATERIALX") {
@@ -520,7 +520,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
           e->material.iridescenceThicknessTex = slots[10];
           e->material.transmissionTex = slots[11];
           e->material.thicknessTex = slots[12];
-          continue;
+          return true;
   }
 
   if (field == "MATERIALXF") {
@@ -539,7 +539,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
             e->material.xforms[si].rotation = mv[si * 6 + 4];
             e->material.xforms[si].uvSet = static_cast<int>(mv[si * 6 + 5]);
           }
-          continue;
+          return true;
   }
 
   if (field == "MATERIALLINK") {
@@ -554,7 +554,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
             }
             e->material.linkMask = static_cast<int>(lv);
           }
-          continue;
+          return true;
   }
 
   if (field == "MATDETAIL") {
@@ -577,7 +577,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
               e->material.layerHeightBlend = dv[8] > 0.5f;
             }
           }
-          continue;
+          return true;
   }
 
   if (field == "MATSSS") {
@@ -589,7 +589,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
             e->material.sssColor[2] = dv[2];
             e->material.sssIntensity = dv[3];
           }
-          continue;
+          return true;
   }
 
   if (field == "MATSSSK") {
@@ -599,7 +599,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
             return false;
           }
           e->material.sssKind = vv < 0 ? 0 : (vv > 3 ? 3 : static_cast<int>(vv));
-          continue;
+          return true;
   }
 
   if (field == "MATVT") {
@@ -609,7 +609,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
             return false;
           }
           e->material.vtAlbedo = vv != 0;
-          continue;
+          return true;
   }
 
   if (field == "MATTRI") {
@@ -620,7 +620,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
           }
           e->material.triplanar = dv[0] > 0.5f;
           e->material.triplanarScale = dv[1] < 0.001f ? 0.001f : dv[1];
-          continue;
+          return true;
   }
 
   if (field == "MATNODE") {
@@ -661,7 +661,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
             e->material.graph.nextId = nd.id + 1;
           }
           e->material.useNodes = true;
-          continue;
+          return true;
   }
 
   if (field == "MATGRAPH") {
@@ -677,7 +677,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
           e->material.graph.outMetallic = static_cast<int>(ov[2]);
           e->material.graph.outEmissive = static_cast<int>(ov[3]);
           e->material.useNodes = true;
-          continue;
+          return true;
   }
 
   if (field == "VARIANT") {
@@ -687,7 +687,131 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
             return false;
           }
           e->variantIndex = static_cast<int>(vv);
-          continue;
+          return true;
+  }
+
+  if (field == "PARTMAT" || field == "PARTMATXF") {
+          size_t pos = 0;
+          long pv = -1;
+          if (!ParseInt(rest, pos, pv) || pv < 0) {
+            return false;
+          }
+          PartMaterial* pm = nullptr;
+          for (size_t pi = 0; pi < e->partMaterials.size(); ++pi) {
+            if (e->partMaterials[pi].part == static_cast<uint32_t>(pv)) {
+              pm = &e->partMaterials[pi];
+              break;
+            }
+          }
+          if (pm == nullptr) {
+            PartMaterial fresh;
+            fresh.part = static_cast<uint32_t>(pv);
+            MakeDefaultMaterial(fresh.material);
+            e->partMaterials.push_back(fresh);
+            pm = &e->partMaterials.back();
+          }
+          if (field == "PARTMAT") {
+            float bv[5] = { 1.0f, 1.0f, 1.0f, 0.0f, 0.5f };
+            if (!ParseFloats(rest, pos, bv, 5)) {
+              return false;
+            }
+            pm->material.albedo[0] = bv[0];
+            pm->material.albedo[1] = bv[1];
+            pm->material.albedo[2] = bv[2];
+            pm->material.metallic = bv[3];
+            pm->material.roughness = bv[4];
+            std::string bslot;
+            if (!ParseQuoted(rest, pos, bslot)) {
+              return false;
+            }
+            pm->material.albedoTex = bslot;
+            if (!ParseQuoted(rest, pos, bslot)) {
+              return false;
+            }
+            pm->material.normalTex = bslot;
+            if (!ParseQuoted(rest, pos, bslot)) {
+              return false;
+            }
+            pm->material.ormTex = bslot;
+            if (!ParseQuoted(rest, pos, bslot)) {
+              return false;
+            }
+            pm->material.heightTex = bslot;
+            float mv[34] = { 1.0f };
+            for (int mi = 1; mi < 34; ++mi) {
+              mv[mi] = 0.0f;
+            }
+            if (!ParseFloats(rest, pos, mv, 34)) {
+              return false;
+            }
+            pm->material.alpha = mv[0];
+            pm->material.emissive[0] = mv[1];
+            pm->material.emissive[1] = mv[2];
+            pm->material.emissive[2] = mv[3];
+            pm->material.emissiveStrength = mv[4];
+            pm->material.unlit = mv[5] > 0.5f;
+            pm->material.doubleSided = mv[6] > 0.5f;
+            pm->material.alphaMode = static_cast<int>(mv[7]);
+            pm->material.alphaCutoff = mv[8];
+            pm->material.ior = mv[9];
+            pm->material.hasSpecular = mv[10] > 0.5f;
+            pm->material.specularColor[0] = mv[11];
+            pm->material.specularColor[1] = mv[12];
+            pm->material.specularColor[2] = mv[13];
+            pm->material.specularStrength = mv[14];
+            pm->material.clearcoat = mv[15];
+            pm->material.clearcoatRoughness = mv[16];
+            pm->material.sheenColor[0] = mv[17];
+            pm->material.sheenColor[1] = mv[18];
+            pm->material.sheenColor[2] = mv[19];
+            pm->material.sheenRoughness = mv[20];
+            pm->material.anisotropy = mv[21];
+            pm->material.anisotropyRotation = mv[22];
+            pm->material.iridescence = mv[23];
+            pm->material.iridescenceIor = mv[24];
+            pm->material.iridescenceThicknessMin = mv[25];
+            pm->material.iridescenceThicknessMax = mv[26];
+            pm->material.transmission = mv[27];
+            pm->material.thickness = mv[28];
+            pm->material.attenuationColor[0] = mv[29];
+            pm->material.attenuationColor[1] = mv[30];
+            pm->material.attenuationColor[2] = mv[31];
+            pm->material.attenuationDistance = mv[32];
+            pm->material.dispersion = mv[33];
+            std::string slots[13];
+            for (int si = 0; si < 13; ++si) {
+              if (!ParseQuoted(rest, pos, slots[si])) {
+                return false;
+              }
+            }
+            pm->material.emissiveTex = slots[0];
+            pm->material.specularTex = slots[1];
+            pm->material.specularColorTex = slots[2];
+            pm->material.clearcoatTex = slots[3];
+            pm->material.clearcoatRoughnessTex = slots[4];
+            pm->material.clearcoatNormalTex = slots[5];
+            pm->material.sheenColorTex = slots[6];
+            pm->material.sheenRoughnessTex = slots[7];
+            pm->material.anisotropyTex = slots[8];
+            pm->material.iridescenceTex = slots[9];
+            pm->material.iridescenceThicknessTex = slots[10];
+            pm->material.transmissionTex = slots[11];
+            pm->material.thicknessTex = slots[12];
+          } else {
+            float mv[30] = { 0.0f };
+            if (!ParseFloats(rest, pos, mv, 30)) {
+              return false;
+            }
+            for (int si = 0; si < 5; ++si) {
+              pm->material.xforms[si].offsetU = mv[si * 6 + 0];
+              pm->material.xforms[si].offsetV = mv[si * 6 + 1];
+              pm->material.xforms[si].scaleU = mv[si * 6 + 2];
+              pm->material.xforms[si].scaleV = mv[si * 6 + 3];
+              pm->material.xforms[si].rotation = mv[si * 6 + 4];
+              pm->material.xforms[si].uvSet = static_cast<int>(mv[si * 6 + 5]);
+            }
+          }
+          return true;
   }
 
   if (field == "PARTMATDTL") {
@@ -700,7 +824,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
           for (size_t pi = 0; pi < e->partMaterials.size(); ++pi) {
             if (e->partMaterials[pi].part == static_cast<uint32_t>(pv)) {
               pm = &e->partMaterials[pi];
-            return false;
+              break;
             }
           }
           if (pm == nullptr) {
@@ -728,7 +852,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
               pm->material.layerHeightBlend = dv[8] > 0.5f;
             }
           }
-          continue;
+          return true;
   }
 
   if (field == "PARTMATSSS") {
@@ -741,7 +865,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
           for (size_t pi = 0; pi < e->partMaterials.size(); ++pi) {
             if (e->partMaterials[pi].part == static_cast<uint32_t>(pv)) {
               pm = &e->partMaterials[pi];
-            return false;
+              break;
             }
           }
           if (pm == nullptr) {
@@ -758,7 +882,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
             pm->material.sssColor[2] = dv[2];
             pm->material.sssIntensity = dv[3];
           }
-          continue;
+          return true;
   }
 
   if (field == "PARTMATSSSK") {
@@ -771,7 +895,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
           for (size_t pi = 0; pi < e->partMaterials.size(); ++pi) {
             if (e->partMaterials[pi].part == static_cast<uint32_t>(pv)) {
               pm = &e->partMaterials[pi];
-            return false;
+              break;
             }
           }
           if (pm == nullptr) {
@@ -786,7 +910,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
             return false;
           }
           pm->material.sssKind = vv < 0 ? 0 : (vv > 3 ? 3 : static_cast<int>(vv));
-          continue;
+          return true;
   }
 
   if (field == "PARTMATVT") {
@@ -799,7 +923,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
           for (size_t pi = 0; pi < e->partMaterials.size(); ++pi) {
             if (e->partMaterials[pi].part == static_cast<uint32_t>(pv)) {
               pm = &e->partMaterials[pi];
-            return false;
+              break;
             }
           }
           if (pm == nullptr) {
@@ -814,7 +938,7 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, void
             return false;
           }
           pm->material.vtAlbedo = vv != 0;
-          continue;
+          return true;
   }
   return false;
 }
@@ -838,7 +962,7 @@ static bool ReadDecal(const std::string& field, const std::string& rest, void* e
           }
           e->decal.texGuid = slot;
           e->hasDecal = true;
-          continue;
+          return true;
   }
 
   if (field == "DECALMAT") {
@@ -852,7 +976,7 @@ static bool ReadDecal(const std::string& field, const std::string& rest, void* e
             e->decal.matRough = dv[1];
             e->decal.matMetal = dv[2];
           }
-          continue;
+          return true;
   }
   return false;
 }
@@ -874,7 +998,7 @@ static bool ReadLod(const std::string& field, const std::string& rest, void* ent
           }
           e->lod.farGuid = slot;
           e->hasLod = true;
-          continue;
+          return true;
   }
   return false;
 }
@@ -895,7 +1019,7 @@ static bool ReadLightmap(const std::string& field, const std::string& rest, void
           }
           e->lightmap.texGuid = slot;
           e->hasLightmap = true;
-          continue;
+          return true;
   }
   return false;
 }
@@ -920,7 +1044,7 @@ static bool ReadRigidbody(const std::string& field, const std::string& rest, voi
           e->rigidbody.friction = rv[6] < 0.0f ? 0.0f : rv[6];
           e->rigidbody.restitution = rv[7] < 0.0f ? 0.0f : rv[7];
           e->hasRigidbody = true;
-          continue;
+          return true;
   }
   return false;
 }
@@ -950,7 +1074,7 @@ static bool ReadAudioSource(const std::string& field, const std::string& rest, v
           e->audioSource.playing = av[7] != 0.0f;
           e->audioSource.bus = static_cast<int>(av[8]) < 0 ? 0 : static_cast<int>(av[8]);
           e->hasAudioSource = true;
-          continue;
+          return true;
   }
   return false;
 }
@@ -969,7 +1093,7 @@ static bool ReadProbe(const std::string& field, const std::string& rest, void* e
           e->probe.size[2] = pv[2];
           e->probe.intensity = pv[3];
           e->hasProbe = true;
-          continue;
+          return true;
   }
   return false;
 }
@@ -995,7 +1119,7 @@ static bool ReadPost(const std::string& field, const std::string& rest, void* en
           e->post.saturation = pv[6];
           e->post.bloom = pv[7];
           e->hasPost = true;
-          continue;
+          return true;
   }
   return false;
 }
@@ -1017,7 +1141,7 @@ static bool ReadFog(const std::string& field, const std::string& rest, void* ent
           e->fog.color[1] = fv[5];
           e->fog.color[2] = fv[6];
           e->hasFog = true;
-          continue;
+          return true;
   }
   return false;
 }
@@ -1124,6 +1248,17 @@ bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
     } else if (current != nullptr) {
       size_t sp = s.find(' ');
       std::string field = (sp == std::string::npos) ? s : s.substr(0, sp);
+      const std::string rest = (sp == std::string::npos) ? std::string() : s.substr(sp + 1);
+      if (field == "STATIC") {
+        size_t spos = (sp == std::string::npos) ? s.size() : sp + 1;
+        long sv = 0;
+        if (!ParseInt(s, spos, sv)) {
+          failed = true;
+          break;
+        }
+        current->isStatic = sv != 0;
+        continue;
+      }
       {
         bool handled = false;
         const ComponentRegistry& reg = ComponentRegistry::Instance();
