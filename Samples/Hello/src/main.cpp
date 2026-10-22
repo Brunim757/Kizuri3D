@@ -2409,6 +2409,112 @@ bool TestAudioPartialUpdate() {
   }
   return std::fabs(peakA - peakC) <= peakA * 0.2f;
 }
+bool TestSceneAllComponentsRoundTrip() {
+  Kizuri::Scene scene;
+  Kizuri::EntityId id = scene.CreateEntity("tudo");
+  Kizuri::Entity* e = scene.Get(id);
+  if (e == nullptr) {
+    return false;
+  }
+  e->meshGuid = "guid-do-mesh";
+  e->hasMesh = true;
+  e->hasLight = true;
+  Kizuri::MakeDefaultLight(e->light);
+  e->light.type = static_cast<int>(Kizuri::LightType::Spot);
+  e->light.intensity = 4.25f;
+  e->light.color[1] = 0.5f;
+  e->hasMaterial = true;
+  Kizuri::MakeDefaultMaterial(e->material);
+  e->material.roughness = 0.33f;
+  e->material.metallic = 0.66f;
+  e->material.albedoTex = "tex-albedo";
+  e->hasDecal = true;
+  Kizuri::MakeDefaultDecal(e->decal);
+  e->decal.life = 3.5f;
+  e->decal.texGuid = "tex-decal";
+  e->hasLod = true;
+  Kizuri::MakeDefaultLod(e->lod);
+  e->lod.nearDist = 12.0f;
+  e->lod.farDist = 34.0f;
+  e->lod.farGuid = "guid-lod";
+  e->hasLightmap = true;
+  Kizuri::MakeDefaultLightmap(e->lightmap);
+  e->lightmap.intensity = 2.5f;
+  e->lightmap.texGuid = "tex-lightmap";
+  e->hasProbe = true;
+  Kizuri::MakeDefaultProbe(e->probe);
+  e->probe.intensity = 1.75f;
+  e->hasPost = true;
+  Kizuri::MakeDefaultPost(e->post);
+  e->post.exposure = 1.25f;
+  e->post.bloom = 0.4f;
+  e->hasFog = true;
+  Kizuri::MakeDefaultFog(e->fog);
+  e->fog.density = 0.02f;
+  e->hasRigidbody = true;
+  Kizuri::MakeDefaultRigidbody(e->rigidbody);
+  e->rigidbody.mass = 6.5f;
+  e->rigidbody.colliderType = 2;
+  e->rigidbody.friction = 0.42f;
+  e->hasAudioSource = true;
+  Kizuri::MakeDefaultAudioSource(e->audioSource);
+  e->audioSource.clipPath = "sfx/impacto.wav";
+  e->audioSource.volume = 0.8f;
+  e->audioSource.bus = 2;
+  e->audioSource.loop = true;
+  const char* tmp = "kizuri_test_allcomp_tmp.kzscene";
+  if (!Kizuri::SaveSceneToFile(scene, tmp)) {
+    return false;
+  }
+  Kizuri::Scene back;
+  const bool ok = Kizuri::LoadSceneFromFile(back, tmp, nullptr);
+  std::remove(tmp);
+  if (!ok) {
+    return false;
+  }
+  const std::vector<Kizuri::EntityId> all = back.All();
+  if (all.size() != 1) {
+    return false;
+  }
+  const Kizuri::Entity* b = back.Get(all[0]);
+  if (b == nullptr) {
+    return false;
+  }
+  if (!b->hasMesh || b->meshGuid != "guid-do-mesh") {
+    return false;
+  }
+  if (!b->hasLight || b->light.type != static_cast<int>(Kizuri::LightType::Spot) || std::fabs(b->light.intensity - 4.25f) > 1e-4f) {
+    return false;
+  }
+  if (!b->hasMaterial || std::fabs(b->material.roughness - 0.33f) > 1e-4f || b->material.albedoTex != "tex-albedo") {
+    return false;
+  }
+  if (!b->hasDecal || std::fabs(b->decal.life - 3.5f) > 1e-4f || b->decal.texGuid != "tex-decal") {
+    return false;
+  }
+  if (!b->hasLod || std::fabs(b->lod.nearDist - 12.0f) > 1e-4f || b->lod.farGuid != "guid-lod") {
+    return false;
+  }
+  if (!b->hasLightmap || std::fabs(b->lightmap.intensity - 2.5f) > 1e-4f) {
+    return false;
+  }
+  if (!b->hasProbe || std::fabs(b->probe.intensity - 1.75f) > 1e-4f) {
+    return false;
+  }
+  if (!b->hasPost || std::fabs(b->post.exposure - 1.25f) > 1e-4f) {
+    return false;
+  }
+  if (!b->hasFog || std::fabs(b->fog.density - 0.02f) > 1e-5f) {
+    return false;
+  }
+  if (!b->hasRigidbody || std::fabs(b->rigidbody.mass - 6.5f) > 1e-4f || b->rigidbody.colliderType != 2) {
+    return false;
+  }
+  if (!b->hasAudioSource || b->audioSource.clipPath != "sfx/impacto.wav" || b->audioSource.bus != 2 || !b->audioSource.loop) {
+    return false;
+  }
+  return true;
+}
 bool TestComponentRegistry() {
   Kizuri::ComponentRegistry& reg = Kizuri::ComponentRegistry::Instance();
   if (reg.Count() < 11) {
@@ -9976,6 +10082,7 @@ int main() {
   failures += Check("AudioPartialUpdate", TestAudioPartialUpdate());
   failures += Check("AudioSourceSerialize", TestAudioSourceSerialize());
   failures += Check("ComponentRegistry", TestComponentRegistry());
+  failures += Check("SceneAllComponents", TestSceneAllComponentsRoundTrip());
   failures += Check("ComponentUndo", TestComponentUndo());
   failures += Check("GameLoopFixedStep", TestGameLoopFixedStep());
   failures += Check("GameLoopPause", TestGameLoopPause());

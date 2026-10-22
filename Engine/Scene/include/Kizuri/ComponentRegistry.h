@@ -21,8 +21,20 @@ struct ComponentTypeDesc {
 };
 class ComponentRegistry {
 public:
+  static constexpr ComponentTypeId kMesh = 0;
+  static constexpr ComponentTypeId kLight = 1;
+  static constexpr ComponentTypeId kMaterial = 2;
+  static constexpr ComponentTypeId kDecal = 3;
+  static constexpr ComponentTypeId kLod = 4;
+  static constexpr ComponentTypeId kLightmap = 5;
+  static constexpr ComponentTypeId kRigidbody = 6;
+  static constexpr ComponentTypeId kAudioSource = 7;
+  static constexpr ComponentTypeId kProbe = 8;
+  static constexpr ComponentTypeId kPost = 9;
+  static constexpr ComponentTypeId kFog = 10;
   static ComponentRegistry& Instance();
   void Register(const ComponentTypeDesc& desc);
+  void SetSerializer(ComponentTypeId id, ComponentWriteFn write, ComponentReadFn read);
   size_t Count() const { return types.size(); }
   const ComponentTypeDesc* Get(ComponentTypeId id) const;
   const ComponentTypeDesc* FindByName(const std::string& name) const;
