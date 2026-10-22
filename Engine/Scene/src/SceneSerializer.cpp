@@ -365,7 +365,7 @@ static bool ReadLight(const std::string& field, const std::string& rest, Entity*
           }
         }
         {
-          const char* tail = s.c_str() + (pos <= s.size() ? pos : s.size());
+          const char* tail = rest.c_str() + (pos <= rest.size() ? pos : rest.size());
           const char* lk = std::strstr(tail, "LINK");
           if (lk != nullptr) {
             int lm = 255;
@@ -483,9 +483,6 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, Enti
           if (!ParseQuoted(rest, pos, slots[si])) {
             return false;
           }
-        }
-        if (failed) {
-          return false;
         }
         e->material.emissiveTex = slots[0];
         e->material.specularTex = slots[1];
@@ -611,9 +608,6 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, Enti
             return false;
           }
         }
-        if (failed) {
-          return false;
-        }
         float dv[6] = { 1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f };
         if (!ParseFloats(rest, pos, dv, 6)) {
           return false;
@@ -654,9 +648,6 @@ static bool ReadMaterial(const std::string& field, const std::string& rest, Enti
           if (!ParseInt(rest, pos, ov[k])) {
             return false;
           }
-        }
-        if (failed) {
-          return false;
         }
         e->material.graph.outAlbedo = static_cast<int>(ov[0]);
         e->material.graph.outRoughness = static_cast<int>(ov[1]);
