@@ -129,7 +129,7 @@ bool EntityHasComponent(const Entity* e, ComponentTypeId id) {
   }
   return *reinterpret_cast<const bool*>(reinterpret_cast<const unsigned char*>(e) + desc->hasOffset);
 }
-void* EntityComponentData(Entity* e, ComponentTypeId id) {
+const void* EntityComponentData(const Entity* e, ComponentTypeId id) {
   if (e == nullptr) {
     return nullptr;
   }
@@ -137,7 +137,10 @@ void* EntityComponentData(Entity* e, ComponentTypeId id) {
   if (desc == nullptr) {
     return nullptr;
   }
-  return reinterpret_cast<unsigned char*>(e) + desc->dataOffset;
+  return reinterpret_cast<const unsigned char*>(e) + desc->dataOffset;
+}
+void* EntityComponentData(Entity* e, ComponentTypeId id) {
+  return const_cast<void*>(EntityComponentData(static_cast<const Entity*>(e), id));
 }
 void ResetEntityComponent(Entity* e, ComponentTypeId id) {
   void* data = EntityComponentData(e, id);

@@ -25,23 +25,24 @@ bool EntitySnapshot::Capture(const Scene& scene, EntityId root) {
     SnapshotNode node;
     node.name = e->name;
     node.transform = e->transform;
-    node.meshGuid = e->meshGuid;
-    node.hasMesh = e->hasMesh;
-    node.light = e->light;
-    node.hasLight = e->hasLight;
-    node.material = e->material;
-    node.hasMaterial = e->hasMaterial;
-    node.decal = e->decal;
-    node.hasDecal = e->hasDecal;
-    node.lod = e->lod;
-    node.hasLod = e->hasLod;
-    node.lightmap = e->lightmap;
-    node.hasLightmap = e->hasLightmap;
-    node.probe = e->probe;
-    node.hasProbe = e->hasProbe;
+    node.partMaterials = e->partMaterials;
+    node.variantIndex = e->variantIndex;
+    node.isStatic = e->isStatic;
     node.parent = par;
+    const ComponentRegistry& reg = ComponentRegistry::Instance();
+    for (size_t ci = 0; ci < reg.Count(); ++ci) {
+      const ComponentTypeDesc* desc = reg.Get(static_cast<ComponentTypeId>(ci));
+      if (desc == nullptr || !EntityHasComponent(e, desc->id)) {
+        continue;
+      }
+      ComponentSnapshot snapshot;
+      if (!snapshot.Capture(desc, EntityComponentData(e, desc->id))) {
+        return false;
+      }
+      node.components.push_back(std::move(snapshot));
+    }
     long idx = static_cast<long>(nodes.size());
-    nodes.push_back(node);
+    nodes.push_back(std::move(node));
     for (size_t i = 0; i < e->children.size(); ++i) {
       stack.push_back(e->children[i]);
       parentStack.push_back(idx);
@@ -61,21 +62,21 @@ EntityId EntitySnapshot::Restore(Scene& scene, EntityId newParent) const {
     }
     scene.SetTransform(id, nodes[i].transform);
     Entity* createdEntity = scene.Get(id);
-    if (createdEntity != nullptr) {
-      createdEntity->meshGuid = nodes[i].meshGuid;
-      createdEntity->hasMesh = nodes[i].hasMesh;
-      createdEntity->light = nodes[i].light;
-      createdEntity->hasLight = nodes[i].hasLight;
-      createdEntity->material = nodes[i].material;
-      createdEntity->hasMaterial = nodes[i].hasMaterial;
-      createdEntity->decal = nodes[i].decal;
-      createdEntity->hasDecal = nodes[i].hasDecal;
-      createdEntity->lod = nodes[i].lod;
-      createdEntity->hasLod = nodes[i].hasLod;
-      createdEntity->lightmap = nodes[i].lightmap;
-      createdEntity->hasLightmap = nodes[i].hasLightmap;
-      createdEntity->probe = nodes[i].probe;
-      createdEntity->hasProbe = nodes[i].hasProbe;
+    if (createdEntity == nullptr) {
+      return EntityId::Invalid();
+    }
+    createdEntity->partMaterials = nodes[i].partMaterials;
+    createdEntity->variantIndex = nodes[i].variantIndex;
+    createdEntity->isStatic = nodes[i].isStatic;
+    for (size_t c = 0; c < nodes[i].components.size(); ++c) {
+      const ComponentSnapshot& snapshot = nodes[i].components[c];
+      ComponentTypeId type = snapshot.Type();
+      if (!AddEntityComponent(createdEntity, type)) {
+        return EntityId::Invalid();
+      }
+      if (!snapshot.Restore(EntityComponentData(createdEntity, type))) {
+        return EntityId::Invalid();
+      }
     }
     created.push_back(id);
   }

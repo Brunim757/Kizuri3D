@@ -360,6 +360,10 @@ EntityId Scene::CreateEntity(const std::string& name) {
     s.entity.hasFog = false;
     MakeDefaultAudioSource(s.entity.audioSource);
     s.entity.hasAudioSource = false;
+    MakeDefaultRigidbody(s.entity.rigidbody);
+    s.entity.hasRigidbody = false;
+    s.entity.partMaterials.clear();
+    s.entity.isStatic = false;
     s.entity.parent = EntityId::Invalid();
     s.entity.children.clear();
     id = s.entity.id;
@@ -391,6 +395,10 @@ EntityId Scene::CreateEntity(const std::string& name) {
     s.entity.hasFog = false;
     MakeDefaultAudioSource(s.entity.audioSource);
     s.entity.hasAudioSource = false;
+    MakeDefaultRigidbody(s.entity.rigidbody);
+    s.entity.hasRigidbody = false;
+    s.entity.partMaterials.clear();
+    s.entity.isStatic = false;
     s.entity.parent = EntityId::Invalid();
     slots.push_back(s);
     id = slots.back().entity.id;

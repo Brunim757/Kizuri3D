@@ -11,31 +11,6 @@ struct Command {
   virtual bool Revert(Scene& scene) = 0;
   virtual const char* Name() const = 0;
 };
-struct SnapshotNode {
-  std::string name;
-  Transform transform;
-  std::string meshGuid;
-  bool hasMesh;
-  LightData light;
-  bool hasLight;
-  MaterialData material;
-  bool hasMaterial;
-  DecalData decal;
-  bool hasDecal;
-  LodData lod;
-  bool hasLod;
-  LightmapData lightmap;
-  bool hasLightmap;
-  ProbeData probe;
-  bool hasProbe;
-  long parent;
-};
-struct EntitySnapshot {
-  std::vector<SnapshotNode> nodes;
-  EntityId originalParent;
-  bool Capture(const Scene& scene, EntityId root);
-  EntityId Restore(Scene& scene, EntityId newParent) const;
-};
 class ComponentSnapshot {
 public:
   ComponentSnapshot() = default;
@@ -48,10 +23,26 @@ public:
   bool Restore(void* data) const;
   void Reset();
   bool Valid() const { return valid; }
+  ComponentTypeId Type() const { return type.id; }
 private:
   ComponentTypeDesc type;
   unsigned char* storage = nullptr;
   bool valid = false;
+};
+struct SnapshotNode {
+  std::string name;
+  Transform transform;
+  std::vector<ComponentSnapshot> components;
+  std::vector<PartMaterial> partMaterials;
+  int variantIndex = -1;
+  bool isStatic = false;
+  long parent = -1;
+};
+struct EntitySnapshot {
+  std::vector<SnapshotNode> nodes;
+  EntityId originalParent;
+  bool Capture(const Scene& scene, EntityId root);
+  EntityId Restore(Scene& scene, EntityId newParent) const;
 };
 class AddComponentCmd : public Command {
 public:

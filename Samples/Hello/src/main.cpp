@@ -9632,6 +9632,174 @@ bool TestAddRemoveMeshComponent() {
   }
   return true;
 }
+bool TestRecycledEntityDefaults() {
+  Kizuri::Scene scene;
+  Kizuri::EntityId a = scene.CreateEntity("A");
+  Kizuri::Entity* e = scene.Get(a);
+  if (e == nullptr) {
+    return false;
+  }
+  e->hasRigidbody = true;
+  Kizuri::MakeDefaultRigidbody(e->rigidbody);
+  e->rigidbody.mass = 2.0f;
+  e->isStatic = true;
+  Kizuri::PartMaterial pm;
+  pm.part = 0;
+  Kizuri::MakeDefaultMaterial(pm.material);
+  e->partMaterials.push_back(pm);
+  if (!scene.DeleteEntity(a)) {
+    return false;
+  }
+  Kizuri::EntityId b = scene.CreateEntity("B");
+  Kizuri::Entity* n = scene.Get(b);
+  if (n == nullptr) {
+    return false;
+  }
+  return !n->hasRigidbody && !n->isStatic && n->partMaterials.empty();
+}
+bool TestEntitySnapshotAllComponents() {
+  Kizuri::Scene scene;
+  Kizuri::UndoStack undo;
+  Kizuri::EntityId parent = scene.CreateEntity("Pai");
+  Kizuri::EntityId child = scene.CreateEntity("Filho");
+  if (!scene.SetParent(child, parent)) {
+    return false;
+  }
+  Kizuri::Transform t;
+  t.position[0] = 1.0f;
+  t.position[1] = 2.0f;
+  t.position[2] = 3.0f;
+  t.rotation[1] = 45.0f;
+  t.scale[0] = 2.0f;
+  t.scale[1] = 2.0f;
+  t.scale[2] = 2.0f;
+  if (!scene.SetTransform(child, t)) {
+    return false;
+  }
+  Kizuri::Entity* e = scene.Get(child);
+  if (e == nullptr) {
+    return false;
+  }
+  e->hasMesh = true;
+  e->meshGuid = "mesh-snap";
+  e->hasLight = true;
+  Kizuri::MakeDefaultLight(e->light);
+  e->light.intensity = 3.5f;
+  e->light.cookieGuid = "cookie-snap";
+  e->hasMaterial = true;
+  Kizuri::MakeDefaultMaterial(e->material);
+  e->material.albedoTex = "tex-snap";
+  e->material.roughness = 0.25f;
+  e->variantIndex = 2;
+  e->hasDecal = true;
+  Kizuri::MakeDefaultDecal(e->decal);
+  e->decal.texGuid = "decal-snap";
+  e->hasLod = true;
+  Kizuri::MakeDefaultLod(e->lod);
+  e->lod.farGuid = "lod-snap";
+  e->hasLightmap = true;
+  Kizuri::MakeDefaultLightmap(e->lightmap);
+  e->lightmap.texGuid = "lm-snap";
+  e->hasProbe = true;
+  Kizuri::MakeDefaultProbe(e->probe);
+  e->probe.intensity = 1.25f;
+  e->hasPost = true;
+  Kizuri::MakeDefaultPost(e->post);
+  e->post.exposure = 1.75f;
+  e->hasFog = true;
+  Kizuri::MakeDefaultFog(e->fog);
+  e->fog.density = 0.03f;
+  e->hasRigidbody = true;
+  Kizuri::MakeDefaultRigidbody(e->rigidbody);
+  e->rigidbody.mass = 7.5f;
+  e->hasAudioSource = true;
+  Kizuri::MakeDefaultAudioSource(e->audioSource);
+  e->audioSource.clipPath = "snap.wav";
+  e->audioSource.bus = 3;
+  e->isStatic = true;
+  Kizuri::PartMaterial pm;
+  pm.part = 2;
+  Kizuri::MakeDefaultMaterial(pm.material);
+  pm.material.albedoTex = "part-snap";
+  e->partMaterials.push_back(pm);
+  std::unique_ptr<Kizuri::Command> del(new Kizuri::DeleteEntityCmd(parent));
+  if (!undo.Execute(std::move(del), scene) || scene.Count() != 0) {
+    return false;
+  }
+  if (!undo.Undo(scene) || scene.Count() != 2) {
+    return false;
+  }
+  const Kizuri::Entity* restoredParent = nullptr;
+  const Kizuri::Entity* restoredChild = nullptr;
+  const std::vector<Kizuri::EntityId> all = scene.All();
+  for (size_t i = 0; i < all.size(); ++i) {
+    const Kizuri::Entity* r = scene.Get(all[i]);
+    if (r == nullptr) {
+      return false;
+    }
+    if (r->name == "Pai") {
+      restoredParent = r;
+    } else if (r->name == "Filho") {
+      restoredChild = r;
+    }
+  }
+  if (restoredParent == nullptr || restoredChild == nullptr) {
+    return false;
+  }
+  if (restoredChild->parent != restoredParent->id) {
+    return false;
+  }
+  if (restoredParent->children.size() != 1 || restoredParent->children[0] != restoredChild->id) {
+    return false;
+  }
+  const Kizuri::Entity& r = *restoredChild;
+  if (std::fabs(r.transform.position[0] - 1.0f) > 1e-5f || std::fabs(r.transform.position[2] - 3.0f) > 1e-5f) {
+    return false;
+  }
+  if (!r.hasMesh || r.meshGuid != "mesh-snap") {
+    return false;
+  }
+  if (!r.hasLight || std::fabs(r.light.intensity - 3.5f) > 1e-5f || r.light.cookieGuid != "cookie-snap") {
+    return false;
+  }
+  if (!r.hasMaterial || r.material.albedoTex != "tex-snap" || std::fabs(r.material.roughness - 0.25f) > 1e-5f) {
+    return false;
+  }
+  if (r.variantIndex != 2) {
+    return false;
+  }
+  if (!r.hasDecal || r.decal.texGuid != "decal-snap") {
+    return false;
+  }
+  if (!r.hasLod || r.lod.farGuid != "lod-snap") {
+    return false;
+  }
+  if (!r.hasLightmap || r.lightmap.texGuid != "lm-snap") {
+    return false;
+  }
+  if (!r.hasProbe || std::fabs(r.probe.intensity - 1.25f) > 1e-5f) {
+    return false;
+  }
+  if (!r.hasPost || std::fabs(r.post.exposure - 1.75f) > 1e-5f) {
+    return false;
+  }
+  if (!r.hasFog || std::fabs(r.fog.density - 0.03f) > 1e-6f) {
+    return false;
+  }
+  if (!r.hasRigidbody || std::fabs(r.rigidbody.mass - 7.5f) > 1e-5f) {
+    return false;
+  }
+  if (!r.hasAudioSource || r.audioSource.clipPath != "snap.wav" || r.audioSource.bus != 3) {
+    return false;
+  }
+  if (!r.isStatic || r.partMaterials.size() != 1 || r.partMaterials[0].part != 2 || r.partMaterials[0].material.albedoTex != "part-snap") {
+    return false;
+  }
+  if (!undo.Redo(scene) || scene.Count() != 0) {
+    return false;
+  }
+  return true;
+}
 bool TestSetMeshGuid() {
   Kizuri::Scene scene;
   Kizuri::UndoStack undo;
@@ -10195,6 +10363,8 @@ int main() {
   failures += Check("MeshStaging", TestMeshStaging());
   failures += Check("SetMeshGuid", TestSetMeshGuid());
   failures += Check("AddRemoveMesh", TestAddRemoveMeshComponent());
+  failures += Check("RecycledEntityDefaults", TestRecycledEntityDefaults());
+  failures += Check("EntitySnapshotAllComponents", TestEntitySnapshotAllComponents());
   failures += Check("LightDefaults", TestLightDefaults());
   failures += Check("LightTypeRetention", TestLightTypeRetention());
   failures += Check("LightRoundTrip", TestLightRoundTrip());

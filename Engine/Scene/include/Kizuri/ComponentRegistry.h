@@ -51,6 +51,7 @@ private:
 };
 ComponentTypeId FindComponentType(const char* name);
 bool EntityHasComponent(const Entity* e, ComponentTypeId id);
+const void* EntityComponentData(const Entity* e, ComponentTypeId id);
 void* EntityComponentData(Entity* e, ComponentTypeId id);
 bool AddEntityComponent(Entity* e, ComponentTypeId id);
 bool RemoveEntityComponent(Entity* e, ComponentTypeId id);
