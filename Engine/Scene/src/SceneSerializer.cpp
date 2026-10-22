@@ -224,20 +224,6 @@ static void WriteFog(std::FILE* fp, const Entity* e) {
     std::fprintf(fp, "FOGVOL %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n", f.size[0], f.size[1], f.size[2], f.density, f.color[0], f.color[1], f.color[2]);
 }
 
-void RegisterSceneComponentSerializers() {
-  ComponentRegistry& reg = ComponentRegistry::Instance();
-  reg.SetSerializer(ComponentRegistry::kMesh, &WriteMesh, &ReadMesh);
-  reg.SetSerializer(ComponentRegistry::kLight, &WriteLight, &ReadLight);
-  reg.SetSerializer(ComponentRegistry::kMaterial, &WriteMaterial, &ReadMaterial);
-  reg.SetSerializer(ComponentRegistry::kDecal, &WriteDecal, &ReadDecal);
-  reg.SetSerializer(ComponentRegistry::kLod, &WriteLod, &ReadLod);
-  reg.SetSerializer(ComponentRegistry::kLightmap, &WriteLightmap, &ReadLightmap);
-  reg.SetSerializer(ComponentRegistry::kRigidbody, &WriteRigidbody, &ReadRigidbody);
-  reg.SetSerializer(ComponentRegistry::kAudioSource, &WriteAudioSource, &ReadAudioSource);
-  reg.SetSerializer(ComponentRegistry::kProbe, &WriteProbe, &ReadProbe);
-  reg.SetSerializer(ComponentRegistry::kPost, &WritePost, &ReadPost);
-  reg.SetSerializer(ComponentRegistry::kFog, &WriteFog, &ReadFog);
-}
 
 bool SaveSceneToFile(const Scene& scene, const std::string& path) {
   RegisterSceneComponentSerializers();
@@ -1012,6 +998,21 @@ static bool ReadFog(const std::string& field, const std::string& rest, Entity* e
         return true;
   }
   return false;
+}
+
+void RegisterSceneComponentSerializers() {
+  ComponentRegistry& reg = ComponentRegistry::Instance();
+  reg.SetSerializer(ComponentRegistry::kMesh, &WriteMesh, &ReadMesh);
+  reg.SetSerializer(ComponentRegistry::kLight, &WriteLight, &ReadLight);
+  reg.SetSerializer(ComponentRegistry::kMaterial, &WriteMaterial, &ReadMaterial);
+  reg.SetSerializer(ComponentRegistry::kDecal, &WriteDecal, &ReadDecal);
+  reg.SetSerializer(ComponentRegistry::kLod, &WriteLod, &ReadLod);
+  reg.SetSerializer(ComponentRegistry::kLightmap, &WriteLightmap, &ReadLightmap);
+  reg.SetSerializer(ComponentRegistry::kRigidbody, &WriteRigidbody, &ReadRigidbody);
+  reg.SetSerializer(ComponentRegistry::kAudioSource, &WriteAudioSource, &ReadAudioSource);
+  reg.SetSerializer(ComponentRegistry::kProbe, &WriteProbe, &ReadProbe);
+  reg.SetSerializer(ComponentRegistry::kPost, &WritePost, &ReadPost);
+  reg.SetSerializer(ComponentRegistry::kFog, &WriteFog, &ReadFog);
 }
 
 bool LoadSceneFromFile(Scene& scene, const std::string& path, LogStore* log) {
