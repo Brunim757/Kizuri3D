@@ -41,17 +41,17 @@ void RegisterAll() {
   if (reg.Count() > 0) {
     return;
   }
-  reg.Register({ kMesh, "Mesh Renderer", offsetof(Entity, meshGuid), sizeof(Entity::meshGuid), offsetof(Entity, hasMesh), &ResetMesh, nullptr, nullptr });
-  reg.Register({ kLight, "Light", offsetof(Entity, light), sizeof(Entity::light), offsetof(Entity, hasLight), &ResetLight, nullptr, nullptr });
-  reg.Register({ kMaterial, "Material", offsetof(Entity, material), sizeof(Entity::material), offsetof(Entity, hasMaterial), &ResetMaterial, nullptr, nullptr });
-  reg.Register({ kDecal, "Decal", offsetof(Entity, decal), sizeof(Entity::decal), offsetof(Entity, hasDecal), &ResetDecal, nullptr, nullptr });
-  reg.Register({ kLod, "LOD", offsetof(Entity, lod), sizeof(Entity::lod), offsetof(Entity, hasLod), &ResetLod, nullptr, nullptr });
-  reg.Register({ kLightmap, "Lightmap", offsetof(Entity, lightmap), sizeof(Entity::lightmap), offsetof(Entity, hasLightmap), &ResetLightmap, nullptr, nullptr });
-  reg.Register({ kProbe, "Reflection Probe", offsetof(Entity, probe), sizeof(Entity::probe), offsetof(Entity, hasProbe), &ResetProbe, nullptr, nullptr });
-  reg.Register({ kPost, "Post Volume", offsetof(Entity, post), sizeof(Entity::post), offsetof(Entity, hasPost), &ResetPost, nullptr, nullptr });
-  reg.Register({ kFog, "Fog Volume", offsetof(Entity, fog), sizeof(Entity::fog), offsetof(Entity, hasFog), &ResetFog, nullptr, nullptr });
-  reg.Register({ kRigidbody, "Rigidbody", offsetof(Entity, rigidbody), sizeof(Entity::rigidbody), offsetof(Entity, hasRigidbody), &ResetRigidbody, nullptr, nullptr });
-  reg.Register({ kAudioSource, "Audio Source", offsetof(Entity, audioSource), sizeof(Entity::audioSource), offsetof(Entity, hasAudioSource), &ResetAudioSource, nullptr, nullptr });
+  reg.Register({ ComponentRegistry::kMesh, "Mesh Renderer", offsetof(Entity, meshGuid), sizeof(Entity::meshGuid), offsetof(Entity, hasMesh), &ResetMesh, nullptr, nullptr });
+  reg.Register({ ComponentRegistry::kLight, "Light", offsetof(Entity, light), sizeof(Entity::light), offsetof(Entity, hasLight), &ResetLight, nullptr, nullptr });
+  reg.Register({ ComponentRegistry::kMaterial, "Material", offsetof(Entity, material), sizeof(Entity::material), offsetof(Entity, hasMaterial), &ResetMaterial, nullptr, nullptr });
+  reg.Register({ ComponentRegistry::kDecal, "Decal", offsetof(Entity, decal), sizeof(Entity::decal), offsetof(Entity, hasDecal), &ResetDecal, nullptr, nullptr });
+  reg.Register({ ComponentRegistry::kLod, "LOD", offsetof(Entity, lod), sizeof(Entity::lod), offsetof(Entity, hasLod), &ResetLod, nullptr, nullptr });
+  reg.Register({ ComponentRegistry::kLightmap, "Lightmap", offsetof(Entity, lightmap), sizeof(Entity::lightmap), offsetof(Entity, hasLightmap), &ResetLightmap, nullptr, nullptr });
+  reg.Register({ ComponentRegistry::kProbe, "Reflection Probe", offsetof(Entity, probe), sizeof(Entity::probe), offsetof(Entity, hasProbe), &ResetProbe, nullptr, nullptr });
+  reg.Register({ ComponentRegistry::kPost, "Post Volume", offsetof(Entity, post), sizeof(Entity::post), offsetof(Entity, hasPost), &ResetPost, nullptr, nullptr });
+  reg.Register({ ComponentRegistry::kFog, "Fog Volume", offsetof(Entity, fog), sizeof(Entity::fog), offsetof(Entity, hasFog), &ResetFog, nullptr, nullptr });
+  reg.Register({ ComponentRegistry::kRigidbody, "Rigidbody", offsetof(Entity, rigidbody), sizeof(Entity::rigidbody), offsetof(Entity, hasRigidbody), &ResetRigidbody, nullptr, nullptr });
+  reg.Register({ ComponentRegistry::kAudioSource, "Audio Source", offsetof(Entity, audioSource), sizeof(Entity::audioSource), offsetof(Entity, hasAudioSource), &ResetAudioSource, nullptr, nullptr });
 }
 }
 ComponentRegistry& ComponentRegistry::Instance() {
