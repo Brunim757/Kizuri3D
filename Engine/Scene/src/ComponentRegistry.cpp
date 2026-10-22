@@ -99,14 +99,14 @@ void ComponentRegistry::SetSerializer(ComponentTypeId id, ComponentWriteFn write
   types[id].read = read;
 }
 const ComponentTypeDesc* ComponentRegistry::Get(ComponentTypeId id) const {
-  if (id >= types.size()) {
+  if (id >= types.size() || types[id].reset == nullptr) {
     return nullptr;
   }
   return &types[id];
 }
 const ComponentTypeDesc* ComponentRegistry::FindByName(const std::string& name) const {
   for (size_t i = 0; i < types.size(); ++i) {
-    if (name == types[i].name) {
+    if (types[i].reset != nullptr && name == types[i].name) {
       return &types[i];
     }
   }

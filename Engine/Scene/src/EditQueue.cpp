@@ -152,6 +152,9 @@ bool MaterialEqual(const MaterialData& a, const MaterialData& b) {
   }
   return true;
 }
+bool LightEqual(const LightData& a, const LightData& b) {
+  return a.type == b.type && a.color[0] == b.color[0] && a.color[1] == b.color[1] && a.color[2] == b.color[2] && a.intensity == b.intensity && a.radius == b.radius && a.spotAngle == b.spotAngle && a.falloff == b.falloff && a.castShadow == b.castShadow && a.lightSize == b.lightSize && a.shadowSize == b.shadowSize && a.softness == b.softness && a.cascades == b.cascades && a.lambda == b.lambda && a.areaW == b.areaW && a.areaH == b.areaH && a.linkMask == b.linkMask && a.layer == b.layer && a.cookieGuid == b.cookieGuid;
+}
 bool DecalEqual(const DecalData& a, const DecalData& b) {
   return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.life == b.life && a.texGuid == b.texGuid && a.matMask == b.matMask && a.matRough == b.matRough && a.matMetal == b.matMetal;
 }
@@ -219,7 +222,7 @@ size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
     if (e == nullptr || !e->hasLight) {
       continue;
     }
-    if (std::memcmp(&e->light, &lightEdits[i].value, sizeof(LightData)) == 0) {
+    if (LightEqual(e->light, lightEdits[i].value)) {
       continue;
     }
     std::unique_ptr<Command> cmd(new SetLightCmd(lightEdits[i].target, e->light, lightEdits[i].value));
