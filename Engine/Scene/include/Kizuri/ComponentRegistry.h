@@ -8,7 +8,7 @@ namespace Kizuri {
 using ComponentTypeId = uint32_t;
 using ComponentResetFn = void (*)(void* data);
 using ComponentWriteFn = void (*)(std::FILE* fp, const Entity* e);
-using ComponentReadFn = bool (*)(const std::string& field, const std::string& rest, Entity* e);
+using ComponentReadFn = bool (*)(const std::string& field, const std::string& rest, void* entity);
 struct ComponentTypeDesc {
   ComponentTypeId id = 0;
   const char* name = "";
