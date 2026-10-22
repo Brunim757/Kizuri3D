@@ -37,6 +37,7 @@
 #include "Kizuri/Notifications.h"
 #include "Kizuri/Assets/Guid.h"
 #include "Kizuri/Assets/MeshCodec.h"
+#include "Kizuri/ComponentRegistry.h"
 #include "Kizuri/GameLoop.h"
 #include "Kizuri/GameWorld.h"
 #include "Kizuri/Assets/LightmapBaker.h"
@@ -2407,6 +2408,107 @@ bool TestAudioPartialUpdate() {
     return false;
   }
   return std::fabs(peakA - peakC) <= peakA * 0.2f;
+}
+bool TestComponentRegistry() {
+  Kizuri::ComponentRegistry& reg = Kizuri::ComponentRegistry::Instance();
+  if (reg.Count() < 11) {
+    return false;
+  }
+  const Kizuri::ComponentTypeDesc* rigid = reg.FindByName("Rigidbody");
+  const Kizuri::ComponentTypeDesc* audio = reg.FindByName("Audio Source");
+  if (rigid == nullptr || audio == nullptr) {
+    return false;
+  }
+  if (rigid->id == audio->id) {
+    return false;
+  }
+  if (Kizuri::FindComponentType("Rigidbody") != rigid->id) {
+    return false;
+  }
+  if (Kizuri::FindComponentType("Componente Inexistente") != 0xFFFFFFFFu) {
+    return false;
+  }
+  Kizuri::Scene scene;
+  Kizuri::EntityId id = scene.CreateEntity("reg");
+  Kizuri::Entity* e = scene.Get(id);
+  if (e == nullptr) {
+    return false;
+  }
+  if (Kizuri::EntityHasComponent(e, rigid->id)) {
+    return false;
+  }
+  if (!Kizuri::AddEntityComponent(e, rigid->id)) {
+    return false;
+  }
+  if (!e->hasRigidbody) {
+    return false;
+  }
+  if (!Kizuri::EntityHasComponent(e, rigid->id)) {
+    return false;
+  }
+  Kizuri::RigidbodyData* rb = static_cast<Kizuri::RigidbodyData*>(Kizuri::EntityComponentData(e, rigid->id));
+  if (rb == nullptr || rb != &e->rigidbody) {
+    return false;
+  }
+  rb->mass = 7.5f;
+  if (!Kizuri::RemoveEntityComponent(e, rigid->id)) {
+    return false;
+  }
+  if (e->hasRigidbody) {
+    return false;
+  }
+  if (Kizuri::RemoveEntityComponent(e, rigid->id)) {
+    return false;
+  }
+  return true;
+}
+bool TestComponentUndo() {
+  Kizuri::Scene scene;
+  Kizuri::UndoStack undo;
+  Kizuri::EntityId id = scene.CreateEntity("undo-comp");
+  Kizuri::Entity* e = scene.Get(id);
+  if (e == nullptr) {
+    return false;
+  }
+  const Kizuri::ComponentTypeId rbType = Kizuri::FindComponentType("Rigidbody");
+  if (rbType == 0xFFFFFFFFu) {
+    return false;
+  }
+  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddComponentCmd(id, rbType));
+  if (!undo.Execute(std::move(add), scene)) {
+    return false;
+  }
+  e = scene.Get(id);
+  if (e == nullptr || !e->hasRigidbody) {
+    return false;
+  }
+  e->rigidbody.mass = 4.0f;
+  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveComponentCmd(id, rbType));
+  if (!undo.Execute(std::move(rem), scene)) {
+    return false;
+  }
+  e = scene.Get(id);
+  if (e == nullptr || e->hasRigidbody) {
+    return false;
+  }
+  if (!undo.Undo(scene)) {
+    return false;
+  }
+  e = scene.Get(id);
+  if (e == nullptr || !e->hasRigidbody) {
+    return false;
+  }
+  if (std::fabs(e->rigidbody.mass - 4.0f) > 1e-5f) {
+    return false;
+  }
+  if (!undo.Redo(scene)) {
+    return false;
+  }
+  e = scene.Get(id);
+  if (e == nullptr || e->hasRigidbody) {
+    return false;
+  }
+  return true;
 }
 bool TestGameLoopFixedStep() {
   Kizuri::GameLoop loop;
@@ -9873,6 +9975,8 @@ int main() {
   failures += Check("AudioDucking", TestAudioDucking());
   failures += Check("AudioPartialUpdate", TestAudioPartialUpdate());
   failures += Check("AudioSourceSerialize", TestAudioSourceSerialize());
+  failures += Check("ComponentRegistry", TestComponentRegistry());
+  failures += Check("ComponentUndo", TestComponentUndo());
   failures += Check("GameLoopFixedStep", TestGameLoopFixedStep());
   failures += Check("GameLoopPause", TestGameLoopPause());
   failures += Check("GameLoopSystemOrder", TestGameLoopSystemOrder());

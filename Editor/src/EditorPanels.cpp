@@ -5,6 +5,7 @@
 #include "Kizuri/Assets/LightmapBaker.h"
 #include "Kizuri/Assets/TexCodec.h"
 #include "Kizuri/QualityPreset.h"
+#include "Kizuri/ComponentRegistry.h"
 #include "Kizuri/GameMaterial.h"
 #include "Kizuri/GameWorld.h"
 #include "Kizuri/Path.h"
@@ -754,7 +755,7 @@ void EditorApp::DrawAudioSourceSection(Entity* e) {
   PropertySection("Audio Source");
   ImGui::SameLine();
   if (ImGui::SmallButton("Remove##audiosource")) {
-    std::unique_ptr<Command> cmd(new RemoveAudioSourceCmd(e->id));
+    std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Audio Source")));
     undo.Execute(std::move(cmd), scene);
     return;
   }
@@ -2772,7 +2773,7 @@ void EditorApp::DrawInspector() {
     PropertySection("Mesh Renderer");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##mesh")) {
-      std::unique_ptr<Command> cmd(new RemoveMeshCmd(e->id));
+      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Mesh Renderer")));
       undo.Execute(std::move(cmd), scene);
     }
     DrawMeshSection(e);
@@ -2783,7 +2784,7 @@ void EditorApp::DrawInspector() {
     PropertySection("Light");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##light")) {
-      std::unique_ptr<Command> cmd(new RemoveLightCmd(e->id));
+      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Light")));
       undo.Execute(std::move(cmd), scene);
     }
     ImGui::SameLine();
@@ -2919,7 +2920,7 @@ void EditorApp::DrawInspector() {
     PropertySection("Material");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##material")) {
-      std::unique_ptr<Command> cmd(new RemoveMaterialCmd(e->id));
+      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Material")));
       undo.Execute(std::move(cmd), scene);
     }
     MaterialData mat = e->material;
@@ -2934,7 +2935,7 @@ void EditorApp::DrawInspector() {
     PropertySection("Decal");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##decal")) {
-      std::unique_ptr<Command> cmd(new RemoveDecalCmd(e->id));
+      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Decal")));
       undo.Execute(std::move(cmd), scene);
     }
     DecalData dec = e->decal;
@@ -2974,7 +2975,7 @@ void EditorApp::DrawInspector() {
     PropertySection("LOD");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##lod")) {
-      std::unique_ptr<Command> cmd(new RemoveLodCmd(e->id));
+      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("LOD")));
       undo.Execute(std::move(cmd), scene);
     }
     LodData lod = e->lod;
@@ -3077,7 +3078,7 @@ void EditorApp::DrawInspector() {
     PropertySection("Lightmap");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##lightmap")) {
-      std::unique_ptr<Command> cmd(new RemoveLightmapCmd(e->id));
+      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Lightmap")));
       undo.Execute(std::move(cmd), scene);
     }
     LightmapData lm = e->lightmap;
@@ -3142,7 +3143,7 @@ void EditorApp::DrawInspector() {
     PropertySection("Reflection Probe");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##probe")) {
-      std::unique_ptr<Command> cmd(new RemoveProbeCmd(e->id));
+      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Probe")));
       undo.Execute(std::move(cmd), scene);
     }
     ProbeData pr = e->probe;
@@ -3174,7 +3175,7 @@ void EditorApp::DrawInspector() {
     PropertySection("Post Volume");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##post")) {
-      std::unique_ptr<Command> cmd(new RemovePostCmd(e->id));
+      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Post Volume")));
       undo.Execute(std::move(cmd), scene);
     }
     PostData pv = e->post;
@@ -3215,7 +3216,7 @@ void EditorApp::DrawInspector() {
     PropertySection("Fog Volume");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##fog")) {
-      std::unique_ptr<Command> cmd(new RemoveFogCmd(e->id));
+      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Fog Volume")));
       undo.Execute(std::move(cmd), scene);
     }
     FogData fg = e->fog;
@@ -3242,7 +3243,7 @@ void EditorApp::DrawInspector() {
     PropertySection("Rigidbody");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##rigidbody")) {
-      std::unique_ptr<Command> cmd(new RemoveRigidbodyCmd(e->id));
+      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Rigidbody")));
       undo.Execute(std::move(cmd), scene);
     }
     RigidbodyData rb = e->rigidbody;
@@ -3304,13 +3305,19 @@ void EditorApp::DrawInspector() {
       ImGui::OpenPopup("AddComponent");
     }
     if (ImGui::BeginPopup("AddComponent")) {
-      if (!e->hasMesh && ImGui::MenuItem("Mesh Renderer")) {
-        std::unique_ptr<Command> cmd(new AddMeshCmd(e->id));
-        undo.Execute(std::move(cmd), scene);
-      }
-      if (!e->hasLight && ImGui::MenuItem("Light")) {
-        std::unique_ptr<Command> cmd(new AddLightCmd(e->id));
-        undo.Execute(std::move(cmd), scene);
+      const ComponentRegistry& reg = ComponentRegistry::Instance();
+      for (size_t ci = 0; ci < reg.Count(); ++ci) {
+        const ComponentTypeDesc* desc = reg.Get(static_cast<ComponentTypeId>(ci));
+        if (desc == nullptr || EntityHasComponent(e, desc->id)) {
+          continue;
+        }
+        if (std::string(desc->name) == "Material") {
+          continue;
+        }
+        if (ImGui::MenuItem(desc->name)) {
+          std::unique_ptr<Command> cmd(new AddComponentCmd(e->id, desc->id));
+          undo.Execute(std::move(cmd), scene);
+        }
       }
       if (!e->hasMaterial && ImGui::MenuItem("Material")) {
         MaterialData initial;
@@ -3329,39 +3336,7 @@ void EditorApp::DrawInspector() {
             }
           }
         }
-        std::unique_ptr<Command> cmd(new AddMaterialCmd(e->id, initial));
-        undo.Execute(std::move(cmd), scene);
-      }
-      if (!e->hasDecal && ImGui::MenuItem("Decal")) {
-        std::unique_ptr<Command> cmd(new AddDecalCmd(e->id));
-        undo.Execute(std::move(cmd), scene);
-      }
-      if (!e->hasLod && ImGui::MenuItem("LOD")) {
-        std::unique_ptr<Command> cmd(new AddLodCmd(e->id));
-        undo.Execute(std::move(cmd), scene);
-      }
-      if (!e->hasLightmap && ImGui::MenuItem("Lightmap")) {
-        std::unique_ptr<Command> cmd(new AddLightmapCmd(e->id));
-        undo.Execute(std::move(cmd), scene);
-      }
-      if (!e->hasProbe && ImGui::MenuItem("Probe")) {
-        std::unique_ptr<Command> cmd(new AddProbeCmd(e->id));
-        undo.Execute(std::move(cmd), scene);
-      }
-      if (!e->hasPost && ImGui::MenuItem("Post Volume")) {
-        std::unique_ptr<Command> cmd(new AddPostCmd(e->id));
-        undo.Execute(std::move(cmd), scene);
-      }
-      if (!e->hasFog && ImGui::MenuItem("Fog Volume")) {
-        std::unique_ptr<Command> cmd(new AddFogCmd(e->id));
-        undo.Execute(std::move(cmd), scene);
-      }
-      if (!e->hasRigidbody && ImGui::MenuItem("Rigidbody")) {
-        std::unique_ptr<Command> cmd(new AddRigidbodyCmd(e->id));
-        undo.Execute(std::move(cmd), scene);
-      }
-      if (!e->hasAudioSource && ImGui::MenuItem("Audio Source")) {
-        std::unique_ptr<Command> cmd(new AddAudioSourceCmd(e->id));
+        std::unique_ptr<Command> cmd(new AddComponentCmd(e->id, FindComponentType("Material"), &initial));
         undo.Execute(std::move(cmd), scene);
       }
       ImGui::EndPopup();

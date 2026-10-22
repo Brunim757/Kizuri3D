@@ -1,4 +1,5 @@
 #pragma once
+#include "Kizuri/ComponentRegistry.h"
 #include "Kizuri/Scene.h"
 #include <memory>
 #include <string>
@@ -34,6 +35,31 @@ struct EntitySnapshot {
   EntityId originalParent;
   bool Capture(const Scene& scene, EntityId root);
   EntityId Restore(Scene& scene, EntityId newParent) const;
+};
+class AddComponentCmd : public Command {
+public:
+  AddComponentCmd(EntityId target, ComponentTypeId type, const void* initialData = nullptr);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  ComponentTypeId type;
+  const void* initialData = nullptr;
+  std::vector<unsigned char> prevData;
+  bool prevHas = false;
+};
+class RemoveComponentCmd : public Command {
+public:
+  RemoveComponentCmd(EntityId target, ComponentTypeId type);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  ComponentTypeId type;
+  std::vector<unsigned char> prevData;
+  bool prevHas = false;
 };
 class CreateEntityCmd : public Command {
 public:
@@ -105,27 +131,6 @@ private:
   std::string before;
   std::string after;
 };
-class AddMeshCmd : public Command {
-public:
-  explicit AddMeshCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  std::string prevGuid;
-};
-class RemoveMeshCmd : public Command {
-public:
-  explicit RemoveMeshCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  std::string prevGuid;
-  bool applied;
-};
 class SetLightCmd : public Command {
 public:
   SetLightCmd(EntityId target, const LightData& before, const LightData& after);
@@ -136,28 +141,6 @@ private:
   EntityId target;
   LightData before;
   LightData after;
-};
-class AddLightCmd : public Command {
-public:
-  explicit AddLightCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  LightData prevLight;
-  bool prevHas;
-};
-class RemoveLightCmd : public Command {
-public:
-  explicit RemoveLightCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  LightData prevLight;
-  bool prevHas;
 };
 class SetMaterialCmd : public Command {
 public:
@@ -216,31 +199,6 @@ private:
   MaterialData prevMaterial;
   bool hadIt;
 };
-class AddMaterialCmd : public Command {
-public:
-  explicit AddMaterialCmd(EntityId target);
-  AddMaterialCmd(EntityId target, const MaterialData& initial);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  MaterialData prevMaterial;
-  MaterialData initialMaterial;
-  bool useInitial;
-  bool prevHas;
-};
-class RemoveMaterialCmd : public Command {
-public:
-  explicit RemoveMaterialCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  MaterialData prevMaterial;
-  bool prevHas;
-};
 class SetDecalCmd : public Command {
 public:
   SetDecalCmd(EntityId target, const DecalData& before, const DecalData& after);
@@ -251,28 +209,6 @@ private:
   EntityId target;
   DecalData before;
   DecalData after;
-};
-class AddDecalCmd : public Command {
-public:
-  explicit AddDecalCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  DecalData prevDecal;
-  bool prevHas;
-};
-class RemoveDecalCmd : public Command {
-public:
-  explicit RemoveDecalCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  DecalData prevDecal;
-  bool prevHas;
 };
 class SetPostCmd : public Command {
 public:
@@ -285,28 +221,6 @@ private:
   PostData before;
   PostData after;
 };
-class AddPostCmd : public Command {
-public:
-  explicit AddPostCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  PostData prevPost;
-  bool prevHas;
-};
-class RemovePostCmd : public Command {
-public:
-  explicit RemovePostCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  PostData prevPost;
-  bool prevHas;
-};
 class SetFogCmd : public Command {
 public:
   SetFogCmd(EntityId target, const FogData& before, const FogData& after);
@@ -317,28 +231,6 @@ private:
   EntityId target;
   FogData before;
   FogData after;
-};
-class AddFogCmd : public Command {
-public:
-  explicit AddFogCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  FogData prevFog;
-  bool prevHas;
-};
-class RemoveFogCmd : public Command {
-public:
-  explicit RemoveFogCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  FogData prevFog;
-  bool prevHas;
 };
 class SetLodCmd : public Command {
 public:
@@ -362,28 +254,6 @@ private:
   bool before;
   bool after;
 };
-class AddLodCmd : public Command {
-public:
-  explicit AddLodCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  LodData prevLod;
-  bool prevHas;
-};
-class RemoveLodCmd : public Command {
-public:
-  explicit RemoveLodCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  LodData prevLod;
-  bool prevHas;
-};
 class SetRigidbodyCmd : public Command {
 public:
   SetRigidbodyCmd(EntityId target, const RigidbodyData& before, const RigidbodyData& after);
@@ -394,28 +264,6 @@ private:
   EntityId target;
   RigidbodyData before;
   RigidbodyData after;
-};
-class AddRigidbodyCmd : public Command {
-public:
-  explicit AddRigidbodyCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  RigidbodyData prevRb;
-  bool prevHas;
-};
-class RemoveRigidbodyCmd : public Command {
-public:
-  explicit RemoveRigidbodyCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  RigidbodyData prevRb;
-  bool prevHas;
 };
 class SetAudioSourceCmd : public Command {
 public:
@@ -428,28 +276,6 @@ private:
   AudioSourceData before;
   AudioSourceData after;
 };
-class AddAudioSourceCmd : public Command {
-public:
-  explicit AddAudioSourceCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  AudioSourceData prevAs;
-  bool prevHas;
-};
-class RemoveAudioSourceCmd : public Command {
-public:
-  explicit RemoveAudioSourceCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  AudioSourceData prevAs;
-  bool prevHas;
-};
 class SetLightmapCmd : public Command {
 public:
   SetLightmapCmd(EntityId target, const LightmapData& before, const LightmapData& after);
@@ -461,28 +287,6 @@ private:
   LightmapData before;
   LightmapData after;
 };
-class AddLightmapCmd : public Command {
-public:
-  explicit AddLightmapCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  LightmapData prevLightmap;
-  bool prevHas;
-};
-class RemoveLightmapCmd : public Command {
-public:
-  explicit RemoveLightmapCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  LightmapData prevLightmap;
-  bool prevHas;
-};
 class SetProbeCmd : public Command {
 public:
   SetProbeCmd(EntityId target, const ProbeData& before, const ProbeData& after);
@@ -493,28 +297,6 @@ private:
   EntityId target;
   ProbeData before;
   ProbeData after;
-};
-class AddProbeCmd : public Command {
-public:
-  explicit AddProbeCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  ProbeData prevProbe;
-  bool prevHas;
-};
-class RemoveProbeCmd : public Command {
-public:
-  explicit RemoveProbeCmd(EntityId target);
-  bool Apply(Scene& scene) override;
-  bool Revert(Scene& scene) override;
-  const char* Name() const override;
-private:
-  EntityId target;
-  ProbeData prevProbe;
-  bool prevHas;
 };
 class SetParentCmd : public Command {
 public:
