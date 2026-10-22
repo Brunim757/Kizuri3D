@@ -123,9 +123,7 @@ static void WriteLight(std::FILE* fp, const Entity* e) {
 }
 
 static void WriteMaterial(std::FILE* fp, const Entity* e) {
-  if (!e->hasMaterial) {
-    return;
-  }
+  if (e->hasMaterial) {
         const MaterialData& m = e->material;
         std::fprintf(fp, "MATERIAL %.9g %.9g %.9g %.9g %.9g \"%s\" \"%s\" \"%s\" \"%s\"\n", m.albedo[0], m.albedo[1], m.albedo[2], m.metallic, m.roughness, EscapeName(m.albedoTex).c_str(), EscapeName(m.normalTex).c_str(), EscapeName(m.ormTex).c_str(), EscapeName(m.heightTex).c_str());
         std::fprintf(fp, "MATERIALX %.9g %.9g %.9g %.9g %.9g %d %d %d %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\"\n", m.alpha, m.emissive[0], m.emissive[1], m.emissive[2], m.emissiveStrength, m.unlit ? 1 : 0, m.doubleSided ? 1 : 0, m.alphaMode, m.alphaCutoff, m.ior, m.hasSpecular ? 1 : 0, m.specularColor[0], m.specularColor[1], m.specularColor[2], m.specularStrength, m.clearcoat, m.clearcoatRoughness, m.sheenColor[0], m.sheenColor[1], m.sheenColor[2], m.sheenRoughness, m.anisotropy, m.anisotropyRotation, m.iridescence, m.iridescenceIor, m.iridescenceThicknessMin, m.iridescenceThicknessMax, m.transmission, m.thickness, m.attenuationColor[0], m.attenuationColor[1], m.attenuationColor[2], m.attenuationDistance, m.dispersion, EscapeName(m.emissiveTex).c_str(), EscapeName(m.specularTex).c_str(), EscapeName(m.specularColorTex).c_str(), EscapeName(m.clearcoatTex).c_str(), EscapeName(m.clearcoatRoughnessTex).c_str(), EscapeName(m.clearcoatNormalTex).c_str(), EscapeName(m.sheenColorTex).c_str(), EscapeName(m.sheenRoughnessTex).c_str(), EscapeName(m.anisotropyTex).c_str(), EscapeName(m.iridescenceTex).c_str(), EscapeName(m.iridescenceThicknessTex).c_str(), EscapeName(m.transmissionTex).c_str(), EscapeName(m.thicknessTex).c_str());
@@ -146,6 +144,16 @@ static void WriteMaterial(std::FILE* fp, const Entity* e) {
         if (e->variantIndex >= 0) {
           std::fprintf(fp, "VARIANT %d\n", e->variantIndex);
         }
+  }
+  for (size_t pi = 0; pi < e->partMaterials.size(); ++pi) {
+    const PartMaterial& pm = e->partMaterials[pi];
+    std::fprintf(fp, "PARTMAT %u %.9g %.9g %.9g %.9g %.9g \"%s\" \"%s\" \"%s\" \"%s\" %.9g %.9g %.9g %.9g %.9g %d %d %d %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\"\n", pm.part, pm.material.albedo[0], pm.material.albedo[1], pm.material.albedo[2], pm.material.metallic, pm.material.roughness, EscapeName(pm.material.albedoTex).c_str(), EscapeName(pm.material.normalTex).c_str(), EscapeName(pm.material.ormTex).c_str(), EscapeName(pm.material.heightTex).c_str(), pm.material.alpha, pm.material.emissive[0], pm.material.emissive[1], pm.material.emissive[2], pm.material.emissiveStrength, pm.material.unlit ? 1 : 0, pm.material.doubleSided ? 1 : 0, pm.material.alphaMode, pm.material.alphaCutoff, pm.material.ior, pm.material.hasSpecular ? 1 : 0, pm.material.specularColor[0], pm.material.specularColor[1], pm.material.specularColor[2], pm.material.specularStrength, pm.material.clearcoat, pm.material.clearcoatRoughness, pm.material.sheenColor[0], pm.material.sheenColor[1], pm.material.sheenColor[2], pm.material.sheenRoughness, pm.material.anisotropy, pm.material.anisotropyRotation, pm.material.iridescence, pm.material.iridescenceIor, pm.material.iridescenceThicknessMin, pm.material.iridescenceThicknessMax, pm.material.transmission, pm.material.thickness, pm.material.attenuationColor[0], pm.material.attenuationColor[1], pm.material.attenuationColor[2], pm.material.attenuationDistance, pm.material.dispersion, EscapeName(pm.material.emissiveTex).c_str(), EscapeName(pm.material.specularTex).c_str(), EscapeName(pm.material.specularColorTex).c_str(), EscapeName(pm.material.clearcoatTex).c_str(), EscapeName(pm.material.clearcoatRoughnessTex).c_str(), EscapeName(pm.material.clearcoatNormalTex).c_str(), EscapeName(pm.material.sheenColorTex).c_str(), EscapeName(pm.material.sheenRoughnessTex).c_str(), EscapeName(pm.material.anisotropyTex).c_str(), EscapeName(pm.material.iridescenceTex).c_str(), EscapeName(pm.material.iridescenceThicknessTex).c_str(), EscapeName(pm.material.transmissionTex).c_str(), EscapeName(pm.material.thicknessTex).c_str());
+    std::fprintf(fp, "PARTMATXF %u %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d %.9g %.9g %.9g %.9g %.9g %d\n", pm.part, pm.material.xforms[0].offsetU, pm.material.xforms[0].offsetV, pm.material.xforms[0].scaleU, pm.material.xforms[0].scaleV, pm.material.xforms[0].rotation, pm.material.xforms[0].uvSet, pm.material.xforms[1].offsetU, pm.material.xforms[1].offsetV, pm.material.xforms[1].scaleU, pm.material.xforms[1].scaleV, pm.material.xforms[1].rotation, pm.material.xforms[1].uvSet, pm.material.xforms[2].offsetU, pm.material.xforms[2].offsetV, pm.material.xforms[2].scaleU, pm.material.xforms[2].scaleV, pm.material.xforms[2].rotation, pm.material.xforms[2].uvSet, pm.material.xforms[3].offsetU, pm.material.xforms[3].offsetV, pm.material.xforms[3].scaleU, pm.material.xforms[3].scaleV, pm.material.xforms[3].rotation, pm.material.xforms[3].uvSet, pm.material.xforms[4].offsetU, pm.material.xforms[4].offsetV, pm.material.xforms[4].scaleU, pm.material.xforms[4].scaleV, pm.material.xforms[4].rotation, pm.material.xforms[4].uvSet);
+    std::fprintf(fp, "PARTMATDTL %u \"%s\" \"%s\" %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %d\n", pm.part, EscapeName(pm.material.detailAlbedoTex).c_str(), EscapeName(pm.material.detailNormalTex).c_str(), pm.material.detailTiling, pm.material.layerWeight, pm.material.layerAlbedo[0], pm.material.layerAlbedo[1], pm.material.layerAlbedo[2], pm.material.layerRoughness, pm.material.layerMetallic, pm.material.layerHeight, pm.material.layerHeightBlend ? 1 : 0);
+    std::fprintf(fp, "PARTMATSSS %u %.9g %.9g %.9g %.9g\n", pm.part, pm.material.sssColor[0], pm.material.sssColor[1], pm.material.sssColor[2], pm.material.sssIntensity);
+    std::fprintf(fp, "PARTMATSSSK %u %d\n", pm.part, pm.material.sssKind);
+    std::fprintf(fp, "PARTMATVT %u %d\n", pm.part, pm.material.vtAlbedo ? 1 : 0);
+  }
 }
 
 static void WriteDecal(std::FILE* fp, const Entity* e) {
@@ -274,6 +282,9 @@ bool SaveSceneToFile(const Scene& scene, const std::string& path) {
         }
         desc->write(fp, e);
       }
+    }
+    if (e->isStatic) {
+      std::fprintf(fp, "STATIC 1\n");
     }
   }
   std::fclose(fp);

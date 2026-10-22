@@ -58,9 +58,10 @@ A Fase 3 foi deliberadamente construída como uma fundação robusta (não um MV
 | 6 — Física (Jolt) | ✅ concluída | Jolt integrado, corpos/coliders, passo fixo 60Hz + interpolação, raycasts, ragdoll/joints, Inspector de Rigidbody, wireframe de colliders, toggle Simulate |
 | 7 — Áudio + Mixer | ✅ concluída | Núcleo sobre miniaudio (device + decoder), mixer próprio com hierarquia de buses (Master/Música/SFX/Voz/Ambiente), volume/mute/solo, ducking entre buses, reverb (Freeverb) por bus, camada 3D posicional própria (atenuação linear/inverse/exponential + pan direcional), componente `AudioSource` no ECS (Undo/Redo + EditQueue + serialização + Inspector), painel "Audio Mixer" no Editor, mixer salvo como asset `.kzmixer`. 9 testes no CI |
 | 8 — Runtime de Jogo | ✅ concluída | **A espinha**: `Engine/Game` com `GameLoop` (passo fixo determinístico + sistemas ordenados + estatísticas), `GameWorld` (cena + assets + renderer + física + áudio + câmera), `GameApp` (janela + RHI + loop) e o executável de jogo `KizuriRuntime.exe`. Material e luzes agora têm **uma implementação só** (Editor e runtime). 4 testes no CI |
-| 9 — Animação | ⏳ **próxima fase** | `Engine/Animation` ainda é stub. O shader já tem skinning pronto (o renderer suporta skinned meshes), mas falta o sistema: esqueleto, blending em camadas, IK de pés/mãos, look-at, root motion, retargeting e state machine no Editor |
-| 10 — Scripting C# | ⏳ pendente | `Engine/Scripting` ainda é stub |
-| 11–25 | ⏳ pendente | ECS/Gameplay, Prefabs, Scripting Visual, Câmera/Input, IA/Pathfinding, Rede, Save, VFX, UI de jogo, Level Design, Polimento, Docs, Launcher, Build, Vertical Slice |
+| 9 — ECS e Gameplay Framework | 🔄 **em andamento** | `ComponentRegistry` já é a fonte única de presença/defaults/reset/serialização/Undo dos 11 componentes, com comandos genéricos de Add/Remove e Save/Load guiados pelo registro. Restam: storage ECS com queries e sistemas, Inspector gerado pelo registro e Play-in-Editor |
+| 10 — Animação | ⏳ próxima fase | `Engine/Animation` ainda é stub. O shader já tem skinning pronto (o renderer suporta skinned meshes), mas falta o sistema: esqueleto, blending em camadas, IK de pés/mãos, look-at, root motion, retargeting e state machine no Editor |
+| 11 — Scripting C# | ⏳ pendente | `Engine/Scripting` ainda é stub |
+| 12–25 | ⏳ pendente | Prefabs, Scripting Visual, Câmera/Input, IA/Pathfinding, Rede, Save, VFX, UI de jogo, Level Design, Polimento, Docs, Launcher, Build, Vertical Slice |
 
 **Onde a Fase 6 travou (e foi resolvido):** o teste de ragdoll derrubava o CI com `exit code 1` (access violation) — dois bugs reais no `Engine/Physics`:
 1. *Double free* de constraint: no Jolt v5 `Constraint` é `RefTarget` e o `ConstraintManager` guarda `Array<Ref<Constraint>>`, logo `RemoveConstraint()` **já** libera o objeto; o `delete` manual do lado Kizuri destruía a mesma memória duas vezes. Agora o slot guarda `JPH::Ref<JPH::Constraint>` e quem controla a vida é o refcount do próprio Jolt.
@@ -129,7 +130,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 - **Localização de shaders**: HLSL em pasta externa (`Shaders/`) durante o desenvolvimento da engine (hot-reload sem rebuild de C++); no `KizuriRuntime.exe` final (Fase 25), shaders são compilados para bytecode e embutidos, não distribuídos soltos
 
 **Serialização de cena**
-- **Serialização genérica baseada em reflection**: capacidade central de serializar qualquer componente para disco (`.kzscene`) e recarregar — "Salvar Cena" funciona de verdade desde aqui, não fica de fachada. Reaproveitada depois pela Fase 11 (snapshot de Play-in-Editor), Fase 12 (Prefabs) e Fase 17 (Save System do jogo) — mesma peça central, quatro consumidores
+- **Serialização genérica baseada em reflection**: capacidade central de serializar qualquer componente para disco (`.kzscene`) e recarregar — "Salvar Cena" funciona de verdade desde aqui, não fica de fachada. Reaproveitada depois pela Fase 9 (snapshot de Play-in-Editor), Fase 12 (Prefabs) e Fase 17 (Save System do jogo) — mesma peça central, quatro consumidores
 - **Autosave e recuperação de crash**: autosave periódico (intervalo configurável) para um arquivo de recuperação separado da cena principal; se o Editor abrir e encontrar uma recuperação mais recente que o último save, oferece restaurar
 - **Indicador de alterações não salvas**: asterisco no título/aba da cena; prompt de confirmação ao fechar com mudanças pendentes
 
@@ -230,11 +231,27 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 - **Caminho de render de runtime**: luzes da cena + meshes + materiais + câmera, sem as ferramentas de edição (gizmos, overlays de debug, batching estático do editor)
 - **Entrada de runtime**: WASD move a câmera, mouse olha, ESC fecha
 
-**Pronto quando:** `KizuriRuntime.exe` abre uma cena e roda com passo fixo, a câmera responde ao input, a física simula e o áudio toca — e o Editor e o runtime compartilham o **mesmo** mundo, o mesmo material e as mesmas luzes (fonte única de verdade). O Play-in-Editor (rodar o `GameLoop` dentro do Editor) é a Fase 12.
+**Pronto quando:** `KizuriRuntime.exe` abre uma cena e roda com passo fixo, a câmera responde ao input, a física simula e o áudio toca — e o Editor e o runtime compartilham o **mesmo** mundo, o mesmo material e as mesmas luzes (fonte única de verdade). O Play-in-Editor (rodar o `GameLoop` dentro do Editor) faz parte da Fase 9.
 
 ---
 
-## Fase 9 — Animação (com retargeting)
+## Fase 9 — ECS e Gameplay Framework
+
+**Objetivo:** a camada que conecta o núcleo C++ à experiência do dev em C# — e a base sobre a qual Animação, Prefabs, IA e Scripting Visual são construídos.
+
+- Estrutura ECS por baixo (cache-friendly, integrada ao Job System). O `Entity` atual (struct com flags `has*`) continua sendo a representação serializada; o storage ECS organiza os mesmos dados em arrays por componente
+- **Escalonamento de leitura/escrita por componente**, evitando condição de corrida entre sistemas
+- API C# que expõe o ECS como "componentes tradicionais"
+- Sistema de Entity/parenting/hierarquia de cena
+- **`ComponentRegistry` como fonte única**: presença, defaults, reset, serialização e metadados de Inspector num só lugar — adicionar componente novo não exige tocar no Editor nem no serializador
+- **Play-in-Editor via snapshot em memória**, reaproveitando a serialização da Fase 3 e o `GameLoop`/`GameWorld` da Fase 8
+- **Inspector/Hierarquia**: property grid gerado a partir do registro (sem código por componente); "Add Component" genérico (lista todos os componentes já registrados); parenting por drag-and-drop
+
+**Pronto quando:** é possível criar uma Entity, adicionar qualquer componente via "Add Component", organizar em hierarquia por drag-and-drop, e testar com Play-in-Editor — e um componente novo aparece no Inspector apenas por ser registrado.
+
+---
+
+## Fase 10 — Animação (com retargeting)
 
 **Objetivo:** o sistema mais crítico para o gênero souls-like — golpes, dashes, reações — e reaproveitamento de animação entre personagens diferentes.
 
@@ -251,7 +268,7 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 10 — Scripting em C# (Roslyn)
+## Fase 11 — Scripting em C# (Roslyn)
 
 **Objetivo:** abrir a engine para lógica de gameplay fora do C++.
 
@@ -269,24 +286,9 @@ Lição operativa: **nunca chamar `delete` em objetos do Jolt v5** — o refcoun
 
 ---
 
-## Fase 11 — ECS e Gameplay Framework
-
-**Objetivo:** a camada que conecta o núcleo C++ à experiência do dev em C#.
-
-- Estrutura ECS por baixo (cache-friendly, integrada ao Job System)
-- **Escalonamento de leitura/escrita por componente**, evitando condição de corrida entre sistemas
-- API C# que expõe o ECS como "componentes tradicionais"
-- Sistema de Entity/parenting/hierarquia de cena
-- **Play-in-Editor via snapshot em memória**, reaproveitando a serialização da Fase 3
-- **Inspector/Hierarquia**: "Add Component" genérico (lista todos os componentes já registrados); parenting por drag-and-drop
-
-**Pronto quando:** é possível criar uma Entity, adicionar qualquer componente via "Add Component", organizar em hierarquia por drag-and-drop, e testar com Play-in-Editor.
-
----
-
 ## Fase 12 — Sistema de Prefabs
 
-**Objetivo:** permitir criar um "molde" de entidade reutilizável, instanciado várias vezes, com propagação de mudanças — essencial para popular um nível souls-like com inimigos e itens repetidos sem duplicar trabalho manualmente. Depende do ECS (Fase 12), da serialização genérica (Fase 3) e do Asset Browser (Fase 4).
+**Objetivo:** permitir criar um "molde" de entidade reutilizável, instanciado várias vezes, com propagação de mudanças — essencial para popular um nível souls-like com inimigos e itens repetidos sem duplicar trabalho manualmente. Depende do ECS (Fase 9), da serialização genérica (Fase 3) e do Asset Browser (Fase 4).
 
 - **Prefab como asset próprio** (`.kzprefab`), serializado com a mesma serialização por reflection já existente
 - **Instâncias na cena referenciam o Prefab original**; alterar o Prefab propaga automaticamente para todas as instâncias
@@ -492,9 +494,9 @@ Fase 4  → Pipeline de Assets + Asset Browser + dependência entre assets
 Fase 5  → Iluminação/sombras avançadas + céu procedural + Inspector de Light
 Fase 6  → Física (Jolt) + Inspector de Rigidbody/Ragdoll
 Fase 7  → Áudio + Mixer completo (buses, ducking, reverb) + Inspector de AudioSource
-Fase 9  → Animação + Retargeting + Inspector de Animator + editor de state machine
-Fase 10  → Scripting C#/Roslyn + Inspector de Script
-Fase 11 → ECS/Gameplay Framework + "Add Component" genérico + parenting
+Fase 9  → ECS/Gameplay Framework + "Add Component" genérico + parenting + Play-in-Editor
+Fase 10 → Animação + Retargeting + Inspector de Animator + editor de state machine
+Fase 11 → Scripting C#/Roslyn + Inspector de Script
 Fase 12 → Sistema de Prefabs (overrides, variants, apply/revert)
 Fase 13 → Scripting Visual (nós) + exibição de erro inline
 Fase 14 → Câmera/Input + Inspector de Camera Controller

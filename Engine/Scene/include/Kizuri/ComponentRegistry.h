@@ -7,6 +7,9 @@
 namespace Kizuri {
 using ComponentTypeId = uint32_t;
 using ComponentResetFn = void (*)(void* data);
+using ComponentCtorFn = void (*)(void* data);
+using ComponentCopyFn = void (*)(void* dst, const void* src);
+using ComponentDtorFn = void (*)(void* data);
 using ComponentWriteFn = void (*)(std::FILE* fp, const Entity* e);
 using ComponentReadFn = bool (*)(const std::string& field, const std::string& rest, void* entity);
 struct ComponentTypeDesc {
@@ -16,6 +19,9 @@ struct ComponentTypeDesc {
   size_t dataSize = 0;
   size_t hasOffset = 0;
   ComponentResetFn reset = nullptr;
+  ComponentCtorFn ctor = nullptr;
+  ComponentCopyFn copy = nullptr;
+  ComponentDtorFn dtor = nullptr;
   ComponentWriteFn write = nullptr;
   ComponentReadFn read = nullptr;
 };

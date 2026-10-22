@@ -36,6 +36,23 @@ struct EntitySnapshot {
   bool Capture(const Scene& scene, EntityId root);
   EntityId Restore(Scene& scene, EntityId newParent) const;
 };
+class ComponentSnapshot {
+public:
+  ComponentSnapshot() = default;
+  ~ComponentSnapshot();
+  ComponentSnapshot(const ComponentSnapshot&) = delete;
+  ComponentSnapshot& operator=(const ComponentSnapshot&) = delete;
+  ComponentSnapshot(ComponentSnapshot&& other) noexcept;
+  ComponentSnapshot& operator=(ComponentSnapshot&& other) noexcept;
+  bool Capture(const ComponentTypeDesc* type, const void* data);
+  bool Restore(void* data) const;
+  void Reset();
+  bool Valid() const { return valid; }
+private:
+  ComponentTypeDesc type;
+  unsigned char* storage = nullptr;
+  bool valid = false;
+};
 class AddComponentCmd : public Command {
 public:
   AddComponentCmd(EntityId target, ComponentTypeId type, const void* initialData = nullptr);
@@ -46,7 +63,7 @@ private:
   EntityId target;
   ComponentTypeId type;
   const void* initialData = nullptr;
-  std::vector<unsigned char> prevData;
+  ComponentSnapshot prevState;
   bool prevHas = false;
 };
 class RemoveComponentCmd : public Command {
@@ -58,7 +75,7 @@ public:
 private:
   EntityId target;
   ComponentTypeId type;
-  std::vector<unsigned char> prevData;
+  ComponentSnapshot prevState;
   bool prevHas = false;
 };
 class CreateEntityCmd : public Command {

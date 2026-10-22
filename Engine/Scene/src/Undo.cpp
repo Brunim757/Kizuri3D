@@ -89,6 +89,55 @@ EntityId EntitySnapshot::Restore(Scene& scene, EntityId newParent) const {
   }
   return created[0];
 }
+ComponentSnapshot::~ComponentSnapshot() {
+  Reset();
+}
+ComponentSnapshot::ComponentSnapshot(ComponentSnapshot&& other) noexcept
+  : type(other.type)
+  , storage(other.storage)
+  , valid(other.valid) {
+  other.storage = nullptr;
+  other.valid = false;
+}
+ComponentSnapshot& ComponentSnapshot::operator=(ComponentSnapshot&& other) noexcept {
+  if (this != &other) {
+    Reset();
+    type = other.type;
+    storage = other.storage;
+    valid = other.valid;
+    other.storage = nullptr;
+    other.valid = false;
+  }
+  return *this;
+}
+bool ComponentSnapshot::Capture(const ComponentTypeDesc* d, const void* data) {
+  Reset();
+  if (d == nullptr || d->ctor == nullptr || d->copy == nullptr || d->dtor == nullptr || data == nullptr) {
+    return false;
+  }
+  unsigned char* mem = new unsigned char[d->dataSize];
+  d->ctor(mem);
+  d->copy(mem, data);
+  type = *d;
+  storage = mem;
+  valid = true;
+  return true;
+}
+bool ComponentSnapshot::Restore(void* data) const {
+  if (!valid || storage == nullptr || data == nullptr) {
+    return false;
+  }
+  type.copy(data, storage);
+  return true;
+}
+void ComponentSnapshot::Reset() {
+  if (valid && storage != nullptr && type.dtor != nullptr) {
+    type.dtor(storage);
+  }
+  delete[] storage;
+  storage = nullptr;
+  valid = false;
+}
 AddComponentCmd::AddComponentCmd(EntityId t, ComponentTypeId ty, const void* initial)
   : target(t)
   , type(ty)
@@ -107,14 +156,15 @@ bool AddComponentCmd::Apply(Scene& scene) {
   if (data == nullptr) {
     return false;
   }
-  prevData.assign(desc->dataSize, 0);
-  std::memcpy(prevData.data(), data, desc->dataSize);
+  if (!prevState.Capture(desc, data)) {
+    return false;
+  }
   prevHas = EntityHasComponent(e, type);
   if (!AddEntityComponent(e, type)) {
     return false;
   }
   if (initialData != nullptr) {
-    std::memcpy(data, initialData, desc->dataSize);
+    desc->copy(data, initialData);
   }
   scene.MarkDirty();
   return true;
@@ -133,8 +183,8 @@ bool AddComponentCmd::Revert(Scene& scene) {
     return false;
   }
   if (prevHas) {
-    std::memcpy(data, prevData.data(), desc->dataSize);
     AddEntityComponent(e, type);
+    prevState.Restore(data);
   } else {
     RemoveEntityComponent(e, type);
   }
@@ -162,12 +212,14 @@ bool RemoveComponentCmd::Apply(Scene& scene) {
   if (data == nullptr) {
     return false;
   }
-  prevData.assign(desc->dataSize, 0);
-  std::memcpy(prevData.data(), data, desc->dataSize);
+  if (!prevState.Capture(desc, data)) {
+    return false;
+  }
   prevHas = EntityHasComponent(e, type);
   if (!RemoveEntityComponent(e, type)) {
     return false;
   }
+  ResetEntityComponent(e, type);
   scene.MarkDirty();
   return true;
 }
@@ -185,8 +237,8 @@ bool RemoveComponentCmd::Revert(Scene& scene) {
     return false;
   }
   if (prevHas) {
-    std::memcpy(data, prevData.data(), desc->dataSize);
     AddEntityComponent(e, type);
+    prevState.Restore(data);
   }
   scene.MarkDirty();
   return true;

@@ -3143,7 +3143,7 @@ void EditorApp::DrawInspector() {
     PropertySection("Reflection Probe");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove##probe")) {
-      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Probe")));
+      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Reflection Probe")));
       undo.Execute(std::move(cmd), scene);
     }
     ProbeData pr = e->probe;

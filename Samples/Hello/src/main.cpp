@@ -2462,6 +2462,7 @@ bool TestSceneAllComponentsRoundTrip() {
   e->audioSource.volume = 0.8f;
   e->audioSource.bus = 2;
   e->audioSource.loop = true;
+  e->isStatic = true;
   const char* tmp = "kizuri_test_allcomp_tmp.kzscene";
   if (!Kizuri::SaveSceneToFile(scene, tmp)) {
     return false;
@@ -2511,6 +2512,9 @@ bool TestSceneAllComponentsRoundTrip() {
     return false;
   }
   if (!b->hasAudioSource || b->audioSource.clipPath != "sfx/impacto.wav" || b->audioSource.bus != 2 || !b->audioSource.loop) {
+    return false;
+  }
+  if (!b->isStatic) {
     return false;
   }
   return true;

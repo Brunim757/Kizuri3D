@@ -1,6 +1,7 @@
 #include "Kizuri/ComponentRegistry.h"
 #include <cstddef>
 #include <cstring>
+#include <new>
 namespace Kizuri {
 namespace {
 void ResetMesh(void* data) {
@@ -36,33 +37,59 @@ void ResetRigidbody(void* data) {
 void ResetAudioSource(void* data) {
   MakeDefaultAudioSource(*static_cast<AudioSourceData*>(data));
 }
-void RegisterAll() {
-  ComponentRegistry& reg = ComponentRegistry::Instance();
+template <typename T>
+void CtorComponent(void* data) {
+  new (data) T();
+}
+template <typename T>
+void CopyComponent(void* dst, const void* src) {
+  *static_cast<T*>(dst) = *static_cast<const T*>(src);
+}
+template <typename T>
+void DtorComponent(void* data) {
+  static_cast<T*>(data)->~T();
+}
+template <typename T>
+void RegisterComponent(ComponentRegistry& reg, ComponentTypeId id, const char* name, size_t dataOffset, size_t hasOffset, ComponentResetFn reset) {
+  ComponentTypeDesc desc;
+  desc.id = id;
+  desc.name = name;
+  desc.dataOffset = dataOffset;
+  desc.dataSize = sizeof(T);
+  desc.hasOffset = hasOffset;
+  desc.reset = reset;
+  desc.ctor = &CtorComponent<T>;
+  desc.copy = &CopyComponent<T>;
+  desc.dtor = &DtorComponent<T>;
+  reg.Register(desc);
+}
+void RegisterAll(ComponentRegistry& reg) {
   if (reg.Count() > 0) {
     return;
   }
-  reg.Register({ ComponentRegistry::kMesh, "Mesh Renderer", offsetof(Entity, meshGuid), sizeof(Entity::meshGuid), offsetof(Entity, hasMesh), &ResetMesh, nullptr, nullptr });
-  reg.Register({ ComponentRegistry::kLight, "Light", offsetof(Entity, light), sizeof(Entity::light), offsetof(Entity, hasLight), &ResetLight, nullptr, nullptr });
-  reg.Register({ ComponentRegistry::kMaterial, "Material", offsetof(Entity, material), sizeof(Entity::material), offsetof(Entity, hasMaterial), &ResetMaterial, nullptr, nullptr });
-  reg.Register({ ComponentRegistry::kDecal, "Decal", offsetof(Entity, decal), sizeof(Entity::decal), offsetof(Entity, hasDecal), &ResetDecal, nullptr, nullptr });
-  reg.Register({ ComponentRegistry::kLod, "LOD", offsetof(Entity, lod), sizeof(Entity::lod), offsetof(Entity, hasLod), &ResetLod, nullptr, nullptr });
-  reg.Register({ ComponentRegistry::kLightmap, "Lightmap", offsetof(Entity, lightmap), sizeof(Entity::lightmap), offsetof(Entity, hasLightmap), &ResetLightmap, nullptr, nullptr });
-  reg.Register({ ComponentRegistry::kProbe, "Reflection Probe", offsetof(Entity, probe), sizeof(Entity::probe), offsetof(Entity, hasProbe), &ResetProbe, nullptr, nullptr });
-  reg.Register({ ComponentRegistry::kPost, "Post Volume", offsetof(Entity, post), sizeof(Entity::post), offsetof(Entity, hasPost), &ResetPost, nullptr, nullptr });
-  reg.Register({ ComponentRegistry::kFog, "Fog Volume", offsetof(Entity, fog), sizeof(Entity::fog), offsetof(Entity, hasFog), &ResetFog, nullptr, nullptr });
-  reg.Register({ ComponentRegistry::kRigidbody, "Rigidbody", offsetof(Entity, rigidbody), sizeof(Entity::rigidbody), offsetof(Entity, hasRigidbody), &ResetRigidbody, nullptr, nullptr });
-  reg.Register({ ComponentRegistry::kAudioSource, "Audio Source", offsetof(Entity, audioSource), sizeof(Entity::audioSource), offsetof(Entity, hasAudioSource), &ResetAudioSource, nullptr, nullptr });
+  RegisterComponent<std::string>(reg, ComponentRegistry::kMesh, "Mesh Renderer", offsetof(Entity, meshGuid), offsetof(Entity, hasMesh), &ResetMesh);
+  RegisterComponent<LightData>(reg, ComponentRegistry::kLight, "Light", offsetof(Entity, light), offsetof(Entity, hasLight), &ResetLight);
+  RegisterComponent<MaterialData>(reg, ComponentRegistry::kMaterial, "Material", offsetof(Entity, material), offsetof(Entity, hasMaterial), &ResetMaterial);
+  RegisterComponent<DecalData>(reg, ComponentRegistry::kDecal, "Decal", offsetof(Entity, decal), offsetof(Entity, hasDecal), &ResetDecal);
+  RegisterComponent<LodData>(reg, ComponentRegistry::kLod, "LOD", offsetof(Entity, lod), offsetof(Entity, hasLod), &ResetLod);
+  RegisterComponent<LightmapData>(reg, ComponentRegistry::kLightmap, "Lightmap", offsetof(Entity, lightmap), offsetof(Entity, hasLightmap), &ResetLightmap);
+  RegisterComponent<RigidbodyData>(reg, ComponentRegistry::kRigidbody, "Rigidbody", offsetof(Entity, rigidbody), offsetof(Entity, hasRigidbody), &ResetRigidbody);
+  RegisterComponent<AudioSourceData>(reg, ComponentRegistry::kAudioSource, "Audio Source", offsetof(Entity, audioSource), offsetof(Entity, hasAudioSource), &ResetAudioSource);
+  RegisterComponent<ProbeData>(reg, ComponentRegistry::kProbe, "Reflection Probe", offsetof(Entity, probe), offsetof(Entity, hasProbe), &ResetProbe);
+  RegisterComponent<PostData>(reg, ComponentRegistry::kPost, "Post Volume", offsetof(Entity, post), offsetof(Entity, hasPost), &ResetPost);
+  RegisterComponent<FogData>(reg, ComponentRegistry::kFog, "Fog Volume", offsetof(Entity, fog), offsetof(Entity, hasFog), &ResetFog);
 }
 }
 ComponentRegistry& ComponentRegistry::Instance() {
   static ComponentRegistry instance;
-  RegisterAll();
+  RegisterAll(instance);
   return instance;
 }
 void ComponentRegistry::Register(const ComponentTypeDesc& desc) {
-  ComponentTypeDesc copy = desc;
-  copy.id = static_cast<ComponentTypeId>(types.size());
-  types.push_back(copy);
+  if (types.size() <= desc.id) {
+    types.resize(desc.id + 1);
+  }
+  types[desc.id] = desc;
 }
 void ComponentRegistry::SetSerializer(ComponentTypeId id, ComponentWriteFn write, ComponentReadFn read) {
   if (id >= types.size()) {
