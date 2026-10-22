@@ -538,7 +538,7 @@ bool TestPostVolume() {
     return false;
   }
   {
-    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::AddPostCmd(eid));
+    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::AddComponentCmd(eid, Kizuri::FindComponentType("Post Volume")));
     if (!undo.Execute(std::move(cmd), scene)) {
       return false;
     }
@@ -558,7 +558,7 @@ bool TestPostVolume() {
   const Kizuri::Entity* e2 = scene.Get(eid);
   ok = ok && e2 != nullptr && e2->post.exposure == 2.0f && e2->post.toneMap == 2;
   {
-    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::RemovePostCmd(eid));
+    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::RemoveComponentCmd(eid, Kizuri::FindComponentType("Post Volume")));
     if (!undo.Execute(std::move(cmd), scene)) {
       return false;
     }
@@ -1151,7 +1151,7 @@ bool TestVolFog() {
     return false;
   }
   {
-    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::AddFogCmd(eid));
+    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::AddComponentCmd(eid, Kizuri::FindComponentType("Fog Volume")));
     if (!undo.Execute(std::move(cmd), scene)) {
       return false;
     }
@@ -4204,7 +4204,7 @@ bool TestSceneMaterialExt() {
     eid = after.back();
   }
   {
-    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::AddMaterialCmd(eid));
+    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::AddComponentCmd(eid, Kizuri::FindComponentType("Material")));
     if (!undo.Execute(std::move(cmd), src)) {
       return false;
     }
@@ -4310,7 +4310,7 @@ bool TestSceneMaterialExt() {
     initial.alphaMode = 1;
     initial.alphaCutoff = 0.4f;
     initial.unlit = true;
-    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::AddMaterialCmd(eid2, initial));
+    std::unique_ptr<Kizuri::Command> cmd(new Kizuri::AddComponentCmd(eid2, Kizuri::FindComponentType("Material"), &initial));
     if (!undo.Execute(std::move(cmd), src)) {
       return false;
     }
@@ -8285,7 +8285,7 @@ bool TestLightTypeRetention() {
   Kizuri::Scene scene;
   Kizuri::UndoStack undo;
   Kizuri::EntityId a = scene.CreateEntity("A");
-  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddLightCmd(a));
+  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddComponentCmd(a, Kizuri::FindComponentType("Light")));
   if (!undo.Execute(std::move(add), scene)) {
     return false;
   }
@@ -8390,7 +8390,7 @@ bool TestMaterialUndo() {
   Kizuri::UndoStack undo;
   Kizuri::EditQueue edits;
   Kizuri::EntityId a = scene.CreateEntity("A");
-  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddMaterialCmd(a));
+  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddComponentCmd(a, Kizuri::FindComponentType("Material")));
   if (!undo.Execute(std::move(add), scene) || !scene.Get(a)->hasMaterial) {
     return false;
   }
@@ -8424,7 +8424,7 @@ bool TestMaterialUndo() {
   if (!undo.Redo(scene) || scene.Get(a)->material.roughness != 0.1f) {
     return false;
   }
-  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveMaterialCmd(a));
+  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveComponentCmd(a, Kizuri::FindComponentType("Material")));
   if (!undo.Execute(std::move(rem), scene) || scene.Get(a)->hasMaterial) {
     return false;
   }
@@ -8547,7 +8547,7 @@ bool TestDecalUndo() {
   Kizuri::UndoStack undo;
   Kizuri::EditQueue edits;
   Kizuri::EntityId a = scene.CreateEntity("A");
-  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddDecalCmd(a));
+  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddComponentCmd(a, Kizuri::FindComponentType("Decal")));
   if (!undo.Execute(std::move(add), scene) || !scene.Get(a)->hasDecal) {
     return false;
   }
@@ -8573,7 +8573,7 @@ bool TestDecalUndo() {
   if (!undo.Redo(scene) || scene.Get(a)->decal.size[0] != 3.0f) {
     return false;
   }
-  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveDecalCmd(a));
+  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveComponentCmd(a, Kizuri::FindComponentType("Decal")));
   if (!undo.Execute(std::move(rem), scene) || scene.Get(a)->hasDecal) {
     return false;
   }
@@ -8789,7 +8789,7 @@ bool TestLodUndo() {
   Kizuri::UndoStack undo;
   Kizuri::EditQueue edits;
   Kizuri::EntityId a = scene.CreateEntity("A");
-  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddLodCmd(a));
+  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddComponentCmd(a, Kizuri::FindComponentType("LOD")));
   if (!undo.Execute(std::move(add), scene) || !scene.Get(a)->hasLod) {
     return false;
   }
@@ -8812,7 +8812,7 @@ bool TestLodUndo() {
   if (!undo.Redo(scene) || scene.Get(a)->lod.farGuid != "far-1") {
     return false;
   }
-  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveLodCmd(a));
+  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveComponentCmd(a, Kizuri::FindComponentType("LOD")));
   if (!undo.Execute(std::move(rem), scene) || scene.Get(a)->hasLod) {
     return false;
   }
@@ -8869,7 +8869,7 @@ bool TestLightmapUndo() {
   Kizuri::UndoStack undo;
   Kizuri::EditQueue edits;
   Kizuri::EntityId a = scene.CreateEntity("A");
-  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddLightmapCmd(a));
+  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddComponentCmd(a, Kizuri::FindComponentType("Lightmap")));
   if (!undo.Execute(std::move(add), scene) || !scene.Get(a)->hasLightmap) {
     return false;
   }
@@ -8889,7 +8889,7 @@ bool TestLightmapUndo() {
   if (!undo.Redo(scene) || scene.Get(a)->lightmap.intensity != 0.5f) {
     return false;
   }
-  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveLightmapCmd(a));
+  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveComponentCmd(a, Kizuri::FindComponentType("Lightmap")));
   if (!undo.Execute(std::move(rem), scene) || scene.Get(a)->hasLightmap) {
     return false;
   }
@@ -9020,7 +9020,7 @@ bool TestProbeUndo() {
   Kizuri::UndoStack undo;
   Kizuri::EditQueue edits;
   Kizuri::EntityId a = scene.CreateEntity("A");
-  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddProbeCmd(a));
+  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddComponentCmd(a, Kizuri::FindComponentType("Reflection Probe")));
   if (!undo.Execute(std::move(add), scene) || !scene.Get(a)->hasProbe) {
     return false;
   }
@@ -9039,7 +9039,7 @@ bool TestProbeUndo() {
   if (!undo.Redo(scene) || scene.Get(a)->probe.size[0] != 10.0f) {
     return false;
   }
-  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveProbeCmd(a));
+  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveComponentCmd(a, Kizuri::FindComponentType("Reflection Probe")));
   if (!undo.Execute(std::move(rem), scene) || scene.Get(a)->hasProbe) {
     return false;
   }
@@ -9123,7 +9123,7 @@ bool TestLightUndo() {
   Kizuri::UndoStack undo;
   Kizuri::EditQueue edits;
   Kizuri::EntityId a = scene.CreateEntity("A");
-  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddLightCmd(a));
+  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddComponentCmd(a, Kizuri::FindComponentType("Light")));
   if (!undo.Execute(std::move(add), scene) || !scene.Get(a)->hasLight) {
     return false;
   }
@@ -9151,7 +9151,7 @@ bool TestLightUndo() {
   if (!undo.Redo(scene) || scene.Get(a)->light.intensity != 10.0f) {
     return false;
   }
-  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveLightCmd(a));
+  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveComponentCmd(a, Kizuri::FindComponentType("Light")));
   if (!undo.Execute(std::move(rem), scene) || scene.Get(a)->hasLight) {
     return false;
   }
@@ -9601,11 +9601,11 @@ bool TestAddRemoveMeshComponent() {
   if (scene.Get(a)->hasMesh) {
     return false;
   }
-  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddMeshCmd(a));
+  std::unique_ptr<Kizuri::Command> add(new Kizuri::AddComponentCmd(a, Kizuri::FindComponentType("Mesh Renderer")));
   if (!undo.Execute(std::move(add), scene) || !scene.Get(a)->hasMesh) {
     return false;
   }
-  std::unique_ptr<Kizuri::Command> addAgain(new Kizuri::AddMeshCmd(a));
+  std::unique_ptr<Kizuri::Command> addAgain(new Kizuri::AddComponentCmd(a, Kizuri::FindComponentType("Mesh Renderer")));
   if (undo.Execute(std::move(addAgain), scene)) {
     return false;
   }
@@ -9613,7 +9613,7 @@ bool TestAddRemoveMeshComponent() {
   if (!undo.Execute(std::move(set), scene)) {
     return false;
   }
-  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveMeshCmd(a));
+  std::unique_ptr<Kizuri::Command> rem(new Kizuri::RemoveComponentCmd(a, Kizuri::FindComponentType("Mesh Renderer")));
   if (!undo.Execute(std::move(rem), scene)) {
     return false;
   }

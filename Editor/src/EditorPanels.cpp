@@ -3560,7 +3560,7 @@ void EditorApp::DrawMeshSection(Entity* e) {
           if (!found) {
             continue;
           }
-          std::unique_ptr<Command> ac(new AddLightCmd(nid));
+          std::unique_ptr<Command> ac(new AddComponentCmd(nid, FindComponentType("Light")));
           if (!undo.Execute(std::move(ac), scene)) {
             continue;
           }

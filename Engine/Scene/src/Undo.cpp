@@ -351,56 +351,6 @@ bool SetMeshGuidCmd::Revert(Scene& scene) {
 const char* SetMeshGuidCmd::Name() const {
   return "Set Mesh";
 }
-bool AddMeshCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || e->hasMesh) {
-    return false;
-  }
-  e->hasMesh = true;
-  scene.MarkDirty();
-  return true;
-}
-bool AddMeshCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->hasMesh = false;
-  e->meshGuid = prevGuid;
-  scene.MarkDirty();
-  return true;
-}
-const char* AddMeshCmd::Name() const {
-  return "Add Mesh";
-}
-bool RemoveMeshCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || !e->hasMesh) {
-    return false;
-  }
-  prevGuid = e->meshGuid;
-  e->hasMesh = false;
-  e->meshGuid.clear();
-  applied = true;
-  scene.MarkDirty();
-  return true;
-}
-bool RemoveMeshCmd::Revert(Scene& scene) {
-  if (!applied) {
-    return false;
-  }
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->hasMesh = true;
-  e->meshGuid = prevGuid;
-  scene.MarkDirty();
-  return true;
-}
-const char* RemoveMeshCmd::Name() const {
-  return "Remove Mesh";
-}
 SetLightCmd::SetLightCmd(EntityId t, const LightData& b, const LightData& a)
   : target(t)
   , before(b)
@@ -426,56 +376,6 @@ bool SetLightCmd::Revert(Scene& scene) {
 }
 const char* SetLightCmd::Name() const {
   return "Set Light";
-}
-bool AddLightCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || e->hasLight) {
-    return false;
-  }
-  prevLight = e->light;
-  prevHas = e->hasLight;
-  e->hasLight = true;
-  MakeDefaultLight(e->light);
-  scene.MarkDirty();
-  return true;
-}
-bool AddLightCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->light = prevLight;
-  e->hasLight = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* AddLightCmd::Name() const {
-  return "Add Light";
-}
-bool RemoveLightCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || !e->hasLight) {
-    return false;
-  }
-  prevLight = e->light;
-  prevHas = e->hasLight;
-  e->hasLight = false;
-  MakeDefaultLight(e->light);
-  scene.MarkDirty();
-  return true;
-}
-bool RemoveLightCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->light = prevLight;
-  e->hasLight = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* RemoveLightCmd::Name() const {
-  return "Remove Light";
 }
 SetMaterialCmd::SetMaterialCmd(EntityId t, const MaterialData& b, const MaterialData& a)
   : target(t)
@@ -643,60 +543,6 @@ bool RemovePartMaterialCmd::Revert(Scene& scene) {
 const char* RemovePartMaterialCmd::Name() const {
   return "Remove Part Material";
 }
-bool AddMaterialCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || e->hasMaterial) {
-    return false;
-  }
-  prevMaterial = e->material;
-  prevHas = e->hasMaterial;
-  e->hasMaterial = true;
-  if (useInitial) {
-    e->material = initialMaterial;
-  } else {
-    MakeDefaultMaterial(e->material);
-  }
-  scene.MarkDirty();
-  return true;
-}
-bool AddMaterialCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->material = prevMaterial;
-  e->hasMaterial = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* AddMaterialCmd::Name() const {
-  return "Add Material";
-}
-bool RemoveMaterialCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || !e->hasMaterial) {
-    return false;
-  }
-  prevMaterial = e->material;
-  prevHas = e->hasMaterial;
-  e->hasMaterial = false;
-  MakeDefaultMaterial(e->material);
-  scene.MarkDirty();
-  return true;
-}
-bool RemoveMaterialCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->material = prevMaterial;
-  e->hasMaterial = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* RemoveMaterialCmd::Name() const {
-  return "Remove Material";
-}
 SetDecalCmd::SetDecalCmd(EntityId t, const DecalData& b, const DecalData& a)
   : target(t)
   , before(b)
@@ -722,56 +568,6 @@ bool SetDecalCmd::Revert(Scene& scene) {
 }
 const char* SetDecalCmd::Name() const {
   return "Set Decal";
-}
-bool AddDecalCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || e->hasDecal) {
-    return false;
-  }
-  prevDecal = e->decal;
-  prevHas = e->hasDecal;
-  e->hasDecal = true;
-  MakeDefaultDecal(e->decal);
-  scene.MarkDirty();
-  return true;
-}
-bool AddDecalCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->decal = prevDecal;
-  e->hasDecal = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* AddDecalCmd::Name() const {
-  return "Add Decal";
-}
-bool RemoveDecalCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || !e->hasDecal) {
-    return false;
-  }
-  prevDecal = e->decal;
-  prevHas = e->hasDecal;
-  e->hasDecal = false;
-  MakeDefaultDecal(e->decal);
-  scene.MarkDirty();
-  return true;
-}
-bool RemoveDecalCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->decal = prevDecal;
-  e->hasDecal = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* RemoveDecalCmd::Name() const {
-  return "Remove Decal";
 }
 SetPostCmd::SetPostCmd(EntityId t, const PostData& b, const PostData& a)
   : target(t)
@@ -799,56 +595,6 @@ bool SetPostCmd::Revert(Scene& scene) {
 const char* SetPostCmd::Name() const {
   return "Set Post Volume";
 }
-bool AddPostCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || e->hasPost) {
-    return false;
-  }
-  prevPost = e->post;
-  prevHas = e->hasPost;
-  e->hasPost = true;
-  MakeDefaultPost(e->post);
-  scene.MarkDirty();
-  return true;
-}
-bool AddPostCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->post = prevPost;
-  e->hasPost = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* AddPostCmd::Name() const {
-  return "Add Post Volume";
-}
-bool RemovePostCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || !e->hasPost) {
-    return false;
-  }
-  prevPost = e->post;
-  prevHas = e->hasPost;
-  e->hasPost = false;
-  MakeDefaultPost(e->post);
-  scene.MarkDirty();
-  return true;
-}
-bool RemovePostCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->post = prevPost;
-  e->hasPost = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* RemovePostCmd::Name() const {
-  return "Remove Post Volume";
-}
 SetFogCmd::SetFogCmd(EntityId t, const FogData& b, const FogData& a)
   : target(t)
   , before(b)
@@ -874,56 +620,6 @@ bool SetFogCmd::Revert(Scene& scene) {
 }
 const char* SetFogCmd::Name() const {
   return "Set Fog Volume";
-}
-bool AddFogCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || e->hasFog) {
-    return false;
-  }
-  prevFog = e->fog;
-  prevHas = e->hasFog;
-  e->hasFog = true;
-  MakeDefaultFog(e->fog);
-  scene.MarkDirty();
-  return true;
-}
-bool AddFogCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->fog = prevFog;
-  e->hasFog = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* AddFogCmd::Name() const {
-  return "Add Fog Volume";
-}
-bool RemoveFogCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || !e->hasFog) {
-    return false;
-  }
-  prevFog = e->fog;
-  prevHas = e->hasFog;
-  e->hasFog = false;
-  MakeDefaultFog(e->fog);
-  scene.MarkDirty();
-  return true;
-}
-bool RemoveFogCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->fog = prevFog;
-  e->hasFog = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* RemoveFogCmd::Name() const {
-  return "Remove Fog Volume";
 }
 SetLodCmd::SetLodCmd(EntityId t, const LodData& b, const LodData& a)
   : target(t)
@@ -977,56 +673,6 @@ bool SetStaticCmd::Revert(Scene& scene) {
 const char* SetStaticCmd::Name() const {
   return "Set Static";
 }
-bool AddLodCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || e->hasLod) {
-    return false;
-  }
-  prevLod = e->lod;
-  prevHas = e->hasLod;
-  e->hasLod = true;
-  MakeDefaultLod(e->lod);
-  scene.MarkDirty();
-  return true;
-}
-bool AddLodCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->lod = prevLod;
-  e->hasLod = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* AddLodCmd::Name() const {
-  return "Add LOD";
-}
-bool RemoveLodCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || !e->hasLod) {
-    return false;
-  }
-  prevLod = e->lod;
-  prevHas = e->hasLod;
-  e->hasLod = false;
-  MakeDefaultLod(e->lod);
-  scene.MarkDirty();
-  return true;
-}
-bool RemoveLodCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->lod = prevLod;
-  e->hasLod = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* RemoveLodCmd::Name() const {
-  return "Remove LOD";
-}
 SetRigidbodyCmd::SetRigidbodyCmd(EntityId t, const RigidbodyData& b, const RigidbodyData& a)
   : target(t)
   , before(b)
@@ -1052,55 +698,6 @@ bool SetRigidbodyCmd::Revert(Scene& scene) {
 }
 const char* SetRigidbodyCmd::Name() const {
   return "Set Rigidbody";
-}
-bool AddRigidbodyCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || e->hasRigidbody) {
-    return false;
-  }
-  prevRb = e->rigidbody;
-  prevHas = e->hasRigidbody;
-  e->hasRigidbody = true;
-  MakeDefaultRigidbody(e->rigidbody);
-  scene.MarkDirty();
-  return true;
-}
-bool AddRigidbodyCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->rigidbody = prevRb;
-  e->hasRigidbody = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* AddRigidbodyCmd::Name() const {
-  return "Add Rigidbody";
-}
-bool RemoveRigidbodyCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || !e->hasRigidbody) {
-    return false;
-  }
-  prevRb = e->rigidbody;
-  prevHas = e->hasRigidbody;
-  e->hasRigidbody = false;
-  scene.MarkDirty();
-  return true;
-}
-bool RemoveRigidbodyCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->rigidbody = prevRb;
-  e->hasRigidbody = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* RemoveRigidbodyCmd::Name() const {
-  return "Remove Rigidbody";
 }
 SetAudioSourceCmd::SetAudioSourceCmd(EntityId t, const AudioSourceData& b, const AudioSourceData& a)
   : target(t)
@@ -1128,55 +725,6 @@ bool SetAudioSourceCmd::Revert(Scene& scene) {
 const char* SetAudioSourceCmd::Name() const {
   return "Set Audio Source";
 }
-bool AddAudioSourceCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || e->hasAudioSource) {
-    return false;
-  }
-  prevAs = e->audioSource;
-  prevHas = e->hasAudioSource;
-  e->hasAudioSource = true;
-  MakeDefaultAudioSource(e->audioSource);
-  scene.MarkDirty();
-  return true;
-}
-bool AddAudioSourceCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->audioSource = prevAs;
-  e->hasAudioSource = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* AddAudioSourceCmd::Name() const {
-  return "Add Audio Source";
-}
-bool RemoveAudioSourceCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || !e->hasAudioSource) {
-    return false;
-  }
-  prevAs = e->audioSource;
-  prevHas = e->hasAudioSource;
-  e->hasAudioSource = false;
-  scene.MarkDirty();
-  return true;
-}
-bool RemoveAudioSourceCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->audioSource = prevAs;
-  e->hasAudioSource = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* RemoveAudioSourceCmd::Name() const {
-  return "Remove Audio Source";
-}
 SetLightmapCmd::SetLightmapCmd(EntityId t, const LightmapData& b, const LightmapData& a)
   : target(t)
   , before(b)
@@ -1203,56 +751,6 @@ bool SetLightmapCmd::Revert(Scene& scene) {
 const char* SetLightmapCmd::Name() const {
   return "Set Lightmap";
 }
-bool AddLightmapCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || e->hasLightmap) {
-    return false;
-  }
-  prevLightmap = e->lightmap;
-  prevHas = e->hasLightmap;
-  e->hasLightmap = true;
-  MakeDefaultLightmap(e->lightmap);
-  scene.MarkDirty();
-  return true;
-}
-bool AddLightmapCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->lightmap = prevLightmap;
-  e->hasLightmap = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* AddLightmapCmd::Name() const {
-  return "Add Lightmap";
-}
-bool RemoveLightmapCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || !e->hasLightmap) {
-    return false;
-  }
-  prevLightmap = e->lightmap;
-  prevHas = e->hasLightmap;
-  e->hasLightmap = false;
-  MakeDefaultLightmap(e->lightmap);
-  scene.MarkDirty();
-  return true;
-}
-bool RemoveLightmapCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->lightmap = prevLightmap;
-  e->hasLightmap = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* RemoveLightmapCmd::Name() const {
-  return "Remove Lightmap";
-}
 SetProbeCmd::SetProbeCmd(EntityId t, const ProbeData& b, const ProbeData& a)
   : target(t)
   , before(b)
@@ -1278,56 +776,6 @@ bool SetProbeCmd::Revert(Scene& scene) {
 }
 const char* SetProbeCmd::Name() const {
   return "Set Probe";
-}
-bool AddProbeCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || e->hasProbe) {
-    return false;
-  }
-  prevProbe = e->probe;
-  prevHas = e->hasProbe;
-  e->hasProbe = true;
-  MakeDefaultProbe(e->probe);
-  scene.MarkDirty();
-  return true;
-}
-bool AddProbeCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->probe = prevProbe;
-  e->hasProbe = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* AddProbeCmd::Name() const {
-  return "Add Probe";
-}
-bool RemoveProbeCmd::Apply(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr || !e->hasProbe) {
-    return false;
-  }
-  prevProbe = e->probe;
-  prevHas = e->hasProbe;
-  e->hasProbe = false;
-  MakeDefaultProbe(e->probe);
-  scene.MarkDirty();
-  return true;
-}
-bool RemoveProbeCmd::Revert(Scene& scene) {
-  Entity* e = scene.Get(target);
-  if (e == nullptr) {
-    return false;
-  }
-  e->probe = prevProbe;
-  e->hasProbe = prevHas;
-  scene.MarkDirty();
-  return true;
-}
-const char* RemoveProbeCmd::Name() const {
-  return "Remove Probe";
 }
 SetParentCmd::SetParentCmd(EntityId c, EntityId b, EntityId a)
   : child(c)
