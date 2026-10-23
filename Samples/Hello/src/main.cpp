@@ -4242,6 +4242,9 @@ bool TestEcsStorage() {
   if (last == nullptr || first == nullptr || last->position[0] != 3.0f || first->position[0] != 1.0f) {
     return false;
   }
+  if (!world.DestroyEntity(ids[1])) {
+    return false;
+  }
   Kizuri::EntityId recycled = world.CreateEntity();
   if (!recycled.IsValid() || recycled.index != ids[1].index || recycled.generation == ids[1].generation) {
     return false;
