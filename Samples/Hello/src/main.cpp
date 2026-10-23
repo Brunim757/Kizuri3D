@@ -4366,6 +4366,58 @@ bool TestEcsScheduler() {
   jobs.Shutdown();
   return ok;
 }
+bool TestEcsSchedulerOrdering() {
+  Kizuri::JobSystem jobs;
+  if (!jobs.Initialize()) {
+    return false;
+  }
+  Kizuri::EcsWorld world;
+  Kizuri::EntityId id = world.CreateEntity();
+  Kizuri::Transform transform;
+  Kizuri::MakeIdentityTransform(transform);
+  if (!world.AddComponent(id, Kizuri::kEcsTransform, &transform)) {
+    jobs.Shutdown();
+    return false;
+  }
+  Kizuri::EcsSystemScheduler scheduler;
+  std::atomic<int> phase(0);
+  std::atomic<int> bad(0);
+  const Kizuri::EcsComponentMask mask = Kizuri::EcsBit(Kizuri::kEcsTransform);
+  scheduler.AddSystem("write-a", mask, mask, [&](Kizuri::EcsWorld& w, float) {
+    Kizuri::Transform* t = static_cast<Kizuri::Transform*>(w.GetComponent(id, Kizuri::kEcsTransform));
+    if (t == nullptr) {
+      bad.store(1);
+      return;
+    }
+    t->position[0] = 1.0f;
+    phase.store(1);
+  });
+  scheduler.AddSystem("read-b", mask, 0, [&](Kizuri::EcsWorld& w, float) {
+    Kizuri::Transform* t = static_cast<Kizuri::Transform*>(w.GetComponent(id, Kizuri::kEcsTransform));
+    if (t == nullptr || phase.load() != 1 || t->position[0] != 1.0f) {
+      bad.store(1);
+    }
+  });
+  scheduler.AddSystem("write-c", mask, mask, [&](Kizuri::EcsWorld& w, float) {
+    Kizuri::Transform* t = static_cast<Kizuri::Transform*>(w.GetComponent(id, Kizuri::kEcsTransform));
+    if (t == nullptr) {
+      bad.store(1);
+      return;
+    }
+    t->position[0] = 2.0f;
+    phase.store(2);
+  });
+  scheduler.AddSystem("read-d", mask, 0, [&](Kizuri::EcsWorld& w, float) {
+    Kizuri::Transform* t = static_cast<Kizuri::Transform*>(w.GetComponent(id, Kizuri::kEcsTransform));
+    if (t == nullptr || phase.load() != 2 || t->position[0] != 2.0f) {
+      bad.store(1);
+    }
+  });
+  const size_t waves = scheduler.Run(world, jobs, 1.0f / 60.0f);
+  const bool ok = bad.load() == 0 && waves == 4 && scheduler.WaveCount() == 4 && scheduler.SystemCount() == 4;
+  jobs.Shutdown();
+  return ok;
+}
 bool TestEcsSceneBridge() {
   Kizuri::Scene scene;
   Kizuri::EntityId root = scene.CreateEntity("Root");

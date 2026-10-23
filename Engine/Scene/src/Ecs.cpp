@@ -405,9 +405,16 @@ bool EcsSystemScheduler::Conflicts(const System& a, const System& b) {
 }
 size_t EcsSystemScheduler::Run(EcsWorld& world, JobSystem& jobs, float dt) {
   std::vector<std::vector<size_t>> waves;
+  std::vector<size_t> assigned(systems.size(), 0);
   for (size_t i = 0; i < systems.size(); ++i) {
-    bool placed = false;
-    for (size_t w = 0; w < waves.size(); ++w) {
+    size_t minWave = 0;
+    for (size_t j = 0; j < i; ++j) {
+      if (Conflicts(systems[i], systems[j]) && assigned[j] + 1 > minWave) {
+        minWave = assigned[j] + 1;
+      }
+    }
+    size_t target = waves.size();
+    for (size_t w = minWave; w < waves.size(); ++w) {
       bool conflict = false;
       for (size_t s = 0; s < waves[w].size(); ++s) {
         if (Conflicts(systems[i], systems[waves[w][s]])) {
@@ -416,14 +423,16 @@ size_t EcsSystemScheduler::Run(EcsWorld& world, JobSystem& jobs, float dt) {
         }
       }
       if (!conflict) {
-        waves[w].push_back(i);
-        placed = true;
+        target = w;
         break;
       }
     }
-    if (!placed) {
+    if (target == waves.size()) {
       waves.push_back(std::vector<size_t>(1, i));
+    } else {
+      waves[target].push_back(i);
     }
+    assigned[i] = target;
   }
   for (size_t w = 0; w < waves.size(); ++w) {
     if (waves[w].size() == 1) {
