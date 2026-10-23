@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <fstream>
 #include <filesystem>
+#include <utility>
 #include <shellapi.h>
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 namespace Kizuri {
@@ -32,6 +33,13 @@ EditorApp::EditorApp()
   : rhi(nullptr)
   , cubeReady(false)
   , running(false)
+  , playActive(false)
+  , playPaused(false)
+  , playWasSimulate(false)
+  , playCameraPos{ 0.0f, 0.0f, 0.0f }
+  , playCameraYaw(0.0f)
+  , playCameraPitch(0.0f)
+  , playSoloLight(EntityId::Invalid())
   , showHierarchy(true)
   , showInspector(true)
   , showConsole(true)
@@ -658,14 +666,19 @@ int EditorApp::Run() {
     if (dt > 0.1f) {
       dt = 0.1f;
     }
-    edits.ApplyAll(scene, undo);
-    if (autosave.Update(dt, scene, CurrentRecoveryPath())) {
-      log.Add(LogLevel::Info, "Autosaved");
+    if (!playActive) {
+      edits.ApplyAll(scene, undo);
+      if (autosave.Update(dt, scene, CurrentRecoveryPath())) {
+        log.Add(LogLevel::Info, "Autosaved");
+      }
     }
     notifications.Update(dt);
     PumpAssets();
     RawInputPoll::Poll();
     frameDt = dt;
+    if (playActive) {
+      TickPlay(dt);
+    }
     if (dt > 0.0001f) {
       double inst = 1.0 / static_cast<double>(dt);
       if (inst > 1000.0) {
@@ -719,6 +732,10 @@ void EditorApp::UpdateCamera(float dt, bool lookNow) {
     lookNow ? static_cast<float>(mdy) : 0.0f);
 }
 void EditorApp::CreateEntityAt(float x, float y, float z, const std::string& meshGuid) {
+  if (playActive) {
+    Announce(LogLevel::Warning, "Stop Play-in-Editor before editing the scene");
+    return;
+  }
   Transform t;
   MakeIdentityTransform(t);
   t.position[0] = x;
@@ -733,6 +750,10 @@ void EditorApp::CreateEntityAt(float x, float y, float z, const std::string& mes
   log.Add(LogLevel::Info, "Created Entity");
 }
 void EditorApp::DoUndo() {
+  if (playActive) {
+    Announce(LogLevel::Warning, "Stop Play-in-Editor before using Undo");
+    return;
+  }
   if (!undo.CanUndo()) {
     return;
   }
@@ -742,6 +763,10 @@ void EditorApp::DoUndo() {
   log.Add(LogLevel::Info, std::string("Undo ") + name);
 }
 void EditorApp::DoRedo() {
+  if (playActive) {
+    Announce(LogLevel::Warning, "Stop Play-in-Editor before using Redo");
+    return;
+  }
   if (!undo.CanRedo()) {
     return;
   }
@@ -774,7 +799,133 @@ void EditorApp::SelectNewEntity(const std::vector<EntityId>& beforeIds) {
     }
   }
 }
+void EditorApp::ClearPlayRuntime() {
+  if (physReady) {
+    for (std::unordered_map<EntityId, PhysEntry, EntityIdHash>::const_iterator it = physBodies.begin(); it != physBodies.end(); ++it) {
+      if (physWorld.HasBody(it->second.body)) {
+        physWorld.DestroyBody(it->second.body);
+      }
+    }
+    physWorld.Shutdown();
+    physJobs.Shutdown();
+    physReady = false;
+  }
+  physBodies.clear();
+  if (audioReady) {
+    for (std::unordered_map<EntityId, AudioEntry, EntityIdHash>::const_iterator it = audioSources.begin(); it != audioSources.end(); ++it) {
+      audio.RemoveSource(it->second.sourceId);
+    }
+  }
+  audioSources.clear();
+}
+void EditorApp::StartPlay() {
+  if (playActive) {
+    return;
+  }
+  edits.ApplyAll(scene, undo);
+  std::vector<EntitySnapshot> roots;
+  const std::vector<EntityId> all = scene.All();
+  for (size_t i = 0; i < all.size(); ++i) {
+    const Entity* e = scene.Get(all[i]);
+    if (e == nullptr || e->parent.IsValid()) {
+      continue;
+    }
+    EntitySnapshot snapshot;
+    if (!snapshot.Capture(scene, all[i])) {
+      Announce(LogLevel::Error, "Play-in-Editor: failed to capture scene");
+      return;
+    }
+    roots.push_back(std::move(snapshot));
+  }
+  playScene.Clear();
+  for (size_t i = 0; i < roots.size(); ++i) {
+    if (!roots[i].Restore(playScene, EntityId::Invalid())) {
+      playScene.Clear();
+      Announce(LogLevel::Error, "Play-in-Editor: failed to build play scene");
+      return;
+    }
+  }
+  double ox = 0.0;
+  double oy = 0.0;
+  double oz = 0.0;
+  scene.Origin().GetOrigin(ox, oy, oz);
+  playScene.Origin().SetOrigin(ox, oy, oz);
+  playWasSimulate = viewSimulate;
+  viewSimulate = false;
+  playSelection = selection.All();
+  playSoloLight = soloLightId;
+  camera.GetPosition(playCameraPos[0], playCameraPos[1], playCameraPos[2]);
+  camera.GetYawPitch(playCameraYaw, playCameraPitch);
+  ClearPlayRuntime();
+  std::swap(scene, playScene);
+  scene.ClearDirty();
+  selection.Clear();
+  soloLightId = EntityId::Invalid();
+  gizmoDragging = false;
+  gizmoTarget = EntityId::Invalid();
+  gizmoOrigins.clear();
+  contextPick = EntityId::Invalid();
+  renameActive = false;
+  playActive = true;
+  playPaused = false;
+  playLoop = GameLoop();
+  playLoop.SetFixedStep(1.0f / 60.0f);
+  playLoop.SetMaxStepsPerFrame(4);
+  playLoop.AddUpdateSystem("physics", [this](float dt, float alpha) {
+    (void)alpha;
+    SyncPhysics(dt);
+  });
+  playLoop.AddUpdateSystem("audio", [this](float dt, float alpha) {
+    (void)alpha;
+    SyncAudio(dt);
+  });
+  playLoop.SetState(GameState::Running);
+  Announce(LogLevel::Success, "Play-in-Editor started");
+}
+void EditorApp::StopPlay() {
+  if (!playActive) {
+    return;
+  }
+  playActive = false;
+  playPaused = false;
+  std::swap(scene, playScene);
+  playScene.Clear();
+  ClearPlayRuntime();
+  viewSimulate = playWasSimulate;
+  camera.SetPosition(playCameraPos[0], playCameraPos[1], playCameraPos[2]);
+  camera.SetYawPitch(playCameraYaw, playCameraPitch);
+  selection.Clear();
+  for (size_t i = 0; i < playSelection.size(); ++i) {
+    if (!scene.Has(playSelection[i])) {
+      continue;
+    }
+    if (selection.IsEmpty()) {
+      selection.Select(playSelection[i]);
+    } else {
+      selection.Add(playSelection[i]);
+    }
+  }
+  soloLightId = scene.Has(playSoloLight) ? playSoloLight : EntityId::Invalid();
+  gizmoDragging = false;
+  gizmoTarget = EntityId::Invalid();
+  gizmoOrigins.clear();
+  contextPick = EntityId::Invalid();
+  renameActive = false;
+  playLoop = GameLoop();
+  Announce(LogLevel::Info, "Play-in-Editor stopped");
+}
+void EditorApp::TickPlay(float dt) {
+  if (!playActive) {
+    return;
+  }
+  playLoop.SetState(playPaused ? GameState::Paused : GameState::Running);
+  playLoop.Tick(dt);
+}
 void EditorApp::DuplicateViaCommand(EntityId id) {
+  if (playActive) {
+    Announce(LogLevel::Warning, "Stop Play-in-Editor before editing the scene");
+    return;
+  }
   const Entity* e = scene.Get(id);
   if (e == nullptr) {
     Announce(LogLevel::Warning, "Cannot duplicate: entity not found");
@@ -790,6 +941,10 @@ void EditorApp::DuplicateViaCommand(EntityId id) {
   Announce(LogLevel::Success, std::string("Duplicated ") + name);
 }
 void EditorApp::DeleteViaCommand(EntityId id) {
+  if (playActive) {
+    Announce(LogLevel::Warning, "Stop Play-in-Editor before editing the scene");
+    return;
+  }
   const Entity* e = scene.Get(id);
   if (e == nullptr) {
     Announce(LogLevel::Warning, "Cannot delete: entity not found");
@@ -929,6 +1084,30 @@ void EditorApp::EnsureDocked(const char* name, uint32_t nodeId) {
 }
 void EditorApp::DrawToolbar() {
   const float width = ImGui::GetWindowWidth();
+  ImGui::SameLine(width - 660.0f);
+  if (!playActive) {
+    ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(30, 120, 72, 255));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(42, 150, 90, 255));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(22, 96, 58, 255));
+    const bool start = ImGui::Button("Play");
+    ImGui::PopStyleColor(3);
+    if (start) {
+      StartPlay();
+    }
+  } else {
+    if (ImGui::Button(playPaused ? "Resume" : "Pause")) {
+      playPaused = !playPaused;
+    }
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(150, 48, 48, 255));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(185, 62, 62, 255));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(120, 36, 36, 255));
+    const bool stop = ImGui::Button("Stop");
+    ImGui::PopStyleColor(3);
+    if (stop) {
+      StopPlay();
+    }
+  }
   ImGui::SameLine(width - 430.0f);
   ImGui::TextUnformatted("|");
   ImGui::SameLine();
@@ -1095,6 +1274,10 @@ void EditorApp::RefreshTitle() {
   SetWindowTextW(static_cast<HWND>(window.NativeHandle()), wide);
 }
 void EditorApp::RequestAction(int action) {
+  if (playActive && action != 3) {
+    Announce(LogLevel::Warning, "Stop Play-in-Editor before changing scenes");
+    return;
+  }
   if (scene.IsDirty()) {
     pendingAction = action;
     savePromptQueued = true;
@@ -1104,6 +1287,11 @@ void EditorApp::RequestAction(int action) {
   RunPendingAction();
 }
 void EditorApp::RunPendingAction() {
+  if (playActive) {
+    pendingAction = 0;
+    Announce(LogLevel::Warning, "Stop Play-in-Editor before changing scenes");
+    return;
+  }
   int action = pendingAction;
   pendingAction = 0;
   if (action == 1) {
@@ -1344,6 +1532,10 @@ void EditorApp::DrawRestorePrompt() {
   }
 }
 void EditorApp::DoNewScene() {
+  if (playActive) {
+    Announce(LogLevel::Warning, "Stop Play-in-Editor before creating a new scene");
+    return;
+  }
   scene.Clear();
   selection.Clear();
   edits.Clear();
@@ -1354,6 +1546,10 @@ void EditorApp::DoNewScene() {
   log.Add(LogLevel::Warning, "Scene cleared");
 }
 void EditorApp::DoSaveTo(const std::string& path) {
+  if (playActive) {
+    Announce(LogLevel::Warning, "Stop Play-in-Editor before saving the scene");
+    return;
+  }
   if (SaveSceneToFile(scene, path)) {
     currentPath = path;
     scene.ClearDirty();
@@ -1366,6 +1562,10 @@ void EditorApp::DoSaveTo(const std::string& path) {
   }
 }
 void EditorApp::DoOpenPath(const std::string& path) {
+  if (playActive) {
+    Announce(LogLevel::Warning, "Stop Play-in-Editor before opening a scene");
+    return;
+  }
   if (LoadSceneFromFile(scene, path, &log)) {
     currentPath = path;
     selection.Clear();

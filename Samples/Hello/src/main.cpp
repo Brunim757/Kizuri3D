@@ -52,6 +52,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <utility>
 #include <TaskScheduler.h>
 #include <cstdio>
 #include <cmath>
@@ -4092,6 +4093,100 @@ bool TestSceneDuplicate() {
     return false;
   }
   if (scene.DuplicateEntity(Kizuri::EntityId::Invalid()).IsValid()) {
+    return false;
+  }
+  return true;
+}
+bool TestPlaySceneSnapshotIsolation() {
+  Kizuri::Scene edit;
+  Kizuri::EntityId root = edit.CreateEntity("Player");
+  Kizuri::EntityId child = edit.CreateEntity("Weapon");
+  if (!edit.SetParent(child, root)) {
+    return false;
+  }
+  Kizuri::Entity* e = edit.Get(root);
+  if (e == nullptr) {
+    return false;
+  }
+  e->hasLight = true;
+  Kizuri::MakeDefaultLight(e->light);
+  e->light.intensity = 4.0f;
+  e->hasMesh = true;
+  e->meshGuid = "player-mesh";
+  Kizuri::Entity* c = edit.Get(child);
+  if (c == nullptr) {
+    return false;
+  }
+  c->hasRigidbody = true;
+  Kizuri::MakeDefaultRigidbody(c->rigidbody);
+  c->rigidbody.mass = 2.0f;
+  std::vector<Kizuri::EntitySnapshot> roots;
+  const std::vector<Kizuri::EntityId> ids = edit.All();
+  for (size_t i = 0; i < ids.size(); ++i) {
+    const Kizuri::Entity* ent = edit.Get(ids[i]);
+    if (ent == nullptr || ent->parent.IsValid()) {
+      continue;
+    }
+    Kizuri::EntitySnapshot snapshot;
+    if (!snapshot.Capture(edit, ids[i])) {
+      return false;
+    }
+    roots.push_back(std::move(snapshot));
+  }
+  Kizuri::Scene play;
+  for (size_t i = 0; i < roots.size(); ++i) {
+    if (!roots[i].Restore(play, Kizuri::EntityId::Invalid())) {
+      return false;
+    }
+  }
+  std::swap(edit, play);
+  Kizuri::EntityId runtimeRoot = Kizuri::EntityId::Invalid();
+  Kizuri::EntityId runtimeChild = Kizuri::EntityId::Invalid();
+  const std::vector<Kizuri::EntityId> runtimeIds = edit.All();
+  for (size_t i = 0; i < runtimeIds.size(); ++i) {
+    const Kizuri::Entity* ent = edit.Get(runtimeIds[i]);
+    if (ent == nullptr) {
+      return false;
+    }
+    if (ent->name == "Player") {
+      runtimeRoot = runtimeIds[i];
+    } else if (ent->name == "Weapon") {
+      runtimeChild = runtimeIds[i];
+    }
+  }
+  if (!runtimeRoot.IsValid() || !runtimeChild.IsValid()) {
+    return false;
+  }
+  Kizuri::Entity* runtime = edit.Get(runtimeRoot);
+  if (runtime == nullptr || !runtime->hasMesh || !runtime->hasLight || runtime->light.intensity != 4.0f || runtime->children.size() != 1 || runtime->children[0] != runtimeChild) {
+    return false;
+  }
+  runtime->name = "RuntimePlayer";
+  runtime->light.intensity = 9.0f;
+  runtime->meshGuid = "runtime-mesh";
+  Kizuri::EntityId backupRoot = Kizuri::EntityId::Invalid();
+  const std::vector<Kizuri::EntityId> backupIds = play.All();
+  for (size_t i = 0; i < backupIds.size(); ++i) {
+    const Kizuri::Entity* ent = play.Get(backupIds[i]);
+    if (ent != nullptr && ent->name == "Player") {
+      backupRoot = backupIds[i];
+      break;
+    }
+  }
+  const Kizuri::Entity* backup = play.Get(backupRoot);
+  if (backup == nullptr || backup->light.intensity != 4.0f || backup->meshGuid != "player-mesh") {
+    return false;
+  }
+  std::swap(edit, play);
+  const Kizuri::Entity* restored = edit.Get(root);
+  if (restored == nullptr || restored->name != "Player" || !restored->hasMesh || restored->meshGuid != "player-mesh" || !restored->hasLight || restored->light.intensity != 4.0f) {
+    return false;
+  }
+  if (restored->children.size() != 1 || restored->children[0] != child || edit.Count() != 2) {
+    return false;
+  }
+  const Kizuri::Entity* restoredChild = edit.Get(child);
+  if (restoredChild == nullptr || !restoredChild->hasRigidbody || restoredChild->rigidbody.mass != 2.0f) {
     return false;
   }
   return true;
@@ -10591,6 +10686,7 @@ int main() {
   failures += Check("Deferred-Null", TestDeferredNull());
   failures += Check("Scene-CRUD", TestSceneCrud());
   failures += Check("Scene-Duplicate", TestSceneDuplicate());
+  failures += Check("PlayScene-SnapshotIsolation", TestPlaySceneSnapshotIsolation());
   failures += Check("Scene-Parent", TestSceneParent());
   failures += Check("Selection-Set", TestSelectionSet());
   failures += Check("ScreenRect", TestScreenRect());

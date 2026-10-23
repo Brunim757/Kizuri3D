@@ -1280,7 +1280,7 @@ void EditorApp::DrawAudioMixer() {
   ImGui::End();
 }
 void EditorApp::SyncPhysics(float dt) {
-  if (!viewSimulate) {
+  if (!viewSimulate && !playActive) {
     return;
   }
   if (!physReady) {
@@ -1384,8 +1384,10 @@ void EditorApp::SyncPhysics(float dt) {
   physWorld.Step(dt);
 }
 void EditorApp::SubmitSceneDraws(const float cpos[3]) {
-  SyncPhysics(frameDt);
-  SyncAudio(frameDt);
+  if (!playActive) {
+    SyncPhysics(frameDt);
+    SyncAudio(frameDt);
+  }
   renderer.ClearLights();
   renderer.SetFallbackLight(!soloLightId.IsValid());
   renderer.ClearFogVolumes();
@@ -1934,7 +1936,9 @@ void EditorApp::DrawViewport() {
     gizmoOp = static_cast<int>(ImGuizmo::SCALE);
   }
   ImGui::SameLine();
+  ImGui::BeginDisabled(playActive);
   ImGui::Checkbox("Simulate", &viewSimulate);
+  ImGui::EndDisabled();
   if (ImGui::IsWindowHovered() && !ImGui::GetIO().WantTextInput && !RawInputPoll::IsMouseDown(VK_RBUTTON)) {
     if (ImGui::IsKeyPressed(ImGuiKey_W, false)) {
       gizmoOp = static_cast<int>(ImGuizmo::TRANSLATE);
@@ -1968,7 +1972,7 @@ void EditorApp::DrawViewport() {
   if (selection.HasSelection()) {
     SyncSelection();
   }
-  if (selection.HasSelection()) {
+  if (!playActive && selection.HasSelection()) {
     DirectX::XMMATRIX view = camera.View();
     float aspect = viewW / viewH;
     DirectX::XMMATRIX proj = camera.Projection(aspect);
@@ -2113,6 +2117,13 @@ void EditorApp::DrawViewport() {
     char obuf[128];
     std::snprintf(obuf, sizeof(obuf), "%s  CPU %.1f ms  GPU %.1f ms", fpsShown.c_str(), vst.msTotal, vst.gpuMs);
     vdl->AddText(ImVec2(ipos.x + 8.0f, ipos.y + 8.0f), IM_COL32(235, 235, 245, 255), obuf);
+  }
+  if (playActive) {
+    const char* state = playPaused ? "PAUSED" : "PLAYING";
+    const ImVec2 ts = ImGui::CalcTextSize(state);
+    const ImVec2 tp(ipos.x + iw - ts.x - 24.0f, ipos.y + 8.0f);
+    vdl->AddRectFilled(ImVec2(tp.x - 8.0f, tp.y - 4.0f), ImVec2(tp.x + ts.x + 8.0f, tp.y + ts.y + 4.0f), IM_COL32(0, 0, 0, 170), 4.0f);
+    vdl->AddText(tp, playPaused ? IM_COL32(255, 196, 64, 255) : IM_COL32(96, 230, 140, 255), state);
   }
   bool showButton = !gizmoHotLast;
   bool canvasHovered = false;
@@ -2952,7 +2963,7 @@ void EditorApp::DrawHierarchyTree(EntityId parent, int depth, const std::map<uin
           selection.Select(id);
         }
       }
-      if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+      if (!playActive && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
         renameActive = true;
         renameTarget = id;
         std::strncpy(renameBuf, e->name.c_str(), sizeof(renameBuf) - 1);
@@ -2960,6 +2971,7 @@ void EditorApp::DrawHierarchyTree(EntityId parent, int depth, const std::map<uin
       }
     }
     if (ImGui::BeginPopupContextItem("EntityContext")) {
+      ImGui::BeginDisabled(playActive);
       if (ImGui::MenuItem("Create Entity")) {
         CreateEntityAt(0.0f, 0.0f, 0.0f);
       }
@@ -2975,10 +2987,38 @@ void EditorApp::DrawHierarchyTree(EntityId parent, int depth, const std::map<uin
         std::strncpy(renameBuf, e->name.c_str(), sizeof(renameBuf) - 1);
         renameBuf[sizeof(renameBuf) - 1] = '\0';
       }
+      if (ImGui::MenuItem("Move to Root", nullptr, false, e->parent.IsValid())) {
+        std::unique_ptr<Command> cmd(new SetParentCmd(id, e->parent, EntityId::Invalid()));
+        if (undo.Execute(std::move(cmd), scene)) {
+          Announce(LogLevel::Info, std::string("Moved ") + e->name + " to root");
+        }
+      }
+      ImGui::EndDisabled();
       if (ImGui::MenuItem("Focus")) {
         FocusEntity(id);
       }
       ImGui::EndPopup();
+    }
+    if (!playActive && !renameActive) {
+      if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+        ImGui::SetDragDropPayload("KZ_ENTITY", &id, sizeof(EntityId));
+        ImGui::TextUnformatted(e->name.c_str());
+        ImGui::EndDragDropSource();
+      }
+      if (ImGui::BeginDragDropTarget()) {
+        const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("KZ_ENTITY");
+        if (payload != nullptr && payload->DataSize == sizeof(EntityId)) {
+          const EntityId dragged = *static_cast<const EntityId*>(payload->Data);
+          const Entity* de = scene.Get(dragged);
+          if (de != nullptr && dragged != id && de->parent != id) {
+            std::unique_ptr<Command> cmd(new SetParentCmd(dragged, de->parent, id));
+            if (!undo.Execute(std::move(cmd), scene)) {
+              Announce(LogLevel::Warning, "Nao foi possivel reparentar a entidade (ciclo ou entidade invalida)");
+            }
+          }
+        }
+        ImGui::EndDragDropTarget();
+      }
     }
     if (open) {
       DrawHierarchyTree(id, depth + 1, byParent, filter);
@@ -2992,9 +3032,11 @@ void EditorApp::DrawHierarchy() {
   ImGui::SetNextItemWidth(-1.0f);
   ImGui::InputTextWithHint("##hierSearch", "Buscar...", hierSearchBuf, sizeof(hierSearchBuf));
   const std::string filter = hierSearchBuf;
+  ImGui::BeginDisabled(playActive);
   if (ImGui::Button("Criar Entidade")) {
     CreateEntityAt(0.0f, 0.0f, 0.0f);
   }
+  ImGui::EndDisabled();
   ImGui::Separator();
   std::map<uint32_t, std::vector<EntityId>> byParent;
   const std::vector<EntityId> all = scene.All();
@@ -3007,10 +3049,31 @@ void EditorApp::DrawHierarchy() {
     byParent[key].push_back(all[i]);
   }
   DrawHierarchyTree(EntityId::Invalid(), 0, byParent, filter);
+  const ImGuiPayload* dragging = ImGui::GetDragDropPayload();
+  if (!playActive && dragging != nullptr && dragging->IsDataType("KZ_ENTITY")) {
+    ImGui::TextDisabled("Solte aqui para mover para a raiz");
+    ImGui::InvisibleButton("##hierarchyRootDrop", ImVec2(ImGui::GetContentRegionAvail().x, 24.0f));
+    if (ImGui::BeginDragDropTarget()) {
+      const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("KZ_ENTITY");
+      if (payload != nullptr && payload->DataSize == sizeof(EntityId)) {
+        const EntityId dragged = *static_cast<const EntityId*>(payload->Data);
+        const Entity* de = scene.Get(dragged);
+        if (de != nullptr && de->parent.IsValid()) {
+          std::unique_ptr<Command> cmd(new SetParentCmd(dragged, de->parent, EntityId::Invalid()));
+          if (undo.Execute(std::move(cmd), scene)) {
+            Announce(LogLevel::Info, std::string("Moved ") + de->name + " to root");
+          }
+        }
+      }
+      ImGui::EndDragDropTarget();
+    }
+  }
   if (ImGui::BeginPopupContextWindow("HierarchyContext")) {
+    ImGui::BeginDisabled(playActive);
     if (ImGui::MenuItem("Criar Entidade")) {
       CreateEntityAt(0.0f, 0.0f, 0.0f);
     }
+    ImGui::EndDisabled();
     ImGui::EndPopup();
   }
   ImGui::End();
@@ -3036,6 +3099,10 @@ void EditorApp::DrawInspector() {
   if (selection.Count() > 1) {
     ImGui::Text("%llu selected", (unsigned long long)selection.Count());
   }
+  if (playActive) {
+    ImGui::TextColored(ImVec4(1.0f, 0.76f, 0.28f, 1.0f), "Play Mode - somente leitura");
+  }
+  ImGui::BeginDisabled(playActive);
   bool stat = e->isStatic;
   PropertyLabel("Static");
   if (ImGui::Checkbox("##Static", &stat)) {
@@ -3609,6 +3676,7 @@ void EditorApp::DrawInspector() {
       ImGui::EndPopup();
     }
   }
+  ImGui::EndDisabled();
   ImGui::End();
 }
 void EditorApp::DrawConsole() {

@@ -1,5 +1,6 @@
 #pragma once
 #include "Kizuri/Scene.h"
+#include "Kizuri/GameLoop.h"
 #include "Kizuri/MultiSelection.h"
 #include "Kizuri/Log.h"
 #include "Kizuri/EditQueue.h"
@@ -26,6 +27,16 @@ struct EditorApp {
   IRHI* rhi;
   DeferredRenderer renderer;
   Scene scene;
+  Scene playScene;
+  GameLoop playLoop;
+  bool playActive;
+  bool playPaused;
+  bool playWasSimulate;
+  std::vector<EntityId> playSelection;
+  float playCameraPos[3];
+  float playCameraYaw;
+  float playCameraPitch;
+  EntityId playSoloLight;
   SelectionSet selection;
   LogStore log;
   NotificationCenter notifications;
@@ -325,6 +336,10 @@ struct EditorApp {
   void CreateEntityAt(float x, float y, float z, const std::string& meshGuid = "");
   void FocusEntity(EntityId id);
   void RefreshTitle();
+  void StartPlay();
+  void StopPlay();
+  void TickPlay(float dt);
+  void ClearPlayRuntime();
   void RequestAction(int action);
   void RunPendingAction();
   void DoSaveTo(const std::string& path);
