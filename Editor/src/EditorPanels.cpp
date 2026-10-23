@@ -1279,6 +1279,15 @@ void EditorApp::DrawAudioMixer() {
   }
   ImGui::End();
 }
+void EditorApp::RunSimulation(float dt) {
+  if (!viewSimulate && !playActive) {
+    SyncAudio(dt);
+    return;
+  }
+  SceneEcsBridge::Import(scene, simEcs);
+  simSystems.Run(simEcs, physJobs, dt);
+  SceneEcsBridge::ExportTransforms(simEcs, scene);
+}
 void EditorApp::SyncPhysics(float dt) {
   if (!viewSimulate && !playActive) {
     return;
@@ -1301,92 +1310,119 @@ void EditorApp::SyncPhysics(float dt) {
     }
     physReady = true;
   }
-  std::vector<EntityId> all = scene.All();
-  for (size_t i = 0; i < all.size(); ++i) {
-    Entity* e = scene.Get(all[i]);
-    if (e == nullptr || !e->hasRigidbody) {
-      continue;
+  const EcsComponentMask bodyMask = EcsBit(kEcsTransform) | EcsBit(ComponentRegistry::kRigidbody);
+  simEcs.Query(bodyMask).Each([this](EcsQueryEntity entity) {
+    Transform* transform = entity.Get<Transform>(kEcsTransform);
+    RigidbodyData* rigidbody = entity.Get<RigidbodyData>(ComponentRegistry::kRigidbody);
+    if (transform == nullptr || rigidbody == nullptr) {
+      return;
     }
+    std::string* meshGuidPtr = entity.Get<std::string>(ComponentRegistry::kMesh);
+    const std::string meshGuid = meshGuidPtr != nullptr ? *meshGuidPtr : std::string();
     float equat[4];
-    EulerDegToQuat(e->transform.rotation, equat);
-    uint64_t h = RigidbodyDescHash(e->rigidbody, e->meshGuid);
-    auto it = physBodies.find(e->id);
+    EulerDegToQuat(transform->rotation, equat);
+    uint64_t h = RigidbodyDescHash(*rigidbody, meshGuid);
+    auto it = physBodies.find(entity.Id());
     bool recreate = it == physBodies.end() || it->second.descHash != h || !physWorld.HasBody(it->second.body);
     if (recreate) {
       if (it != physBodies.end() && physWorld.HasBody(it->second.body)) {
         physWorld.DestroyBody(it->second.body);
       }
       PhysBodyDesc desc;
-      desc.motion = e->rigidbody.motionType == 0 ? PhysMotionType::Static : (e->rigidbody.motionType == 1 ? PhysMotionType::Kinematic : PhysMotionType::Dynamic);
-      desc.mass = e->rigidbody.mass;
-      desc.collider = e->rigidbody.colliderType == 1 ? PhysColliderType::Sphere : (e->rigidbody.colliderType == 2 ? PhysColliderType::Capsule : (e->rigidbody.colliderType == 3 ? PhysColliderType::Mesh : PhysColliderType::Box));
-      desc.extents[0] = e->rigidbody.extents[0];
-      desc.extents[1] = e->rigidbody.extents[1];
-      desc.extents[2] = e->rigidbody.extents[2];
+      desc.motion = rigidbody->motionType == 0 ? PhysMotionType::Static : (rigidbody->motionType == 1 ? PhysMotionType::Kinematic : PhysMotionType::Dynamic);
+      desc.mass = rigidbody->mass;
+      desc.collider = rigidbody->colliderType == 1 ? PhysColliderType::Sphere : (rigidbody->colliderType == 2 ? PhysColliderType::Capsule : (rigidbody->colliderType == 3 ? PhysColliderType::Mesh : PhysColliderType::Box));
+      desc.extents[0] = rigidbody->extents[0];
+      desc.extents[1] = rigidbody->extents[1];
+      desc.extents[2] = rigidbody->extents[2];
       const MeshRecord* mrec = nullptr;
-      if (e->rigidbody.colliderType == 3 && e->hasMesh && !e->meshGuid.empty()) {
-        mrec = assets.GetByGuid(e->meshGuid);
+      if (rigidbody->colliderType == 3 && !meshGuid.empty()) {
+        mrec = assets.GetByGuid(meshGuid);
         if (mrec != nullptr && mrec->loaded) {
           desc.meshVerts = mrec->data.positions.data();
           desc.meshVertCount = mrec->data.positions.size() / 3;
           desc.meshIndices = mrec->data.indices.data();
           desc.meshIndexCount = mrec->data.indices.size();
         } else {
-          continue;
+          return;
         }
       }
-      desc.friction = e->rigidbody.friction;
-      desc.restitution = e->rigidbody.restitution;
-      uint32_t b = physWorld.CreateBody(desc, e->transform.position, equat);
+      desc.friction = rigidbody->friction;
+      desc.restitution = rigidbody->restitution;
+      uint32_t b = physWorld.CreateBody(desc, transform->position, equat);
       if (b == 0xFFFFFFFFu) {
-        continue;
+        return;
       }
       PhysEntry entry;
       entry.body = b;
       entry.descHash = h;
-      entry.lastPos[0] = e->transform.position[0];
-      entry.lastPos[1] = e->transform.position[1];
-      entry.lastPos[2] = e->transform.position[2];
+      entry.lastPos[0] = transform->position[0];
+      entry.lastPos[1] = transform->position[1];
+      entry.lastPos[2] = transform->position[2];
       entry.lastRot[0] = equat[0];
       entry.lastRot[1] = equat[1];
       entry.lastRot[2] = equat[2];
       entry.lastRot[3] = equat[3];
       entry.hasLast = true;
-      physBodies[e->id] = entry;
+      physBodies[entity.Id()] = entry;
     } else {
       PhysEntry& entry = it->second;
-      bool moved = !entry.hasLast || entry.lastPos[0] != e->transform.position[0] || entry.lastPos[1] != e->transform.position[1] || entry.lastPos[2] != e->transform.position[2] || entry.lastRot[0] != equat[0] || entry.lastRot[1] != equat[1] || entry.lastRot[2] != equat[2] || entry.lastRot[3] != equat[3];
-      if (moved && e->rigidbody.motionType != 2) {
-        physWorld.TeleportBody(entry.body, e->transform.position, equat);
+      bool moved = !entry.hasLast || entry.lastPos[0] != transform->position[0] || entry.lastPos[1] != transform->position[1] || entry.lastPos[2] != transform->position[2] || entry.lastRot[0] != equat[0] || entry.lastRot[1] != equat[1] || entry.lastRot[2] != equat[2] || entry.lastRot[3] != equat[3];
+      if (moved && rigidbody->motionType != 2) {
+        physWorld.TeleportBody(entry.body, transform->position, equat);
       }
-      if (e->rigidbody.motionType == 1) {
-        physWorld.SetKinematicTarget(entry.body, e->transform.position, equat);
+      if (rigidbody->motionType == 1) {
+        physWorld.SetKinematicTarget(entry.body, transform->position, equat);
       }
-      entry.lastPos[0] = e->transform.position[0];
-      entry.lastPos[1] = e->transform.position[1];
-      entry.lastPos[2] = e->transform.position[2];
+      entry.lastPos[0] = transform->position[0];
+      entry.lastPos[1] = transform->position[1];
+      entry.lastPos[2] = transform->position[2];
       entry.lastRot[0] = equat[0];
       entry.lastRot[1] = equat[1];
       entry.lastRot[2] = equat[2];
       entry.lastRot[3] = equat[3];
       entry.hasLast = true;
     }
-  }
+  });
   for (auto it = physBodies.begin(); it != physBodies.end();) {
-    Entity* e = scene.Get(it->first);
-    if (e == nullptr || !e->hasRigidbody) {
-      physWorld.DestroyBody(it->second.body);
+    if (!simEcs.HasComponent(it->first, ComponentRegistry::kRigidbody)) {
+      if (physWorld.HasBody(it->second.body)) {
+        physWorld.DestroyBody(it->second.body);
+      }
       it = physBodies.erase(it);
     } else {
       ++it;
     }
   }
   physWorld.Step(dt);
+  for (auto it = physBodies.begin(); it != physBodies.end(); ++it) {
+    Transform* transform = static_cast<Transform*>(simEcs.GetComponent(it->first, kEcsTransform));
+    RigidbodyData* rigidbody = static_cast<RigidbodyData*>(simEcs.GetComponent(it->first, ComponentRegistry::kRigidbody));
+    if (transform == nullptr || rigidbody == nullptr) {
+      continue;
+    }
+    float pos[3] = { 0.0f, 0.0f, 0.0f };
+    float quat[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    if (!physWorld.GetPose(it->second.body, pos, quat)) {
+      continue;
+    }
+    transform->position[0] = pos[0];
+    transform->position[1] = pos[1];
+    transform->position[2] = pos[2];
+    it->second.lastPos[0] = pos[0];
+    it->second.lastPos[1] = pos[1];
+    it->second.lastPos[2] = pos[2];
+    it->second.lastRot[0] = quat[0];
+    it->second.lastRot[1] = quat[1];
+    it->second.lastRot[2] = quat[2];
+    it->second.lastRot[3] = quat[3];
+    it->second.hasLast = true;
+  }
+  SceneEcsBridge::ExportTransforms(simEcs, scene);
 }
 void EditorApp::SubmitSceneDraws(const float cpos[3]) {
   if (!playActive) {
-    SyncPhysics(frameDt);
-    SyncAudio(frameDt);
+    RunSimulation(frameDt);
   }
   renderer.ClearLights();
   renderer.SetFallbackLight(!soloLightId.IsValid());
@@ -1497,7 +1533,7 @@ void EditorApp::SubmitSceneDraws(const float cpos[3]) {
     }
     float world[16];
     ComposeMatrix(e->transform, world);
-    if (viewSimulate && physReady && e->hasRigidbody) {
+    if ((viewSimulate || playActive) && physReady && e->hasRigidbody) {
       auto pbit = physBodies.find(e->id);
       if (pbit != physBodies.end()) {
         float ppos[3] = { 0.0f, 0.0f, 0.0f };

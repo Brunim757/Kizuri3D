@@ -205,6 +205,14 @@ EditorApp::EditorApp()
   rubberActive = false;
   rubberX0 = 0.0f;
   rubberY0 = 0.0f;
+  const EcsComponentMask physicsMask = EcsBit(kEcsTransform) | EcsBit(ComponentRegistry::kRigidbody);
+  simSystems.AddSystem("physics", physicsMask, physicsMask, [this](EcsWorld&, float dt) {
+    SyncPhysics(dt);
+  });
+  const EcsComponentMask audioMask = EcsBit(kEcsTransform) | EcsBit(ComponentRegistry::kAudioSource);
+  simSystems.AddSystem("audio", audioMask, 0, [this](EcsWorld&, float dt) {
+    SyncAudio(dt);
+  });
 }
 std::string EditorApp::FindShaderDir() {
   const char* dirs[4] = { "Shaders", "../Shaders", "../../Shaders", "build/bin/Release/Shaders" };
@@ -811,6 +819,7 @@ void EditorApp::ClearPlayRuntime() {
     physReady = false;
   }
   physBodies.clear();
+  simEcs.Clear();
   if (audioReady) {
     for (std::unordered_map<EntityId, AudioEntry, EntityIdHash>::const_iterator it = audioSources.begin(); it != audioSources.end(); ++it) {
       audio.RemoveSource(it->second.sourceId);
@@ -871,13 +880,9 @@ void EditorApp::StartPlay() {
   playLoop = GameLoop();
   playLoop.SetFixedStep(1.0f / 60.0f);
   playLoop.SetMaxStepsPerFrame(4);
-  playLoop.AddUpdateSystem("physics", [this](float dt, float alpha) {
+  playLoop.AddUpdateSystem("simulation", [this](float dt, float alpha) {
     (void)alpha;
-    SyncPhysics(dt);
-  });
-  playLoop.AddUpdateSystem("audio", [this](float dt, float alpha) {
-    (void)alpha;
-    SyncAudio(dt);
+    RunSimulation(dt);
   });
   playLoop.SetState(GameState::Running);
   Announce(LogLevel::Success, "Play-in-Editor started");

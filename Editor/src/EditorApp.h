@@ -17,6 +17,7 @@
 #include "Kizuri/JobSystem.h"
 #include "Kizuri/PhysicsWorld.h"
 #include "Kizuri/Audio.h"
+#include "Kizuri/Ecs.h"
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -53,7 +54,10 @@ struct EditorApp {
     bool hasLast = false;
   };
   std::unordered_map<EntityId, PhysEntry, EntityIdHash> physBodies;
+  EcsWorld simEcs;
+  EcsSystemScheduler simSystems;
   void SyncPhysics(float dt);
+  void RunSimulation(float dt);
   AudioEngine audio;
   bool audioReady;
   struct AudioEntry {
