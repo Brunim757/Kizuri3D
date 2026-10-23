@@ -1,4 +1,5 @@
 #include "Kizuri/Scene.h"
+#include "Kizuri/Undo.h"
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -468,33 +469,20 @@ bool Scene::DeleteEntity(EntityId id) {
   dirty = true;
   return true;
 }
-EntityId Scene::DuplicateRecursive(EntityId id, EntityId newParent) {
+EntityId Scene::DuplicateEntity(EntityId id) {
   const Entity* src = Get(id);
   if (src == nullptr) {
     return EntityId::Invalid();
   }
-  EntityId copy = CreateEntity(src->name + " Copy");
-  Entity* dst = Get(copy);
-  if (dst == nullptr) {
+  const EntityId parent = src->parent;
+  EntitySnapshot snapshot;
+  if (!snapshot.Capture(*this, id)) {
     return EntityId::Invalid();
   }
-  dst->transform = src->transform;
-  std::vector<EntityId> kids = src->children;
-  for (size_t i = 0; i < kids.size(); ++i) {
-    DuplicateRecursive(kids[i], copy);
+  for (size_t i = 0; i < snapshot.nodes.size(); ++i) {
+    snapshot.nodes[i].name += " Copy";
   }
-  if (newParent.IsValid()) {
-    SetParent(copy, newParent);
-  }
-  return copy;
-}
-EntityId Scene::DuplicateEntity(EntityId id) {
-  if (!Has(id)) {
-    return EntityId::Invalid();
-  }
-  const Entity* src = Get(id);
-  EntityId p = src->parent;
-  return DuplicateRecursive(id, p);
+  return snapshot.Restore(*this, parent);
 }
 bool Scene::RenameEntity(EntityId id, const std::string& name) {
   Entity* e = Get(id);

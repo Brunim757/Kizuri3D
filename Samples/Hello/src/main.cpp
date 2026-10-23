@@ -3984,23 +3984,111 @@ bool TestSceneCrud() {
 bool TestSceneDuplicate() {
   Kizuri::Scene scene;
   Kizuri::EntityId a = scene.CreateEntity("Base");
+  Kizuri::EntityId child = scene.CreateEntity("Child");
+  Kizuri::EntityId child2 = scene.CreateEntity("Child2");
   Kizuri::Transform t;
   Kizuri::MakeIdentityTransform(t);
   t.position[1] = 2.0f;
   t.scale[0] = 3.0f;
   scene.SetTransform(a, t);
+  scene.SetParent(child, a);
+  scene.SetParent(child2, a);
+  Kizuri::Entity* src = scene.Get(a);
+  if (src == nullptr) {
+    return false;
+  }
+  src->hasMesh = true;
+  src->meshGuid = "mesh-dup";
+  src->hasLight = true;
+  Kizuri::MakeDefaultLight(src->light);
+  src->light.intensity = 7.5f;
+  src->hasMaterial = true;
+  Kizuri::MakeDefaultMaterial(src->material);
+  src->material.albedo[0] = 0.25f;
+  src->material.albedoTex = "albedo-dup";
+  src->hasRigidbody = true;
+  Kizuri::MakeDefaultRigidbody(src->rigidbody);
+  src->rigidbody.mass = 3.0f;
+  src->hasAudioSource = true;
+  Kizuri::MakeDefaultAudioSource(src->audioSource);
+  src->audioSource.clipPath = "clip-dup.wav";
+  src->audioSource.volume = 0.4f;
+  src->hasPost = true;
+  Kizuri::MakeDefaultPost(src->post);
+  src->post.exposure = 1.8f;
+  src->hasFog = true;
+  Kizuri::MakeDefaultFog(src->fog);
+  src->fog.density = 0.07f;
+  src->variantIndex = 2;
+  src->isStatic = true;
+  Kizuri::PartMaterial part;
+  part.part = 0;
+  Kizuri::MakeDefaultMaterial(part.material);
+  part.material.albedo[1] = 0.5f;
+  src->partMaterials.push_back(part);
+  Kizuri::Entity* childEntity = scene.Get(child);
+  if (childEntity == nullptr) {
+    return false;
+  }
+  childEntity->hasLight = true;
+  Kizuri::MakeDefaultLight(childEntity->light);
+  childEntity->light.intensity = 2.5f;
+  Kizuri::Entity* childEntity2 = scene.Get(child2);
+  if (childEntity2 == nullptr) {
+    return false;
+  }
+  childEntity2->hasMesh = true;
+  childEntity2->meshGuid = "child-mesh-dup";
   Kizuri::EntityId copy = scene.DuplicateEntity(a);
   if (!copy.IsValid() || copy == a) {
     return false;
   }
-  const Kizuri::Entity* e = scene.Get(copy);
+  Kizuri::Entity* e = scene.Get(copy);
   if (e == nullptr || e->name != "Base Copy") {
     return false;
   }
   if (e->transform.position[1] != 2.0f || e->transform.scale[0] != 3.0f) {
     return false;
   }
-  if (scene.Count() != 2) {
+  if (!e->hasMesh || e->meshGuid != "mesh-dup" || !e->hasLight || e->light.intensity != 7.5f) {
+    return false;
+  }
+  if (!e->hasMaterial || e->material.albedo[0] != 0.25f || e->material.albedoTex != "albedo-dup") {
+    return false;
+  }
+  if (!e->hasRigidbody || e->rigidbody.mass != 3.0f || !e->hasAudioSource || e->audioSource.clipPath != "clip-dup.wav" || e->audioSource.volume != 0.4f) {
+    return false;
+  }
+  if (!e->hasPost || e->post.exposure != 1.8f || !e->hasFog || e->fog.density != 0.07f) {
+    return false;
+  }
+  if (e->variantIndex != 2 || !e->isStatic || e->partMaterials.size() != 1 || e->partMaterials[0].material.albedo[1] != 0.5f) {
+    return false;
+  }
+  if (e->children.size() != 2) {
+    return false;
+  }
+  const Kizuri::Entity* copiedChild = scene.Get(e->children[0]);
+  if (copiedChild == nullptr || copiedChild->name != "Child Copy" || copiedChild->parent != copy) {
+    return false;
+  }
+  if (!copiedChild->hasLight || copiedChild->light.intensity != 2.5f) {
+    return false;
+  }
+  const Kizuri::Entity* copiedChild2 = scene.Get(e->children[1]);
+  if (copiedChild2 == nullptr || copiedChild2->name != "Child2 Copy" || copiedChild2->parent != copy) {
+    return false;
+  }
+  if (!copiedChild2->hasMesh || copiedChild2->meshGuid != "child-mesh-dup") {
+    return false;
+  }
+  e->light.intensity = 1.0f;
+  e->material.albedo[0] = 1.0f;
+  src = scene.Get(a);
+  if (src == nullptr || src->light.intensity != 7.5f || src->material.albedo[0] != 0.25f) {
+    return false;
+  }
+  if (scene.Count() != 6) {
     return false;
   }
   if (scene.DuplicateEntity(Kizuri::EntityId::Invalid()).IsValid()) {

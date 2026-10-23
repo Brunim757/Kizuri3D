@@ -44,8 +44,8 @@ bool EntitySnapshot::Capture(const Scene& scene, EntityId root) {
     }
     long idx = static_cast<long>(nodes.size());
     nodes.push_back(std::move(node));
-    for (size_t i = 0; i < e->children.size(); ++i) {
-      stack.push_back(e->children[i]);
+    for (size_t i = e->children.size(); i > 0; --i) {
+      stack.push_back(e->children[i - 1]);
       parentStack.push_back(idx);
     }
   }

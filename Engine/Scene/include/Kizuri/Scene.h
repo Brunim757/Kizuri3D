@@ -261,7 +261,6 @@ private:
   OriginRebaser origin;
   bool dirty;
   bool IsLive(uint32_t idx, uint32_t gen) const;
-  EntityId DuplicateRecursive(EntityId id, EntityId newParent);
 };
 void MakeIdentityTransform(Transform& t);
 void MakeDefaultLight(LightData& l);
