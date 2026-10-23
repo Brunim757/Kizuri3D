@@ -10990,6 +10990,7 @@ int main() {
   failures += Check("EcsStorage", TestEcsStorage());
   failures += Check("EcsQuery", TestEcsQuery());
   failures += Check("EcsScheduler", TestEcsScheduler());
+  failures += Check("EcsSchedulerOrdering", TestEcsSchedulerOrdering());
   failures += Check("EcsSceneBridge", TestEcsSceneBridge());
   failures += Check("Scene-Parent", TestSceneParent());
   failures += Check("Selection-Set", TestSelectionSet());
