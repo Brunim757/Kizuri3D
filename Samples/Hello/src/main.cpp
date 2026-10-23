@@ -2620,6 +2620,177 @@ bool TestComponentUndo() {
   }
   return true;
 }
+size_t InspectorFieldSize(Kizuri::InspectorFieldKind kind) {
+  switch (kind) {
+  case Kizuri::InspectorFieldKind::Bool:
+    return sizeof(bool);
+  case Kizuri::InspectorFieldKind::Int:
+  case Kizuri::InspectorFieldKind::Float:
+  case Kizuri::InspectorFieldKind::Enum:
+  case Kizuri::InspectorFieldKind::AudioBus:
+    return sizeof(int);
+  case Kizuri::InspectorFieldKind::Vec3:
+  case Kizuri::InspectorFieldKind::Color3:
+    return sizeof(float) * 3;
+  case Kizuri::InspectorFieldKind::Text:
+  case Kizuri::InspectorFieldKind::Texture:
+  case Kizuri::InspectorFieldKind::Mesh:
+  case Kizuri::InspectorFieldKind::AudioClip:
+    return sizeof(std::string);
+  }
+  return 0;
+}
+bool TestComponentInspectorMetadata() {
+  const Kizuri::ComponentRegistry& reg = Kizuri::ComponentRegistry::Instance();
+  if (reg.Count() < 11) {
+    return false;
+  }
+  for (size_t i = 0; i < reg.Count(); ++i) {
+    const Kizuri::ComponentTypeDesc* desc = reg.Get(static_cast<Kizuri::ComponentTypeId>(i));
+    if (desc == nullptr) {
+      continue;
+    }
+    if (desc->fields == nullptr || desc->fieldCount == 0 || desc->equal == nullptr) {
+      return false;
+    }
+    for (size_t f = 0; f < desc->fieldCount; ++f) {
+      const Kizuri::InspectorFieldDesc& field = desc->fields[f];
+      if (field.label == nullptr || field.label[0] == '\0') {
+        return false;
+      }
+      const size_t fieldSize = InspectorFieldSize(field.kind);
+      if (fieldSize == 0 || field.offset + fieldSize > desc->dataSize) {
+        return false;
+      }
+      if (field.kind == Kizuri::InspectorFieldKind::Enum && (field.enumLabels == nullptr || field.enumCount <= 0)) {
+        return false;
+      }
+      if (field.enumValues != nullptr && field.enumCount <= 0) {
+        return false;
+      }
+      for (int c = 0; c < field.conditionCount; ++c) {
+        const Kizuri::InspectorCondition& condition = field.conditions[c];
+        if ((condition.size != sizeof(int) && condition.size != sizeof(bool)) || condition.offset + condition.size > desc->dataSize) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+bool TestComponentEquality() {
+  Kizuri::MaterialData a;
+  Kizuri::MakeDefaultMaterial(a);
+  Kizuri::MaterialData b = a;
+  if (!Kizuri::MaterialEqual(a, b)) {
+    return false;
+  }
+  b.detailTiling = a.detailTiling + 1.0f;
+  if (Kizuri::MaterialEqual(a, b)) {
+    return false;
+  }
+  b = a;
+  b.linkMask = 3;
+  if (Kizuri::MaterialEqual(a, b)) {
+    return false;
+  }
+  b = a;
+  Kizuri::MaterialNode node;
+  node.id = 0;
+  b.graph.nodes.push_back(node);
+  if (Kizuri::MaterialEqual(a, b)) {
+    return false;
+  }
+  b = a;
+  b.useNodes = true;
+  if (Kizuri::MaterialEqual(a, b)) {
+    return false;
+  }
+  Kizuri::PostData p;
+  Kizuri::MakeDefaultPost(p);
+  Kizuri::PostData q = p;
+  if (!Kizuri::PostEqual(p, q)) {
+    return false;
+  }
+  q.bloom = 0.1f;
+  if (Kizuri::PostEqual(p, q)) {
+    return false;
+  }
+  return true;
+}
+bool TestGenericComponentEdit() {
+  Kizuri::Scene scene;
+  Kizuri::UndoStack undo;
+  Kizuri::EditQueue edits;
+  Kizuri::EntityId id = scene.CreateEntity("generic-edit");
+  Kizuri::Entity* e = scene.Get(id);
+  if (e == nullptr) {
+    return false;
+  }
+  const Kizuri::ComponentTypeId type = Kizuri::FindComponentType("Post Volume");
+  if (type == 0xFFFFFFFFu || !Kizuri::AddEntityComponent(e, type)) {
+    return false;
+  }
+  e = scene.Get(id);
+  if (e == nullptr) {
+    return false;
+  }
+  Kizuri::PostData p = e->post;
+  p.exposure = 2.5f;
+  p.toneMap = 2;
+  p.bloom = 0.3f;
+  edits.PushComponent(id, type, &p);
+  if (edits.Pending() != 1) {
+    return false;
+  }
+  if (edits.ApplyAll(scene, undo) != 1 || edits.Pending() != 0) {
+    return false;
+  }
+  e = scene.Get(id);
+  if (e == nullptr || std::fabs(e->post.exposure - 2.5f) > 1e-5f || e->post.toneMap != 2 || std::fabs(e->post.bloom - 0.3f) > 1e-5f) {
+    return false;
+  }
+  if (undo.UndoDepth() != 1 || !undo.Undo(scene)) {
+    return false;
+  }
+  e = scene.Get(id);
+  if (e == nullptr || std::fabs(e->post.exposure - 1.0f) > 1e-5f || e->post.toneMap != 0) {
+    return false;
+  }
+  if (!undo.Redo(scene)) {
+    return false;
+  }
+  e = scene.Get(id);
+  if (e == nullptr || std::fabs(e->post.exposure - 2.5f) > 1e-5f) {
+    return false;
+  }
+  Kizuri::PostData first = e->post;
+  first.exposure = 1.7f;
+  Kizuri::PostData second = e->post;
+  second.exposure = 3.1f;
+  edits.PushComponent(id, type, &first);
+  edits.PushComponent(id, type, &second);
+  if (edits.ApplyAll(scene, undo) != 1) {
+    return false;
+  }
+  e = scene.Get(id);
+  if (e == nullptr || std::fabs(e->post.exposure - 3.1f) > 1e-5f) {
+    return false;
+  }
+  if (!undo.Undo(scene)) {
+    return false;
+  }
+  e = scene.Get(id);
+  if (e == nullptr || std::fabs(e->post.exposure - 2.5f) > 1e-5f) {
+    return false;
+  }
+  Kizuri::PostData same = e->post;
+  edits.PushComponent(id, type, &same);
+  if (edits.ApplyAll(scene, undo) != 0) {
+    return false;
+  }
+  return true;
+}
 bool TestGameLoopFixedStep() {
   Kizuri::GameLoop loop;
   loop.SetFixedStep(1.0f / 60.0f);
@@ -10256,6 +10427,9 @@ int main() {
   failures += Check("ComponentRegistry", TestComponentRegistry());
   failures += Check("SceneAllComponents", TestSceneAllComponentsRoundTrip());
   failures += Check("ComponentUndo", TestComponentUndo());
+  failures += Check("ComponentInspectorMetadata", TestComponentInspectorMetadata());
+  failures += Check("ComponentEquality", TestComponentEquality());
+  failures += Check("GenericComponentEdit", TestGenericComponentEdit());
   failures += Check("GameLoopFixedStep", TestGameLoopFixedStep());
   failures += Check("GameLoopPause", TestGameLoopPause());
   failures += Check("GameLoopSystemOrder", TestGameLoopSystemOrder());

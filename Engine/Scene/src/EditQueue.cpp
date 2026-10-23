@@ -1,6 +1,7 @@
 #include "Kizuri/EditQueue.h"
 #include "Kizuri/Undo.h"
 #include <cstring>
+#include <utility>
 namespace Kizuri {
 void EditQueue::PushTransform(EntityId target, const Transform& value) {
   if (!target.IsValid()) {
@@ -120,67 +121,24 @@ void EditQueue::PushFog(EntityId target, const FogData& value) {
   e.value = value;
   fogEdits.push_back(e);
 }
-bool MaterialEqual(const MaterialData& a, const MaterialData& b) {
-  if (!(a.albedo[0] == b.albedo[0] && a.albedo[1] == b.albedo[1] && a.albedo[2] == b.albedo[2] && a.alpha == b.alpha && a.metallic == b.metallic && a.roughness == b.roughness && a.albedoTex == b.albedoTex && a.normalTex == b.normalTex && a.ormTex == b.ormTex && a.heightTex == b.heightTex)) {
-    return false;
+void EditQueue::PushComponent(EntityId target, ComponentTypeId type, const void* value) {
+  if (!target.IsValid() || value == nullptr) {
+    return;
   }
-  if (!(a.emissive[0] == b.emissive[0] && a.emissive[1] == b.emissive[1] && a.emissive[2] == b.emissive[2] && a.emissiveStrength == b.emissiveStrength && a.emissiveTex == b.emissiveTex && a.unlit == b.unlit && a.doubleSided == b.doubleSided && a.alphaMode == b.alphaMode && a.alphaCutoff == b.alphaCutoff)) {
-    return false;
+  const ComponentTypeDesc* desc = ComponentRegistry::Instance().Get(type);
+  if (desc == nullptr) {
+    return;
   }
-  for (int s = 0; s < 5; ++s) {
-    if (!(a.xforms[s].offsetU == b.xforms[s].offsetU && a.xforms[s].offsetV == b.xforms[s].offsetV && a.xforms[s].scaleU == b.xforms[s].scaleU && a.xforms[s].scaleV == b.xforms[s].scaleV && a.xforms[s].rotation == b.xforms[s].rotation && a.xforms[s].uvSet == b.xforms[s].uvSet)) {
-      return false;
-    }
+  ComponentEdit e;
+  e.target = target;
+  e.type = type;
+  if (!e.value.Capture(desc, value)) {
+    return;
   }
-  if (!(a.ior == b.ior && a.hasSpecular == b.hasSpecular && a.specularColor[0] == b.specularColor[0] && a.specularColor[1] == b.specularColor[1] && a.specularColor[2] == b.specularColor[2] && a.specularStrength == b.specularStrength && a.specularTex == b.specularTex && a.specularColorTex == b.specularColorTex)) {
-    return false;
-  }
-  if (!(a.clearcoat == b.clearcoat && a.clearcoatRoughness == b.clearcoatRoughness && a.clearcoatTex == b.clearcoatTex && a.clearcoatRoughnessTex == b.clearcoatRoughnessTex && a.clearcoatNormalTex == b.clearcoatNormalTex)) {
-    return false;
-  }
-  if (!(a.sheenColor[0] == b.sheenColor[0] && a.sheenColor[1] == b.sheenColor[1] && a.sheenColor[2] == b.sheenColor[2] && a.sheenRoughness == b.sheenRoughness && a.sheenColorTex == b.sheenColorTex && a.sheenRoughnessTex == b.sheenRoughnessTex)) {
-    return false;
-  }
-  if (!(a.anisotropy == b.anisotropy && a.anisotropyRotation == b.anisotropyRotation && a.anisotropyTex == b.anisotropyTex)) {
-    return false;
-  }
-  if (!(a.iridescence == b.iridescence && a.iridescenceIor == b.iridescenceIor && a.iridescenceThicknessMin == b.iridescenceThicknessMin && a.iridescenceThicknessMax == b.iridescenceThicknessMax && a.iridescenceTex == b.iridescenceTex && a.iridescenceThicknessTex == b.iridescenceThicknessTex)) {
-    return false;
-  }
-  if (!(a.transmission == b.transmission && a.transmissionTex == b.transmissionTex && a.thickness == b.thickness && a.thicknessTex == b.thicknessTex && a.attenuationColor[0] == b.attenuationColor[0] && a.attenuationColor[1] == b.attenuationColor[1] && a.attenuationColor[2] == b.attenuationColor[2] && a.attenuationDistance == b.attenuationDistance && a.dispersion == b.dispersion)) {
-    return false;
-  }
-  return true;
-}
-bool LightEqual(const LightData& a, const LightData& b) {
-  return a.type == b.type && a.color[0] == b.color[0] && a.color[1] == b.color[1] && a.color[2] == b.color[2] && a.intensity == b.intensity && a.radius == b.radius && a.spotAngle == b.spotAngle && a.falloff == b.falloff && a.castShadow == b.castShadow && a.lightSize == b.lightSize && a.shadowSize == b.shadowSize && a.softness == b.softness && a.cascades == b.cascades && a.lambda == b.lambda && a.areaW == b.areaW && a.areaH == b.areaH && a.linkMask == b.linkMask && a.layer == b.layer && a.cookieGuid == b.cookieGuid;
-}
-bool DecalEqual(const DecalData& a, const DecalData& b) {
-  return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.life == b.life && a.texGuid == b.texGuid && a.matMask == b.matMask && a.matRough == b.matRough && a.matMetal == b.matMetal;
-}
-bool LodEqual(const LodData& a, const LodData& b) {
-  return a.farGuid == b.farGuid && a.nearDist == b.nearDist && a.farDist == b.farDist;
-}
-bool RigidbodyEqual(const RigidbodyData& a, const RigidbodyData& b) {
-  return a.motionType == b.motionType && a.mass == b.mass && a.colliderType == b.colliderType && a.extents[0] == b.extents[0] && a.extents[1] == b.extents[1] && a.extents[2] == b.extents[2] && a.friction == b.friction && a.restitution == b.restitution;
-}
-bool AudioSourceEqual(const AudioSourceData& a, const AudioSourceData& b) {
-  return a.clipPath == b.clipPath && a.volume == b.volume && a.minDistance == b.minDistance && a.maxDistance == b.maxDistance && a.rolloff == b.rolloff && a.rolloffModel == b.rolloffModel && a.loop == b.loop && a.spatial == b.spatial && a.playing == b.playing && a.bus == b.bus;
-}
-bool LightmapEqual(const LightmapData& a, const LightmapData& b) {
-  return a.texGuid == b.texGuid && a.intensity == b.intensity;
-}
-bool ProbeEqual(const ProbeData& a, const ProbeData& b) {
-  return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.intensity == b.intensity;
-}
-bool PostEqual(const PostData& a, const PostData& b) {
-  return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.exposure == b.exposure && a.toneMap == b.toneMap && a.contrast == b.contrast && a.saturation == b.saturation && a.bloom == b.bloom;
-}
-bool FogEqual(const FogData& a, const FogData& b) {
-  return a.size[0] == b.size[0] && a.size[1] == b.size[1] && a.size[2] == b.size[2] && a.density == b.density && a.color[0] == b.color[0] && a.color[1] == b.color[1] && a.color[2] == b.color[2];
+  componentEdits.push_back(std::move(e));
 }
 size_t EditQueue::Pending() const {
-  return edits.size() + lightEdits.size() + materialEdits.size() + partMaterialEdits.size() + decalEdits.size() + lodEdits.size() + rigidbodyEdits.size() + audioSourceEdits.size() + lightmapEdits.size() + probeEdits.size() + postEdits.size() + fogEdits.size() + staticEdits.size();
+  return edits.size() + lightEdits.size() + materialEdits.size() + partMaterialEdits.size() + decalEdits.size() + lodEdits.size() + rigidbodyEdits.size() + audioSourceEdits.size() + lightmapEdits.size() + probeEdits.size() + postEdits.size() + fogEdits.size() + staticEdits.size() + componentEdits.size();
 }
 size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
   size_t applied = 0;
@@ -506,6 +464,38 @@ size_t EditQueue::ApplyAll(Scene& scene, UndoStack& undo) {
     }
   }
   fogEdits.clear();
+  for (size_t i = 0; i < componentEdits.size(); ++i) {
+    bool last = true;
+    for (size_t j = i + 1; j < componentEdits.size(); ++j) {
+      if (componentEdits[j].target == componentEdits[i].target && componentEdits[j].type == componentEdits[i].type) {
+        last = false;
+        break;
+      }
+    }
+    if (!last) {
+      continue;
+    }
+    const Entity* e = scene.Get(componentEdits[i].target);
+    if (e == nullptr || !EntityHasComponent(e, componentEdits[i].type)) {
+      continue;
+    }
+    const ComponentTypeDesc* desc = ComponentRegistry::Instance().Get(componentEdits[i].type);
+    if (desc == nullptr) {
+      continue;
+    }
+    const void* current = EntityComponentData(e, componentEdits[i].type);
+    if (current == nullptr || !componentEdits[i].value.Valid()) {
+      continue;
+    }
+    if (desc->equal != nullptr && desc->equal(current, componentEdits[i].value.Data())) {
+      continue;
+    }
+    std::unique_ptr<Command> cmd(new SetComponentDataCmd(componentEdits[i].target, componentEdits[i].type, std::move(componentEdits[i].value)));
+    if (undo.Execute(std::move(cmd), scene)) {
+      ++applied;
+    }
+  }
+  componentEdits.clear();
   return applied;
 }
 void EditQueue::Clear() {
@@ -522,5 +512,6 @@ void EditQueue::Clear() {
   postEdits.clear();
   fogEdits.clear();
   staticEdits.clear();
+  componentEdits.clear();
 }
 }

@@ -1,5 +1,6 @@
 #include "Kizuri/Undo.h"
 #include <cstring>
+#include <utility>
 namespace Kizuri {
 bool EntitySnapshot::Capture(const Scene& scene, EntityId root) {
   nodes.clear();
@@ -829,6 +830,53 @@ bool SetProbeCmd::Revert(Scene& scene) {
 }
 const char* SetProbeCmd::Name() const {
   return "Set Probe";
+}
+SetComponentDataCmd::SetComponentDataCmd(EntityId t, ComponentTypeId ty, ComponentSnapshot a)
+  : target(t)
+  , type(ty)
+  , after(std::move(a)) {
+  const ComponentTypeDesc* desc = ComponentRegistry::Instance().Get(type);
+  label = desc != nullptr ? std::string("Set ") + desc->name : "Set Component";
+}
+bool SetComponentDataCmd::Apply(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (e == nullptr || !EntityHasComponent(e, type)) {
+    return false;
+  }
+  const ComponentTypeDesc* desc = ComponentRegistry::Instance().Get(type);
+  if (desc == nullptr) {
+    return false;
+  }
+  void* data = EntityComponentData(e, type);
+  if (data == nullptr) {
+    return false;
+  }
+  if (!captured) {
+    if (!before.Capture(desc, data)) {
+      return false;
+    }
+    captured = true;
+  }
+  if (!after.Restore(data)) {
+    return false;
+  }
+  scene.MarkDirty();
+  return true;
+}
+bool SetComponentDataCmd::Revert(Scene& scene) {
+  Entity* e = scene.Get(target);
+  if (!captured || e == nullptr || !EntityHasComponent(e, type)) {
+    return false;
+  }
+  void* data = EntityComponentData(e, type);
+  if (data == nullptr || !before.Restore(data)) {
+    return false;
+  }
+  scene.MarkDirty();
+  return true;
+}
+const char* SetComponentDataCmd::Name() const {
+  return label.c_str();
 }
 SetParentCmd::SetParentCmd(EntityId c, EntityId b, EntityId a)
   : child(c)

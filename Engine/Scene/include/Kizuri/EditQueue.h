@@ -1,5 +1,7 @@
 #pragma once
+#include "Kizuri/ComponentRegistry.h"
 #include "Kizuri/Scene.h"
+#include "Kizuri/Undo.h"
 #include <vector>
 namespace Kizuri {
 class UndoStack;
@@ -56,6 +58,11 @@ struct FogEdit {
   EntityId target;
   FogData value;
 };
+struct ComponentEdit {
+  EntityId target;
+  ComponentTypeId type;
+  ComponentSnapshot value;
+};
 class EditQueue {
 public:
   void PushTransform(EntityId target, const Transform& value);
@@ -71,6 +78,7 @@ public:
   void PushProbe(EntityId target, const ProbeData& value);
   void PushPost(EntityId target, const PostData& value);
   void PushFog(EntityId target, const FogData& value);
+  void PushComponent(EntityId target, ComponentTypeId type, const void* value);
   size_t Pending() const;
   size_t ApplyAll(Scene& scene, UndoStack& undo);
   void Clear();
@@ -88,5 +96,6 @@ private:
   std::vector<ProbeEdit> probeEdits;
   std::vector<PostEdit> postEdits;
   std::vector<FogEdit> fogEdits;
+  std::vector<ComponentEdit> componentEdits;
 };
 }

@@ -850,6 +850,322 @@ void EditorApp::DrawAudioSourceSection(Entity* e) {
   }
   ImGui::PopID();
 }
+void EditorApp::DrawGenericComponent(Entity* e, const ComponentTypeDesc& desc) {
+  ImGui::PushID(desc.name);
+  PropertySection(desc.name);
+  ImGui::SameLine();
+  if (ImGui::SmallButton("Remove")) {
+    std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, desc.id));
+    undo.Execute(std::move(cmd), scene);
+    ImGui::PopID();
+    return;
+  }
+  ComponentSnapshot draft;
+  if (!draft.Capture(&desc, EntityComponentData(e, desc.id)) || draft.Data() == nullptr) {
+    ImGui::TextDisabled("Component data unavailable");
+    ImGui::PopID();
+    return;
+  }
+  unsigned char* base = static_cast<unsigned char*>(draft.Data());
+  auto visible = [](const InspectorFieldDesc& field, const unsigned char* data) {
+    for (int i = 0; i < field.conditionCount; ++i) {
+      const InspectorCondition& condition = field.conditions[i];
+      int actual = 0;
+      if (condition.size == sizeof(bool)) {
+        actual = *reinterpret_cast<const bool*>(data + condition.offset) ? 1 : 0;
+      } else {
+        actual = *reinterpret_cast<const int*>(data + condition.offset);
+      }
+      bool pass = false;
+      switch (condition.op) {
+      case InspectorConditionOp::Equals:
+        pass = actual == condition.value;
+        break;
+      case InspectorConditionOp::NotEquals:
+        pass = actual != condition.value;
+        break;
+      case InspectorConditionOp::MaskAny:
+        pass = (actual & condition.value) != 0;
+        break;
+      case InspectorConditionOp::GreaterEqual:
+        pass = actual >= condition.value;
+        break;
+      case InspectorConditionOp::LessEqual:
+        pass = actual <= condition.value;
+        break;
+      }
+      if (!pass) {
+        return false;
+      }
+    }
+    return true;
+  };
+  bool changed = false;
+  for (size_t i = 0; i < desc.fieldCount; ++i) {
+    const InspectorFieldDesc& field = desc.fields[i];
+    if (!visible(field, base)) {
+      continue;
+    }
+    ImGui::PushID(field.label);
+    unsigned char* ptr = base + field.offset;
+    switch (field.kind) {
+    case InspectorFieldKind::Bool: {
+      bool value = *reinterpret_cast<bool*>(ptr);
+      PropertyLabel(field.label);
+      if (ImGui::Checkbox("##value", &value)) {
+        *reinterpret_cast<bool*>(ptr) = value;
+        changed = true;
+      }
+      break;
+    }
+    case InspectorFieldKind::Int: {
+      int value = *reinterpret_cast<int*>(ptr);
+      PropertyLabel(field.label);
+      bool edited = false;
+      if (field.slider) {
+        edited = ImGui::SliderInt("##value", &value, static_cast<int>(field.minValue), static_cast<int>(field.maxValue));
+      } else if (field.maxValue > field.minValue) {
+        edited = ImGui::DragInt("##value", &value, field.speed, static_cast<int>(field.minValue), static_cast<int>(field.maxValue));
+      } else {
+        edited = ImGui::DragInt("##value", &value, field.speed);
+      }
+      if (edited) {
+        *reinterpret_cast<int*>(ptr) = value;
+        changed = true;
+      }
+      break;
+    }
+    case InspectorFieldKind::Float: {
+      float value = *reinterpret_cast<float*>(ptr);
+      PropertyLabel(field.label);
+      bool edited = false;
+      if (field.slider) {
+        edited = ImGui::SliderFloat("##value", &value, field.minValue, field.maxValue);
+      } else if (field.maxValue > field.minValue) {
+        edited = ImGui::DragFloat("##value", &value, field.speed, field.minValue, field.maxValue);
+      } else {
+        edited = ImGui::DragFloat("##value", &value, field.speed);
+      }
+      if (edited) {
+        *reinterpret_cast<float*>(ptr) = value;
+        changed = true;
+      }
+      break;
+    }
+    case InspectorFieldKind::Vec3: {
+      float* value = reinterpret_cast<float*>(ptr);
+      PropertyLabel(field.label);
+      bool edited = false;
+      if (field.maxValue > field.minValue) {
+        edited = ImGui::DragFloat3("##value", value, field.speed, field.minValue, field.maxValue);
+      } else {
+        edited = ImGui::DragFloat3("##value", value, field.speed);
+      }
+      if (edited) {
+        changed = true;
+      }
+      break;
+    }
+    case InspectorFieldKind::Color3: {
+      float* value = reinterpret_cast<float*>(ptr);
+      PropertyLabel(field.label);
+      if (ImGui::ColorEdit3("##value", value)) {
+        changed = true;
+      }
+      break;
+    }
+    case InspectorFieldKind::Enum: {
+      int value = *reinterpret_cast<int*>(ptr);
+      int current = 0;
+      for (int option = 0; option < field.enumCount; ++option) {
+        const int optionValue = field.enumValues != nullptr ? field.enumValues[option] : option;
+        if (optionValue == value) {
+          current = option;
+          break;
+        }
+      }
+      PropertyLabel(field.label);
+      if (ImGui::Combo("##value", &current, field.enumLabels, field.enumCount)) {
+        *reinterpret_cast<int*>(ptr) = field.enumValues != nullptr ? field.enumValues[current] : current;
+        changed = true;
+      }
+      break;
+    }
+    case InspectorFieldKind::Text: {
+      std::string* value = reinterpret_cast<std::string*>(ptr);
+      char buffer[512];
+      std::snprintf(buffer, sizeof(buffer), "%s", value->c_str());
+      PropertyLabel(field.label);
+      if (ImGui::InputText("##value", buffer, sizeof(buffer))) {
+        *value = buffer;
+        changed = true;
+      }
+      break;
+    }
+    case InspectorFieldKind::Texture: {
+      std::string* value = reinterpret_cast<std::string*>(ptr);
+      const std::vector<std::string> guids = assets.AllTexGuids();
+      std::string items = "None";
+      int current = 0;
+      for (size_t option = 0; option < guids.size(); ++option) {
+        const TextureRecord* record = assets.GetTexByGuid(guids[option]);
+        std::string name = record != nullptr ? std::filesystem::path(record->texPath).filename().string() : guids[option];
+        if (name.empty()) {
+          name = guids[option];
+        }
+        items.push_back('\0');
+        items += name;
+        if (*value == guids[option]) {
+          current = static_cast<int>(option) + 1;
+        }
+      }
+      int missing = -1;
+      if (!value->empty() && assets.GetTexByGuid(*value) == nullptr) {
+        missing = static_cast<int>(guids.size()) + 1;
+        items.push_back('\0');
+        items += "Missing: " + *value;
+        current = missing;
+      }
+      items.push_back('\0');
+      PropertyLabel(field.label);
+      if (ImGui::Combo("##value", &current, items.c_str())) {
+        if (current == 0) {
+          value->clear();
+        } else if (current > 0 && static_cast<size_t>(current) <= guids.size()) {
+          *value = guids[static_cast<size_t>(current - 1)];
+        }
+        changed = true;
+      }
+      if (ImGui::BeginDragDropTarget()) {
+        const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("KZ_TEX");
+        if (payload != nullptr && payload->Data != nullptr && payload->DataSize > 0) {
+          std::string guid(static_cast<const char*>(payload->Data));
+          if (assets.GetTexByGuid(guid) == nullptr) {
+            Announce(LogLevel::Warning, "Dropped texture not found");
+          } else if (guid != *value) {
+            *value = guid;
+            changed = true;
+          }
+        }
+        ImGui::EndDragDropTarget();
+      }
+      break;
+    }
+    case InspectorFieldKind::Mesh: {
+      std::string* value = reinterpret_cast<std::string*>(ptr);
+      const std::vector<std::string> guids = assets.AllGuids();
+      std::string items = "None";
+      int current = 0;
+      for (size_t option = 0; option < guids.size(); ++option) {
+        const MeshRecord* record = assets.GetByGuid(guids[option]);
+        std::string name = record != nullptr ? std::filesystem::path(record->meshPath).filename().string() : guids[option];
+        if (name.empty()) {
+          name = guids[option];
+        }
+        items.push_back('\0');
+        items += name;
+        if (*value == guids[option]) {
+          current = static_cast<int>(option) + 1;
+        }
+      }
+      int missing = -1;
+      if (!value->empty() && assets.GetByGuid(*value) == nullptr) {
+        missing = static_cast<int>(guids.size()) + 1;
+        items.push_back('\0');
+        items += "Missing: " + *value;
+        current = missing;
+      }
+      items.push_back('\0');
+      PropertyLabel(field.label);
+      if (ImGui::Combo("##value", &current, items.c_str())) {
+        if (current == 0) {
+          value->clear();
+        } else if (current > 0 && static_cast<size_t>(current) <= guids.size()) {
+          *value = guids[static_cast<size_t>(current - 1)];
+        }
+        changed = true;
+      }
+      if (ImGui::BeginDragDropTarget()) {
+        const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("KZ_ASSET");
+        if (payload != nullptr && payload->Data != nullptr && payload->DataSize > 0) {
+          std::string guid(static_cast<const char*>(payload->Data));
+          if (assets.GetByGuid(guid) == nullptr) {
+            Announce(LogLevel::Warning, "Dropped asset not found");
+          } else if (guid != *value) {
+            *value = guid;
+            changed = true;
+          }
+        }
+        ImGui::EndDragDropTarget();
+      }
+      break;
+    }
+    case InspectorFieldKind::AudioClip: {
+      std::string* value = reinterpret_cast<std::string*>(ptr);
+      char buffer[512];
+      std::snprintf(buffer, sizeof(buffer), "%s", value->c_str());
+      PropertyLabel(field.label);
+      ImGui::SetNextItemWidth(-70.0f);
+      if (ImGui::InputText("##value", buffer, sizeof(buffer))) {
+        *value = buffer;
+        changed = true;
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Browse##browse")) {
+        std::string picked;
+        if (ShowOpenAudioDialog(window.NativeHandle(), picked)) {
+          std::error_code code;
+          const std::string assetDir = ResolveAssetsDir();
+          std::filesystem::create_directories(std::filesystem::path(assetDir) / "Audio", code);
+          const std::string relative = "Audio/" + std::filesystem::path(picked).filename().string();
+          const std::string destination = (std::filesystem::path(assetDir) / relative).string();
+          std::filesystem::copy_file(picked, destination, code);
+          if (code) {
+            Announce(LogLevel::Error, std::string("Could not copy audio clip: ") + picked);
+          } else {
+            *value = relative;
+            changed = true;
+          }
+        }
+      }
+      break;
+    }
+    case InspectorFieldKind::AudioBus: {
+      const size_t busCount = audio.Mixer().BusCount();
+      if (busCount == 0) {
+        PropertyLabel(field.label);
+        ImGui::TextDisabled("No audio buses");
+        break;
+      }
+      std::string items;
+      for (size_t bus = 0; bus < busCount; ++bus) {
+        const AudioBusDesc* busDesc = audio.Mixer().GetBus(static_cast<uint32_t>(bus));
+        const std::string name = busDesc != nullptr && !busDesc->name.empty() ? busDesc->name : "Bus " + std::to_string(bus);
+        if (bus == 0) {
+          items = name;
+        } else {
+          items.push_back('\0');
+          items += name;
+        }
+      }
+      items.push_back('\0');
+      int* value = reinterpret_cast<int*>(ptr);
+      int current = *value >= 0 && static_cast<size_t>(*value) < busCount ? *value : 0;
+      PropertyLabel(field.label);
+      if (ImGui::Combo("##value", &current, items.c_str())) {
+        *value = current;
+        changed = true;
+      }
+      break;
+    }
+    }
+    ImGui::PopID();
+  }
+  if (changed) {
+    edits.PushComponent(e->id, desc.id, draft.Data());
+  }
+  ImGui::PopID();
+}
 void EditorApp::DrawAudioMixer() {
   if (!ImGui::Begin("Audio Mixer", &showAudioMixer)) {
     ImGui::End();
@@ -2699,6 +3015,9 @@ void EditorApp::DrawHierarchy() {
   }
   ImGui::End();
 }
+static bool HasCustomInspector(ComponentTypeId id) {
+  return id == ComponentRegistry::kMesh || id == ComponentRegistry::kLight || id == ComponentRegistry::kMaterial || id == ComponentRegistry::kDecal || id == ComponentRegistry::kLod || id == ComponentRegistry::kLightmap || id == ComponentRegistry::kProbe || id == ComponentRegistry::kRigidbody || id == ComponentRegistry::kAudioSource;
+}
 void EditorApp::DrawInspector() {
   ImGui::Begin("Inspector", &showInspector);
   if (!selection.HasSelection()) {
@@ -3170,73 +3489,13 @@ void EditorApp::DrawInspector() {
     }
     ImGui::PopID();
   }
-  if (e->hasPost) {
-    ImGui::PushID("Post");
-    PropertySection("Post Volume");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Remove##post")) {
-      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Post Volume")));
-      undo.Execute(std::move(cmd), scene);
+  const ComponentRegistry& registry = ComponentRegistry::Instance();
+  for (size_t ci = 0; ci < registry.Count(); ++ci) {
+    const ComponentTypeDesc* desc = registry.Get(static_cast<ComponentTypeId>(ci));
+    if (desc == nullptr || !EntityHasComponent(e, desc->id) || HasCustomInspector(desc->id)) {
+      continue;
     }
-    PostData pv = e->post;
-    bool pvChanged = false;
-    PropertyLabel("Volume Size");
-    if (ImGui::DragFloat3("##Volume Size", pv.size, 0.1f, 0.5f, 200.0f)) {
-      pvChanged = true;
-    }
-    PropertyLabel("Exposure");
-    if (ImGui::DragFloat("##Exposure", &pv.exposure, 0.01f, 0.05f, 8.0f)) {
-      pvChanged = true;
-    }
-    int ptm = pv.toneMap < 0 ? 0 : (pv.toneMap > 3 ? 3 : pv.toneMap);
-    PropertyLabel("Tone Mapper");
-    if (ImGui::Combo("##Tone Mapper", &ptm, "ACES\0Reinhard\0AgX\0None\0")) {
-      pv.toneMap = ptm;
-      pvChanged = true;
-    }
-    PropertyLabel("Contrast");
-    if (ImGui::DragFloat("##Contrast", &pv.contrast, 0.01f, 0.2f, 2.0f)) {
-      pvChanged = true;
-    }
-    PropertyLabel("Saturation");
-    if (ImGui::DragFloat("##Saturation", &pv.saturation, 0.01f, 0.0f, 3.0f)) {
-      pvChanged = true;
-    }
-    PropertyLabel("Bloom");
-    if (ImGui::DragFloat("##Bloom", &pv.bloom, 0.01f, 0.0f, 2.0f)) {
-      pvChanged = true;
-    }
-    if (pvChanged) {
-      edits.PushPost(e->id, pv);
-    }
-    ImGui::PopID();
-  }
-  if (e->hasFog) {
-    ImGui::PushID("Fog");
-    PropertySection("Fog Volume");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Remove##fog")) {
-      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Fog Volume")));
-      undo.Execute(std::move(cmd), scene);
-    }
-    FogData fg = e->fog;
-    bool fgChanged = false;
-    PropertyLabel("Volume Size");
-    if (ImGui::DragFloat3("##Volume Size", fg.size, 0.1f, 0.5f, 200.0f)) {
-      fgChanged = true;
-    }
-    PropertyLabel("Density");
-    if (ImGui::DragFloat("##Density", &fg.density, 0.001f, 0.0f, 1.0f)) {
-      fgChanged = true;
-    }
-    PropertyLabel("Fog Color");
-    if (ImGui::ColorEdit3("##Fog Color", fg.color)) {
-      fgChanged = true;
-    }
-    if (fgChanged) {
-      edits.PushFog(e->id, fg);
-    }
-    ImGui::PopID();
+    DrawGenericComponent(e, *desc);
   }
   if (e->hasRigidbody) {
     ImGui::PushID("Rigidbody");
@@ -3299,7 +3558,15 @@ void EditorApp::DrawInspector() {
     ImGui::PopID();
   }
   DrawAudioSourceSection(e);
-  if (!e->hasMesh || !e->hasLight || !e->hasMaterial || !e->hasDecal || !e->hasLod || !e->hasLightmap || !e->hasProbe || !e->hasPost || !e->hasFog || !e->hasRigidbody || !e->hasAudioSource) {
+  bool hasMissingComponent = false;
+  for (size_t ci = 0; ci < registry.Count(); ++ci) {
+    const ComponentTypeDesc* desc = registry.Get(static_cast<ComponentTypeId>(ci));
+    if (desc != nullptr && !EntityHasComponent(e, desc->id)) {
+      hasMissingComponent = true;
+      break;
+    }
+  }
+  if (hasMissingComponent) {
     ImGui::Separator();
     if (ImGui::Button("Add Component")) {
       ImGui::OpenPopup("AddComponent");

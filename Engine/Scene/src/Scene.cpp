@@ -100,6 +100,33 @@ void MakeDefaultMaterial(MaterialData& m) {
   m.attenuationColor[2] = 1.0f;
   m.attenuationDistance = 0.0f;
   m.dispersion = 0.0f;
+  m.linkMask = 255;
+  m.detailAlbedoTex.clear();
+  m.detailNormalTex.clear();
+  m.detailTiling = 8.0f;
+  m.layerWeight = 0.0f;
+  m.layerAlbedo[0] = 0.5f;
+  m.layerAlbedo[1] = 0.5f;
+  m.layerAlbedo[2] = 0.5f;
+  m.layerRoughness = 0.8f;
+  m.layerMetallic = 0.0f;
+  m.layerHeight = 0.5f;
+  m.layerHeightBlend = false;
+  m.sssColor[0] = 0.85f;
+  m.sssColor[1] = 0.35f;
+  m.sssColor[2] = 0.25f;
+  m.sssIntensity = 0.0f;
+  m.sssKind = 0;
+  m.vtAlbedo = false;
+  m.triplanar = false;
+  m.triplanarScale = 0.25f;
+  m.graph.nodes.clear();
+  m.graph.outAlbedo = -1;
+  m.graph.outRoughness = -1;
+  m.graph.outMetallic = -1;
+  m.graph.outEmissive = -1;
+  m.graph.nextId = 0;
+  m.useNodes = false;
 }
 void MakeDefaultDecal(DecalData& d) {
   d.size[0] = 1.0f;

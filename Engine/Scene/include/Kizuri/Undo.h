@@ -24,6 +24,8 @@ public:
   void Reset();
   bool Valid() const { return valid; }
   ComponentTypeId Type() const { return type.id; }
+  void* Data() { return storage; }
+  const void* Data() const { return storage; }
 private:
   ComponentTypeDesc type;
   unsigned char* storage = nullptr;
@@ -305,6 +307,20 @@ private:
   EntityId target;
   ProbeData before;
   ProbeData after;
+};
+class SetComponentDataCmd : public Command {
+public:
+  SetComponentDataCmd(EntityId target, ComponentTypeId type, ComponentSnapshot after);
+  bool Apply(Scene& scene) override;
+  bool Revert(Scene& scene) override;
+  const char* Name() const override;
+private:
+  EntityId target;
+  ComponentTypeId type;
+  ComponentSnapshot after;
+  ComponentSnapshot before;
+  std::string label;
+  bool captured = false;
 };
 class SetParentCmd : public Command {
 public:

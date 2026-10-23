@@ -290,6 +290,7 @@ struct EditorApp {
   void DrawAssetBrowser();
   void DrawAudioMixer();
   void DrawAudioSourceSection(Entity* e);
+  void DrawGenericComponent(Entity* e, const ComponentTypeDesc& desc);
   void PropertyLabel(const char* label);
   void PropertySection(const char* title);
   void DrawSettings();
