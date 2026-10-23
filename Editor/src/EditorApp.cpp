@@ -839,7 +839,7 @@ void EditorApp::StartPlay() {
   }
   playScene.Clear();
   for (size_t i = 0; i < roots.size(); ++i) {
-    if (!roots[i].Restore(playScene, EntityId::Invalid())) {
+    if (!roots[i].Restore(playScene, EntityId::Invalid()).IsValid()) {
       playScene.Clear();
       Announce(LogLevel::Error, "Play-in-Editor: failed to build play scene");
       return;

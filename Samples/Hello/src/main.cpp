@@ -4135,7 +4135,7 @@ bool TestPlaySceneSnapshotIsolation() {
   }
   Kizuri::Scene play;
   for (size_t i = 0; i < roots.size(); ++i) {
-    if (!roots[i].Restore(play, Kizuri::EntityId::Invalid())) {
+    if (!roots[i].Restore(play, Kizuri::EntityId::Invalid()).IsValid()) {
       return false;
     }
   }
