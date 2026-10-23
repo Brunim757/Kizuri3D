@@ -50,6 +50,7 @@
 #include <draco/compression/encode.h>
 #include <DirectXMath.h>
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <TaskScheduler.h>
 #include <cstdio>
@@ -10030,35 +10031,62 @@ bool TestDbTextures() {
   db.Scan();
   db.DrainBlocking();
   if (db.AllTexGuids().size() != 1) {
+    std::printf("DbTextures: initial texture count %u\n", static_cast<unsigned>(db.AllTexGuids().size()));
     fs::remove_all(dir, ec);
     return false;
   }
   std::string tguid = db.AllTexGuids()[0];
   const Kizuri::TextureRecord* tr = db.GetTexByGuid(tguid);
   if (tr == nullptr || !tr->loaded || tr->state != Kizuri::TextureAssetState::Ready) {
+    std::printf("DbTextures: initial texture state %d loaded %d\n", tr != nullptr ? static_cast<int>(tr->state) : -1, tr != nullptr && tr->loaded ? 1 : 0);
     fs::remove_all(dir, ec);
     return false;
   }
   if (tr->data.width != 16 || tr->data.mips.size() < 2 || tr->data.format != Kizuri::TexFormat::Bc1) {
+    std::printf("DbTextures: initial texture width %d mips %u format %d\n", tr->data.width, static_cast<unsigned>(tr->data.mips.size()), static_cast<int>(tr->data.format));
     fs::remove_all(dir, ec);
     return false;
   }
   db.Scan();
   db.DrainBlocking();
   if (db.PendingImports() != 0) {
+    std::printf("DbTextures: pending imports after rescan %u\n", static_cast<unsigned>(db.PendingImports()));
     fs::remove_all(dir, ec);
     return false;
   }
   {
     FILE* fp = std::fopen((dir / "wall.bmp").string().c_str(), "ab");
+    if (fp == nullptr) {
+      std::printf("DbTextures: cannot append to source\n");
+      fs::remove_all(dir, ec);
+      return false;
+    }
     std::fputs(" ", fp);
     std::fclose(fp);
   }
+  const auto stamp = fs::last_write_time(dir / "wall.bmp", ec);
+  if (ec) {
+    std::printf("DbTextures: cannot read source timestamp\n");
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  fs::last_write_time(dir / "wall.bmp", fs::file_time_type(stamp.time_since_epoch() + std::chrono::seconds(2)), ec);
+  if (ec) {
+    std::printf("DbTextures: cannot write source timestamp\n");
+    fs::remove_all(dir, ec);
+    return false;
+  }
   fs::copy_file(dir / "wall.bmp", fs::temp_directory_path() / "kzdbtex_backup.bmp", ec);
+  if (ec) {
+    std::printf("DbTextures: cannot copy source backup\n");
+    fs::remove_all(dir, ec);
+    return false;
+  }
   db.Scan();
   db.DrainBlocking();
   tr = db.GetTexByGuid(tguid);
   if (tr == nullptr || tr->state != Kizuri::TextureAssetState::Outdated) {
+    std::printf("DbTextures: state after append %d\n", tr != nullptr ? static_cast<int>(tr->state) : -1);
     fs::remove_all(dir, ec);
     return false;
   }
