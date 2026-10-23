@@ -3,6 +3,7 @@
 #include "Kizuri/Assets/AssetDatabase.h"
 #include "Kizuri/Camera.h"
 #include "Kizuri/DeferredRenderer.h"
+#include "Kizuri/Ecs.h"
 #include "Kizuri/JobSystem.h"
 #include "Kizuri/PhysicsWorld.h"
 #include "Kizuri/QualityPreset.h"
@@ -37,6 +38,8 @@ public:
   void SyncAudio(float dt);
   Scene& GetScene() { return scene; }
   const Scene& GetScene() const { return scene; }
+  EcsWorld& GetEcs() { return ecs; }
+  const EcsWorld& GetEcs() const { return ecs; }
   DeferredRenderer& GetRenderer() { return renderer; }
   PhysicsWorld& GetPhysics() { return physics; }
   AudioEngine& GetAudio() { return audio; }
@@ -47,6 +50,8 @@ public:
   bool IsInitialized() const { return initialized; }
 private:
   Scene scene;
+  EcsWorld ecs;
+  EcsSystemScheduler ecsSystems;
   DeferredRenderer renderer;
   AssetDatabase assets;
   JobSystem jobs;

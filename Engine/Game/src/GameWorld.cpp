@@ -91,6 +91,14 @@ bool SubmitSceneLights(DeferredRenderer& renderer, const Scene& scene, const Ent
   return any;
 }
 GameWorld::GameWorld() {
+  const EcsComponentMask bodyMask = EcsBit(kEcsTransform) | EcsBit(ComponentRegistry::kRigidbody);
+  const EcsComponentMask audioMask = EcsBit(kEcsTransform) | EcsBit(ComponentRegistry::kAudioSource);
+  ecsSystems.AddSystem("physics", bodyMask, bodyMask, [this](EcsWorld&, float dt) {
+    SyncPhysics(dt);
+  });
+  ecsSystems.AddSystem("audio", audioMask, 0, [this](EcsWorld&, float dt) {
+    SyncAudio(dt);
+  });
 }
 GameWorld::~GameWorld() {
   Shutdown();
@@ -163,6 +171,7 @@ void GameWorld::Shutdown() {
   audio.Shutdown();
   physics.Shutdown();
   jobs.Shutdown();
+  ecs.Clear();
   assets.SetGpuRHI(nullptr);
   renderer.Shutdown();
 }
@@ -174,6 +183,7 @@ bool GameWorld::LoadSceneFile(const std::string& path) {
     lastError = "Falha ao carregar a cena " + path;
     return false;
   }
+  SceneEcsBridge::Import(scene, ecs);
   return true;
 }
 void GameWorld::CreateFallbackScene() {
@@ -191,6 +201,7 @@ void GameWorld::CreateFallbackScene() {
   e->light.color[2] = 0.9f;
   e->transform.rotation[1] = 45.0f;
   e->transform.rotation[0] = -35.0f;
+  SceneEcsBridge::Import(scene, ecs);
 }
 void GameWorld::SetViewSize(int width, int height) {
   if (width > 0 && height > 0) {
@@ -208,53 +219,55 @@ void GameWorld::Update(float dt) {
   if (!initialized) {
     return;
   }
-  SyncPhysics(dt);
-  SyncAudio(dt);
+  ecsSystems.Run(ecs, jobs, dt);
 }
 void GameWorld::SyncPhysics(float dt) {
   if (!initialized || !physics.IsInitialized()) {
     return;
   }
-  const std::vector<EntityId> ids = scene.All();
-  for (size_t i = 0; i < ids.size(); ++i) {
-    Entity* e = scene.Get(ids[i]);
-    if (e == nullptr || !e->hasRigidbody) {
-      continue;
+  if (ecs.Count() != scene.Count()) {
+    SceneEcsBridge::Import(scene, ecs);
+  }
+  const EcsComponentMask bodyMask = EcsBit(kEcsTransform) | EcsBit(ComponentRegistry::kRigidbody);
+  ecs.Query(bodyMask).Each([&](EcsQueryEntity entity) {
+    Transform* transform = entity.Get<Transform>(kEcsTransform);
+    RigidbodyData* rigidbody = entity.Get<RigidbodyData>(ComponentRegistry::kRigidbody);
+    if (transform == nullptr || rigidbody == nullptr) {
+      return;
     }
     float quat[4];
-    EulerDegToQuat(e->transform.rotation, quat);
+    EulerDegToQuat(transform->rotation, quat);
     uint32_t body = 0;
-    std::unordered_map<EntityId, uint32_t, EntityIdHash>::const_iterator it = physBodies.find(e->id);
+    std::unordered_map<EntityId, uint32_t, EntityIdHash>::const_iterator it = physBodies.find(entity.Id());
     if (it != physBodies.end() && physics.HasBody(it->second)) {
       body = it->second;
     }
     if (body == 0) {
       PhysBodyDesc desc;
-      desc.motion = e->rigidbody.motionType == 0 ? PhysMotionType::Static : (e->rigidbody.motionType == 1 ? PhysMotionType::Kinematic : PhysMotionType::Dynamic);
-      desc.mass = e->rigidbody.mass;
-      desc.collider = e->rigidbody.colliderType == 1 ? PhysColliderType::Sphere : (e->rigidbody.colliderType == 2 ? PhysColliderType::Capsule : (e->rigidbody.colliderType == 3 ? PhysColliderType::Mesh : PhysColliderType::Box));
-      desc.extents[0] = e->rigidbody.extents[0];
-      desc.extents[1] = e->rigidbody.extents[1];
-      desc.extents[2] = e->rigidbody.extents[2];
-      desc.friction = e->rigidbody.friction;
-      desc.restitution = e->rigidbody.restitution;
-      const uint32_t created = physics.CreateBody(desc, e->transform.position, quat);
+      desc.motion = rigidbody->motionType == 0 ? PhysMotionType::Static : (rigidbody->motionType == 1 ? PhysMotionType::Kinematic : PhysMotionType::Dynamic);
+      desc.mass = rigidbody->mass;
+      desc.collider = rigidbody->colliderType == 1 ? PhysColliderType::Sphere : (rigidbody->colliderType == 2 ? PhysColliderType::Capsule : (rigidbody->colliderType == 3 ? PhysColliderType::Mesh : PhysColliderType::Box));
+      desc.extents[0] = rigidbody->extents[0];
+      desc.extents[1] = rigidbody->extents[1];
+      desc.extents[2] = rigidbody->extents[2];
+      desc.friction = rigidbody->friction;
+      desc.restitution = rigidbody->restitution;
+      const uint32_t created = physics.CreateBody(desc, transform->position, quat);
       if (created == 0xFFFFFFFFu) {
-        continue;
+        return;
       }
-      physBodies[e->id] = created;
+      physBodies[entity.Id()] = created;
       body = created;
     }
-    if (e->rigidbody.motionType != 2) {
-      physics.TeleportBody(body, e->transform.position, quat);
+    if (rigidbody->motionType != 2) {
+      physics.TeleportBody(body, transform->position, quat);
     }
-    if (e->rigidbody.motionType == 1) {
-      physics.SetKinematicTarget(body, e->transform.position, quat);
+    if (rigidbody->motionType == 1) {
+      physics.SetKinematicTarget(body, transform->position, quat);
     }
-  }
+  });
   for (std::unordered_map<EntityId, uint32_t, EntityIdHash>::iterator it = physBodies.begin(); it != physBodies.end();) {
-    const Entity* e = scene.Get(it->first);
-    if (e == nullptr || !e->hasRigidbody) {
+    if (!ecs.HasComponent(it->first, ComponentRegistry::kRigidbody)) {
       physics.DestroyBody(it->second);
       it = physBodies.erase(it);
     } else {
@@ -263,8 +276,9 @@ void GameWorld::SyncPhysics(float dt) {
   }
   physics.Step(dt);
   for (std::unordered_map<EntityId, uint32_t, EntityIdHash>::const_iterator it = physBodies.begin(); it != physBodies.end(); ++it) {
-    Entity* e = scene.Get(it->first);
-    if (e == nullptr || e->rigidbody.motionType != 2) {
+    Transform* transform = static_cast<Transform*>(ecs.GetComponent(it->first, kEcsTransform));
+    RigidbodyData* rigidbody = static_cast<RigidbodyData*>(ecs.GetComponent(it->first, ComponentRegistry::kRigidbody));
+    if (transform == nullptr || rigidbody == nullptr || rigidbody->motionType != 2) {
       continue;
     }
     float pos[3] = { 0.0f, 0.0f, 0.0f };
@@ -272,10 +286,11 @@ void GameWorld::SyncPhysics(float dt) {
     if (!physics.GetPose(it->second, pos, quat)) {
       continue;
     }
-    e->transform.position[0] = pos[0];
-    e->transform.position[1] = pos[1];
-    e->transform.position[2] = pos[2];
+    transform->position[0] = pos[0];
+    transform->position[1] = pos[1];
+    transform->position[2] = pos[2];
   }
+  SceneEcsBridge::ExportTransforms(ecs, scene);
 }
 void GameWorld::SyncAudio(float dt) {
   (void)dt;

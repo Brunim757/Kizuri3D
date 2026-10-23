@@ -166,14 +166,9 @@ int GameApp::Run() {
     (void)alpha;
     UpdateInput();
   });
-  loop.AddUpdateSystem("physics", [this](float dt, float alpha) {
+  loop.AddUpdateSystem("world", [this](float dt, float alpha) {
     (void)alpha;
-    world.SyncPhysics(dt);
-  });
-  loop.AddUpdateSystem("audio", [this](float dt, float alpha) {
-    (void)dt;
-    (void)alpha;
-    world.SyncAudio(dt);
+    world.Update(dt);
   });
   loop.AddRenderSystem("render", [this](float alpha) {
     world.Render(alpha);

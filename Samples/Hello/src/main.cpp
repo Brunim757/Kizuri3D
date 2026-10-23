@@ -2927,6 +2927,10 @@ bool TestGameWorldScene() {
   if (e->light.type != static_cast<int>(Kizuri::LightType::Directional)) {
     return false;
   }
+  const Kizuri::EcsWorld& ecs = world.GetEcs();
+  if (ecs.Count() != 1 || !ecs.HasComponent(all[0], Kizuri::kEcsTransform) || !ecs.HasComponent(all[0], Kizuri::ComponentRegistry::kLight)) {
+    return false;
+  }
   return true;
 }
 bool TestPhysicsFall() {
