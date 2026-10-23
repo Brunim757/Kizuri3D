@@ -38,6 +38,7 @@
 #include "Kizuri/Assets/Guid.h"
 #include "Kizuri/Assets/MeshCodec.h"
 #include "Kizuri/ComponentRegistry.h"
+#include "Kizuri/Ecs.h"
 #include "Kizuri/GameLoop.h"
 #include "Kizuri/GameWorld.h"
 #include "Kizuri/Assets/LightmapBaker.h"
@@ -50,6 +51,7 @@
 #include <draco/compression/encode.h>
 #include <DirectXMath.h>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <utility>
@@ -4187,6 +4189,249 @@ bool TestPlaySceneSnapshotIsolation() {
   }
   const Kizuri::Entity* restoredChild = edit.Get(child);
   if (restoredChild == nullptr || !restoredChild->hasRigidbody || restoredChild->rigidbody.mass != 2.0f) {
+    return false;
+  }
+  return true;
+}
+bool TestEcsStorage() {
+  Kizuri::EcsWorld world;
+  Kizuri::EntityId a = world.CreateEntity();
+  Kizuri::EntityId b = world.CreateEntity();
+  if (!a.IsValid() || !b.IsValid() || !world.Has(a) || !world.Has(b) || world.Count() != 2) {
+    return false;
+  }
+  Kizuri::Transform transform;
+  Kizuri::MakeIdentityTransform(transform);
+  transform.position[0] = 3.0f;
+  if (!world.AddComponent(a, Kizuri::kEcsTransform, &transform)) {
+    return false;
+  }
+  Kizuri::RigidbodyData rigidbody;
+  Kizuri::MakeDefaultRigidbody(rigidbody);
+  rigidbody.mass = 4.0f;
+  if (!world.AddComponent(a, Kizuri::ComponentRegistry::kRigidbody, &rigidbody)) {
+    return false;
+  }
+  Kizuri::Transform* stored = static_cast<Kizuri::Transform*>(world.GetComponent(a, Kizuri::kEcsTransform));
+  Kizuri::RigidbodyData* storedBody = static_cast<Kizuri::RigidbodyData*>(world.GetComponent(a, Kizuri::ComponentRegistry::kRigidbody));
+  if (stored == nullptr || storedBody == nullptr || stored->position[0] != 3.0f || storedBody->mass != 4.0f) {
+    return false;
+  }
+  if (world.GetComponent(b, Kizuri::kEcsTransform) != nullptr) {
+    return false;
+  }
+  if (!world.RemoveComponent(a, Kizuri::ComponentRegistry::kRigidbody) || world.HasComponent(a, Kizuri::ComponentRegistry::kRigidbody)) {
+    return false;
+  }
+  world.Clear();
+  Kizuri::EntityId ids[3];
+  for (int i = 0; i < 3; ++i) {
+    ids[i] = world.CreateEntity();
+    Kizuri::Transform t;
+    Kizuri::MakeIdentityTransform(t);
+    t.position[0] = static_cast<float>(i + 1);
+    if (!world.AddComponent(ids[i], Kizuri::kEcsTransform, &t)) {
+      return false;
+    }
+  }
+  if (!world.RemoveComponent(ids[1], Kizuri::kEcsTransform)) {
+    return false;
+  }
+  const Kizuri::Transform* last = static_cast<const Kizuri::Transform*>(world.GetComponent(ids[2], Kizuri::kEcsTransform));
+  const Kizuri::Transform* first = static_cast<const Kizuri::Transform*>(world.GetComponent(ids[0], Kizuri::kEcsTransform));
+  if (last == nullptr || first == nullptr || last->position[0] != 3.0f || first->position[0] != 1.0f) {
+    return false;
+  }
+  Kizuri::EntityId recycled = world.CreateEntity();
+  if (!recycled.IsValid() || recycled.index != ids[1].index || recycled.generation == ids[1].generation) {
+    return false;
+  }
+  return true;
+}
+bool TestEcsQuery() {
+  Kizuri::EcsWorld world;
+  for (int i = 0; i < 5; ++i) {
+    Kizuri::EntityId id = world.CreateEntity();
+    Kizuri::Transform transform;
+    Kizuri::MakeIdentityTransform(transform);
+    transform.position[0] = static_cast<float>(i);
+    if (!world.AddComponent(id, Kizuri::kEcsTransform, &transform)) {
+      return false;
+    }
+    if ((i % 2) == 0) {
+      Kizuri::RigidbodyData rigidbody;
+      Kizuri::MakeDefaultRigidbody(rigidbody);
+      rigidbody.mass = static_cast<float>(i + 1);
+      if (!world.AddComponent(id, Kizuri::ComponentRegistry::kRigidbody, &rigidbody)) {
+        return false;
+      }
+    }
+  }
+  const Kizuri::EcsComponentMask mask = Kizuri::EcsBit(Kizuri::kEcsTransform) | Kizuri::EcsBit(Kizuri::ComponentRegistry::kRigidbody);
+  size_t matches = 0;
+  float massSum = 0.0f;
+  bool bad = false;
+  world.Query(mask).Each([&](Kizuri::EcsQueryEntity entity) {
+    Kizuri::Transform* transform = entity.Get<Kizuri::Transform>(Kizuri::kEcsTransform);
+    Kizuri::RigidbodyData* rigidbody = entity.Get<Kizuri::RigidbodyData>(Kizuri::ComponentRegistry::kRigidbody);
+    if (transform == nullptr || rigidbody == nullptr || !entity.Id().IsValid()) {
+      bad = true;
+      return;
+    }
+    ++matches;
+    massSum += rigidbody->mass;
+  });
+  if (bad || matches != 3 || massSum != 9.0f) {
+    return false;
+  }
+  size_t transforms = 0;
+  world.Query(Kizuri::EcsBit(Kizuri::kEcsTransform)).Each([&](Kizuri::EcsQueryEntity entity) {
+    if (entity.Get<Kizuri::Transform>(Kizuri::kEcsTransform) != nullptr) {
+      ++transforms;
+    }
+  });
+  if (transforms != 5 || world.Query(mask).Count() != 3 || world.Query(Kizuri::EcsBit(Kizuri::ComponentRegistry::kAudioSource)).Count() != 0) {
+    return false;
+  }
+  return true;
+}
+bool TestEcsScheduler() {
+  Kizuri::JobSystem jobs;
+  if (!jobs.Initialize()) {
+    return false;
+  }
+  Kizuri::EcsWorld world;
+  Kizuri::EntityId id = world.CreateEntity();
+  Kizuri::Transform transform;
+  Kizuri::MakeIdentityTransform(transform);
+  if (!world.AddComponent(id, Kizuri::kEcsTransform, &transform)) {
+    jobs.Shutdown();
+    return false;
+  }
+  Kizuri::EcsSystemScheduler scheduler;
+  std::atomic<int> writes(0);
+  std::atomic<int> readers(0);
+  std::atomic<int> bad(0);
+  std::atomic<int> phase(0);
+  const Kizuri::EcsComponentMask transformMask = Kizuri::EcsBit(Kizuri::kEcsTransform);
+  scheduler.AddSystem("write", transformMask, transformMask, [&](Kizuri::EcsWorld& w, float) {
+    Kizuri::Transform* t = static_cast<Kizuri::Transform*>(w.GetComponent(id, Kizuri::kEcsTransform));
+    if (t == nullptr) {
+      bad.store(1);
+      return;
+    }
+    t->position[0] = 2.0f;
+    phase.store(1);
+    writes.fetch_add(1);
+  });
+  scheduler.AddSystem("read-a", transformMask, 0, [&](Kizuri::EcsWorld& w, float) {
+    Kizuri::Transform* t = static_cast<Kizuri::Transform*>(w.GetComponent(id, Kizuri::kEcsTransform));
+    if (t == nullptr || phase.load() != 1 || t->position[0] != 2.0f) {
+      bad.store(1);
+    }
+    readers.fetch_add(1);
+  });
+  scheduler.AddSystem("read-b", transformMask, 0, [&](Kizuri::EcsWorld& w, float) {
+    Kizuri::Transform* t = static_cast<Kizuri::Transform*>(w.GetComponent(id, Kizuri::kEcsTransform));
+    if (t == nullptr || phase.load() != 1 || t->position[0] != 2.0f) {
+      bad.store(1);
+    }
+    readers.fetch_add(1);
+  });
+  scheduler.AddSystem("read-c", transformMask, 0, [&](Kizuri::EcsWorld& w, float) {
+    Kizuri::Transform* t = static_cast<Kizuri::Transform*>(w.GetComponent(id, Kizuri::kEcsTransform));
+    if (t == nullptr || phase.load() != 1 || t->position[0] != 2.0f) {
+      bad.store(1);
+    }
+    readers.fetch_add(1);
+  });
+  scheduler.AddSystem("write-late", transformMask, transformMask, [&](Kizuri::EcsWorld& w, float) {
+    if (readers.load() != 3) {
+      bad.store(1);
+    }
+    Kizuri::Transform* t = static_cast<Kizuri::Transform*>(w.GetComponent(id, Kizuri::kEcsTransform));
+    if (t == nullptr) {
+      bad.store(1);
+      return;
+    }
+    t->position[0] = 3.0f;
+    phase.store(2);
+    writes.fetch_add(1);
+  });
+  const size_t waves = scheduler.Run(world, jobs, 1.0f / 60.0f);
+  const bool ok = bad.load() == 0 && writes.load() == 2 && readers.load() == 3 && waves == 3 && scheduler.SystemCount() == 5;
+  jobs.Shutdown();
+  return ok;
+}
+bool TestEcsSceneBridge() {
+  Kizuri::Scene scene;
+  Kizuri::EntityId root = scene.CreateEntity("Root");
+  Kizuri::EntityId child = scene.CreateEntity("Child");
+  if (!scene.SetParent(child, root)) {
+    return false;
+  }
+  Kizuri::Entity* rootEntity = scene.Get(root);
+  Kizuri::Entity* childEntity = scene.Get(child);
+  if (rootEntity == nullptr || childEntity == nullptr) {
+    return false;
+  }
+  rootEntity->transform.position[0] = 1.0f;
+  rootEntity->hasMesh = true;
+  rootEntity->meshGuid = "bridge-mesh";
+  rootEntity->hasRigidbody = true;
+  Kizuri::MakeDefaultRigidbody(rootEntity->rigidbody);
+  rootEntity->rigidbody.mass = 3.0f;
+  childEntity->hasLight = true;
+  Kizuri::MakeDefaultLight(childEntity->light);
+  childEntity->light.intensity = 2.0f;
+  Kizuri::EcsWorld world;
+  Kizuri::SceneEcsBridge::Import(scene, world);
+  if (world.Count() != 2 || !world.Has(root) || !world.Has(child)) {
+    return false;
+  }
+  if (!world.HasComponent(root, Kizuri::ComponentRegistry::kMesh) || !world.HasComponent(root, Kizuri::ComponentRegistry::kRigidbody) || !world.HasComponent(child, Kizuri::ComponentRegistry::kLight)) {
+    return false;
+  }
+  Kizuri::Transform* rootTransform = static_cast<Kizuri::Transform*>(world.GetComponent(root, Kizuri::kEcsTransform));
+  Kizuri::RigidbodyData* rootBody = static_cast<Kizuri::RigidbodyData*>(world.GetComponent(root, Kizuri::ComponentRegistry::kRigidbody));
+  if (rootTransform == nullptr || rootBody == nullptr || rootTransform->position[0] != 1.0f || rootBody->mass != 3.0f) {
+    return false;
+  }
+  rootTransform->position[0] = 5.0f;
+  rootBody->mass = 7.0f;
+  if (!world.RemoveComponent(root, Kizuri::ComponentRegistry::kMesh)) {
+    return false;
+  }
+  Kizuri::DecalData decal;
+  Kizuri::MakeDefaultDecal(decal);
+  decal.size[0] = 2.0f;
+  if (!world.AddComponent(child, Kizuri::ComponentRegistry::kDecal, &decal)) {
+    return false;
+  }
+  Kizuri::SceneEcsBridge::ExportComponents(world, scene);
+  const Kizuri::Entity* exportedRoot = scene.Get(root);
+  const Kizuri::Entity* exportedChild = scene.Get(child);
+  if (exportedRoot == nullptr || exportedChild == nullptr) {
+    return false;
+  }
+  if (exportedRoot->hasMesh || !exportedRoot->hasRigidbody || exportedRoot->rigidbody.mass != 7.0f || exportedRoot->transform.position[0] != 5.0f) {
+    return false;
+  }
+  if (!exportedChild->hasDecal || !exportedChild->hasLight || exportedChild->decal.size[0] != 2.0f || exportedChild->light.intensity != 2.0f) {
+    return false;
+  }
+  if (!world.RemoveComponent(child, Kizuri::ComponentRegistry::kDecal)) {
+    return false;
+  }
+  Kizuri::SceneEcsBridge::ExportComponents(world, scene);
+  if (scene.Get(child)->hasDecal) {
+    return false;
+  }
+  if (rootTransform != nullptr) {
+    rootTransform->rotation[1] = 45.0f;
+  }
+  Kizuri::SceneEcsBridge::ExportTransforms(world, scene);
+  if (scene.Get(root)->transform.rotation[1] != 45.0f) {
     return false;
   }
   return true;
@@ -10687,6 +10932,10 @@ int main() {
   failures += Check("Scene-CRUD", TestSceneCrud());
   failures += Check("Scene-Duplicate", TestSceneDuplicate());
   failures += Check("PlayScene-SnapshotIsolation", TestPlaySceneSnapshotIsolation());
+  failures += Check("EcsStorage", TestEcsStorage());
+  failures += Check("EcsQuery", TestEcsQuery());
+  failures += Check("EcsScheduler", TestEcsScheduler());
+  failures += Check("EcsSceneBridge", TestEcsSceneBridge());
   failures += Check("Scene-Parent", TestSceneParent());
   failures += Check("Selection-Set", TestSelectionSet());
   failures += Check("ScreenRect", TestScreenRect());
