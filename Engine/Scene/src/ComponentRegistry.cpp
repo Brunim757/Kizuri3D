@@ -100,7 +100,7 @@ const char* const kRolloffLabels[] = { "Linear", "Inverse", "Exponential" };
 const int kRolloffValues[] = { 0, 1, 2 };
 const char* const kToneMapLabels[] = { "ACES", "Reinhard", "AgX", "None" };
 const int kToneMapValues[] = { 0, 1, 2, 3 };
-const InspectorCondition kLightLocal[] = { { offsetof(LightData, type), InspectorConditionOp::MaskAny, 0x0B } };
+const InspectorCondition kLightLocal[] = { { offsetof(LightData, type), InspectorConditionOp::NotEquals, 2 } };
 const InspectorCondition kLightSpot[] = { { offsetof(LightData, type), InspectorConditionOp::Equals, 1 } };
 const InspectorCondition kLightDirectional[] = { { offsetof(LightData, type), InspectorConditionOp::Equals, 2 } };
 const InspectorCondition kLightRect[] = { { offsetof(LightData, type), InspectorConditionOp::Equals, 3 } };
@@ -109,7 +109,10 @@ const InspectorCondition kLightShadowDirectional[] = { { offsetof(LightData, cas
 const InspectorCondition kDecalMaterial[] = { { offsetof(DecalData, matMask), InspectorConditionOp::GreaterEqual, 2 } };
 const InspectorCondition kRigidbodyDynamic[] = { { offsetof(RigidbodyData, motionType), InspectorConditionOp::Equals, 2 } };
 const InspectorCondition kRigidbodyBox[] = { { offsetof(RigidbodyData, colliderType), InspectorConditionOp::Equals, 0 } };
-const InspectorCondition kRigidbodyRound[] = { { offsetof(RigidbodyData, colliderType), InspectorConditionOp::MaskAny, 0x06 } };
+const InspectorCondition kRigidbodyRound[] = {
+  { offsetof(RigidbodyData, colliderType), InspectorConditionOp::GreaterEqual, 1 },
+  { offsetof(RigidbodyData, colliderType), InspectorConditionOp::LessEqual, 2 }
+};
 const InspectorCondition kRigidbodyCapsule[] = { { offsetof(RigidbodyData, colliderType), InspectorConditionOp::Equals, 2 } };
 const InspectorCondition kAudioSpatial[] = { { offsetof(AudioSourceData, spatial), InspectorConditionOp::Equals, 1, sizeof(bool) } };
 const InspectorFieldDesc kMeshFields[] = {
@@ -220,7 +223,7 @@ const InspectorFieldDesc kRigidbodyFields[] = {
   { "Mass", offsetof(RigidbodyData, mass), InspectorFieldKind::Float, 0.1f, 0.01f, 1000.0f, false, nullptr, nullptr, 0, kRigidbodyDynamic, 1 },
   { "Collider", offsetof(RigidbodyData, colliderType), InspectorFieldKind::Enum, 1.0f, 0.0f, 0.0f, false, kColliderLabels, kColliderValues, 4 },
   { "Half Extents", offsetof(RigidbodyData, extents), InspectorFieldKind::Vec3, 0.05f, 0.01f, 100.0f, false, nullptr, nullptr, 0, kRigidbodyBox, 1 },
-  { "Radius", offsetof(RigidbodyData, extents[0]), InspectorFieldKind::Float, 0.05f, 0.01f, 100.0f, false, nullptr, nullptr, 0, kRigidbodyRound, 1 },
+  { "Radius", offsetof(RigidbodyData, extents[0]), InspectorFieldKind::Float, 0.05f, 0.01f, 100.0f, false, nullptr, nullptr, 0, kRigidbodyRound, 2 },
   { "Half Height", offsetof(RigidbodyData, extents[1]), InspectorFieldKind::Float, 0.05f, 0.01f, 100.0f, false, nullptr, nullptr, 0, kRigidbodyCapsule, 1 },
   { "Friction", offsetof(RigidbodyData, friction), InspectorFieldKind::Float, 0.01f, 0.0f, 2.0f },
   { "Restitution", offsetof(RigidbodyData, restitution), InspectorFieldKind::Float, 0.01f, 0.0f, 1.0f }
@@ -326,6 +329,46 @@ ComponentTypeId FindComponentType(const char* name) {
   }
   const ComponentTypeDesc* desc = ComponentRegistry::Instance().FindByName(name);
   return desc != nullptr ? desc->id : 0xFFFFFFFFu;
+}
+bool InspectorFieldVisible(const InspectorFieldDesc& field, const void* data) {
+  if (field.conditionCount == 0) {
+    return true;
+  }
+  if (data == nullptr) {
+    return false;
+  }
+  const unsigned char* bytes = static_cast<const unsigned char*>(data);
+  for (int i = 0; i < field.conditionCount; ++i) {
+    const InspectorCondition& condition = field.conditions[i];
+    int actual = 0;
+    if (condition.size == sizeof(bool)) {
+      actual = *reinterpret_cast<const bool*>(bytes + condition.offset) ? 1 : 0;
+    } else {
+      actual = *reinterpret_cast<const int*>(bytes + condition.offset);
+    }
+    bool pass = false;
+    switch (condition.op) {
+    case InspectorConditionOp::Equals:
+      pass = actual == condition.value;
+      break;
+    case InspectorConditionOp::NotEquals:
+      pass = actual != condition.value;
+      break;
+    case InspectorConditionOp::MaskAny:
+      pass = (actual & condition.value) != 0;
+      break;
+    case InspectorConditionOp::GreaterEqual:
+      pass = actual >= condition.value;
+      break;
+    case InspectorConditionOp::LessEqual:
+      pass = actual <= condition.value;
+      break;
+    }
+    if (!pass) {
+      return false;
+    }
+  }
+  return true;
 }
 bool EntityHasComponent(const Entity* e, ComponentTypeId id) {
   if (e == nullptr) {

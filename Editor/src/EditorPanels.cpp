@@ -867,43 +867,10 @@ void EditorApp::DrawGenericComponent(Entity* e, const ComponentTypeDesc& desc) {
     return;
   }
   unsigned char* base = static_cast<unsigned char*>(draft.Data());
-  auto visible = [](const InspectorFieldDesc& field, const unsigned char* data) {
-    for (int i = 0; i < field.conditionCount; ++i) {
-      const InspectorCondition& condition = field.conditions[i];
-      int actual = 0;
-      if (condition.size == sizeof(bool)) {
-        actual = *reinterpret_cast<const bool*>(data + condition.offset) ? 1 : 0;
-      } else {
-        actual = *reinterpret_cast<const int*>(data + condition.offset);
-      }
-      bool pass = false;
-      switch (condition.op) {
-      case InspectorConditionOp::Equals:
-        pass = actual == condition.value;
-        break;
-      case InspectorConditionOp::NotEquals:
-        pass = actual != condition.value;
-        break;
-      case InspectorConditionOp::MaskAny:
-        pass = (actual & condition.value) != 0;
-        break;
-      case InspectorConditionOp::GreaterEqual:
-        pass = actual >= condition.value;
-        break;
-      case InspectorConditionOp::LessEqual:
-        pass = actual <= condition.value;
-        break;
-      }
-      if (!pass) {
-        return false;
-      }
-    }
-    return true;
-  };
   bool changed = false;
   for (size_t i = 0; i < desc.fieldCount; ++i) {
     const InspectorFieldDesc& field = desc.fields[i];
-    if (!visible(field, base)) {
+    if (!InspectorFieldVisible(field, base)) {
       continue;
     }
     ImGui::PushID(field.label);

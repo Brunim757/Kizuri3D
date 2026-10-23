@@ -105,6 +105,7 @@ private:
   std::vector<ComponentTypeDesc> types;
 };
 ComponentTypeId FindComponentType(const char* name);
+bool InspectorFieldVisible(const InspectorFieldDesc& field, const void* data);
 bool EntityHasComponent(const Entity* e, ComponentTypeId id);
 const void* EntityComponentData(const Entity* e, ComponentTypeId id);
 void* EntityComponentData(Entity* e, ComponentTypeId id);

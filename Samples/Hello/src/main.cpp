@@ -2682,6 +2682,108 @@ bool TestComponentInspectorMetadata() {
   }
   return true;
 }
+bool TestComponentInspectorConditions() {
+  const Kizuri::ComponentRegistry& reg = Kizuri::ComponentRegistry::Instance();
+  auto findField = [](const Kizuri::ComponentTypeDesc* desc, const char* label) -> const Kizuri::InspectorFieldDesc* {
+    if (desc == nullptr) {
+      return nullptr;
+    }
+    for (size_t i = 0; i < desc->fieldCount; ++i) {
+      if (std::strcmp(desc->fields[i].label, label) == 0) {
+        return &desc->fields[i];
+      }
+    }
+    return nullptr;
+  };
+  const Kizuri::ComponentTypeDesc* rigidDesc = reg.Get(Kizuri::ComponentRegistry::kRigidbody);
+  const Kizuri::InspectorFieldDesc* radius = findField(rigidDesc, "Radius");
+  const Kizuri::InspectorFieldDesc* halfExtents = findField(rigidDesc, "Half Extents");
+  const Kizuri::InspectorFieldDesc* halfHeight = findField(rigidDesc, "Half Height");
+  if (radius == nullptr || halfExtents == nullptr || halfHeight == nullptr) {
+    return false;
+  }
+  Kizuri::RigidbodyData rigid;
+  Kizuri::MakeDefaultRigidbody(rigid);
+  rigid.colliderType = 0;
+  if (Kizuri::InspectorFieldVisible(*radius, &rigid) || !Kizuri::InspectorFieldVisible(*halfExtents, &rigid)) {
+    return false;
+  }
+  rigid.colliderType = 1;
+  if (!Kizuri::InspectorFieldVisible(*radius, &rigid) || Kizuri::InspectorFieldVisible(*halfHeight, &rigid)) {
+    return false;
+  }
+  rigid.colliderType = 2;
+  if (!Kizuri::InspectorFieldVisible(*radius, &rigid) || !Kizuri::InspectorFieldVisible(*halfHeight, &rigid)) {
+    return false;
+  }
+  rigid.colliderType = 3;
+  if (Kizuri::InspectorFieldVisible(*radius, &rigid) || Kizuri::InspectorFieldVisible(*halfHeight, &rigid)) {
+    return false;
+  }
+  const Kizuri::ComponentTypeDesc* lightDesc = reg.Get(Kizuri::ComponentRegistry::kLight);
+  const Kizuri::InspectorFieldDesc* lightRadius = findField(lightDesc, "Radius");
+  const Kizuri::InspectorFieldDesc* lightCookie = findField(lightDesc, "Cookie");
+  const Kizuri::InspectorFieldDesc* lightAreaW = findField(lightDesc, "Area W");
+  const Kizuri::InspectorFieldDesc* lightCascades = findField(lightDesc, "Cascades");
+  if (lightRadius == nullptr || lightCookie == nullptr || lightAreaW == nullptr || lightCascades == nullptr) {
+    return false;
+  }
+  Kizuri::LightData light;
+  Kizuri::MakeDefaultLight(light);
+  light.castShadow = true;
+  light.type = 0;
+  if (!Kizuri::InspectorFieldVisible(*lightRadius, &light) || Kizuri::InspectorFieldVisible(*lightCookie, &light)) {
+    return false;
+  }
+  light.type = 1;
+  if (!Kizuri::InspectorFieldVisible(*lightCookie, &light)) {
+    return false;
+  }
+  light.type = 2;
+  if (Kizuri::InspectorFieldVisible(*lightRadius, &light) || Kizuri::InspectorFieldVisible(*lightCookie, &light) || !Kizuri::InspectorFieldVisible(*lightCascades, &light)) {
+    return false;
+  }
+  light.castShadow = false;
+  if (Kizuri::InspectorFieldVisible(*lightCascades, &light)) {
+    return false;
+  }
+  light.castShadow = true;
+  light.type = 3;
+  if (!Kizuri::InspectorFieldVisible(*lightRadius, &light) || !Kizuri::InspectorFieldVisible(*lightAreaW, &light)) {
+    return false;
+  }
+  const Kizuri::ComponentTypeDesc* decalDesc = reg.Get(Kizuri::ComponentRegistry::kDecal);
+  const Kizuri::InspectorFieldDesc* decalRough = findField(decalDesc, "Decal Rough");
+  if (decalRough == nullptr) {
+    return false;
+  }
+  Kizuri::DecalData decal;
+  Kizuri::MakeDefaultDecal(decal);
+  decal.matMask = 1;
+  if (Kizuri::InspectorFieldVisible(*decalRough, &decal)) {
+    return false;
+  }
+  decal.matMask = 3;
+  if (!Kizuri::InspectorFieldVisible(*decalRough, &decal)) {
+    return false;
+  }
+  const Kizuri::ComponentTypeDesc* audioDesc = reg.Get(Kizuri::ComponentRegistry::kAudioSource);
+  const Kizuri::InspectorFieldDesc* minDistance = findField(audioDesc, "Min Distance");
+  if (minDistance == nullptr) {
+    return false;
+  }
+  Kizuri::AudioSourceData source;
+  Kizuri::MakeDefaultAudioSource(source);
+  source.spatial = true;
+  if (!Kizuri::InspectorFieldVisible(*minDistance, &source)) {
+    return false;
+  }
+  source.spatial = false;
+  if (Kizuri::InspectorFieldVisible(*minDistance, &source)) {
+    return false;
+  }
+  return true;
+}
 bool TestComponentEquality() {
   Kizuri::MaterialData a;
   Kizuri::MakeDefaultMaterial(a);
@@ -10943,6 +11045,7 @@ int main() {
   failures += Check("SceneAllComponents", TestSceneAllComponentsRoundTrip());
   failures += Check("ComponentUndo", TestComponentUndo());
   failures += Check("ComponentInspectorMetadata", TestComponentInspectorMetadata());
+  failures += Check("ComponentInspectorConditions", TestComponentInspectorConditions());
   failures += Check("ComponentEquality", TestComponentEquality());
   failures += Check("GenericComponentEdit", TestGenericComponentEdit());
   failures += Check("GameLoopFixedStep", TestGameLoopFixedStep());
