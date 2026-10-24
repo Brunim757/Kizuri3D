@@ -1234,7 +1234,9 @@ void EditorApp::RunSimulation(float dt) {
     SyncAudio(dt);
     return;
   }
-  SceneEcsBridge::Import(scene, simEcs);
+  if (!playActive) {
+    SceneEcsBridge::Import(scene, simEcs);
+  }
   simSystems.Run(simEcs, physJobs, dt);
   SceneEcsBridge::ExportTransforms(simEcs, scene);
 }

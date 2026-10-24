@@ -867,6 +867,7 @@ void EditorApp::StartPlay() {
   camera.GetYawPitch(playCameraYaw, playCameraPitch);
   ClearPlayRuntime();
   std::swap(scene, playScene);
+  SceneEcsBridge::Import(scene, simEcs);
   scene.ClearDirty();
   selection.Clear();
   soloLightId = EntityId::Invalid();
