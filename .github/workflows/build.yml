@@ -27,9 +27,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build
-          key: build-${{ runner.os }}-${{ hashFiles('build/msvc-stamp.txt', '**/*.cpp', '**/*.h', '**/*.hlsl', 'CMakeLists.txt', 'cmake/**', '**/CMakeLists.txt') }}
+          key: build-sse2-${{ runner.os }}-${{ hashFiles('build/msvc-stamp.txt', '**/*.cpp', '**/*.h', '**/*.hlsl', 'CMakeLists.txt', 'cmake/**', '**/CMakeLists.txt') }}
           restore-keys: |
-            build-${{ runner.os }}-
+            build-sse2-${{ runner.os }}-
       - name: Validate shaders
         shell: pwsh
         run: |
@@ -44,6 +44,14 @@ jobs:
           if ($failed) { throw "shader validation failed" }
       - name: Configure
         run: cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release
+      - name: Verify x64 baseline
+        shell: pwsh
+        run: |
+          $matches = Get-ChildItem build -Recurse -Filter *.vcxproj | Select-String -Pattern '/arch:AVX' -SimpleMatch
+          if ($matches) {
+            $matches | ForEach-Object { Write-Host "::error file=$($_.Path),line=$($_.LineNumber)::$($_.Line.Trim())" }
+            throw "AVX/AVX2 encontrado; o baseline x64 deve ser SSE2."
+          }
       - name: Build
         run: cmake --build build --config Release --parallel
       - name: Run KizuriHello

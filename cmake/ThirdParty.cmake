@@ -121,6 +121,15 @@ FetchContent_Declare(
   GIT_TAG 0.11.25
   GIT_SHALLOW TRUE
 )
+set(USE_SSE4_1 OFF CACHE BOOL "" FORCE)
+set(USE_SSE4_2 OFF CACHE BOOL "" FORCE)
+set(USE_AVX OFF CACHE BOOL "" FORCE)
+set(USE_AVX2 OFF CACHE BOOL "" FORCE)
+set(USE_AVX512 OFF CACHE BOOL "" FORCE)
+set(USE_LZCNT OFF CACHE BOOL "" FORCE)
+set(USE_TZCNT OFF CACHE BOOL "" FORCE)
+set(USE_F16C OFF CACHE BOOL "" FORCE)
+set(USE_FMADD OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
   Jolt
   GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
@@ -131,6 +140,13 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Jolt)
 if(MSVC)
   target_compile_options(Jolt PRIVATE /WX-)
+  get_target_property(kizuri_jolt_compile_options Jolt INTERFACE_COMPILE_OPTIONS)
+  if(kizuri_jolt_compile_options)
+    string(FIND "${kizuri_jolt_compile_options}" "/arch:AVX" kizuri_jolt_avx_index)
+    if(NOT kizuri_jolt_avx_index EQUAL -1)
+      message(FATAL_ERROR "Jolt foi configurado com AVX/AVX2; o baseline x64 exige SSE2.")
+    endif()
+  endif()
 endif()
 FetchContent_GetProperties(imgui)
 if(NOT imgui_POPULATED)
