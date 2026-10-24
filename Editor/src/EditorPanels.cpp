@@ -748,108 +748,6 @@ void EditorApp::PropertySection(const char* title) {
   ImGui::TextUnformatted(title);
   ImGui::PopStyleColor();
 }
-void EditorApp::DrawAudioSourceSection(Entity* e) {
-  if (!e->hasAudioSource) {
-    return;
-  }
-  PropertySection("Audio Source");
-  ImGui::SameLine();
-  if (ImGui::SmallButton("Remove##audiosource")) {
-    std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Audio Source")));
-    undo.Execute(std::move(cmd), scene);
-    return;
-  }
-  ImGui::PushID("AudioSource");
-  AudioSourceData as = e->audioSource;
-  bool changed = false;
-  char clipBuf[256];
-  std::snprintf(clipBuf, sizeof(clipBuf), "%s", as.clipPath.c_str());
-  PropertyLabel("Clip");
-  ImGui::SetNextItemWidth(-70.0f);
-  if (ImGui::InputText("##Clip", clipBuf, sizeof(clipBuf))) {
-    as.clipPath = clipBuf;
-    changed = true;
-  }
-  ImGui::SameLine();
-  ImGui::SetNextItemWidth(60.0f);
-  if (ImGui::Button("Browse##clip")) {
-    std::string picked;
-    if (ShowOpenAudioDialog(window.NativeHandle(), picked)) {
-      std::error_code cec;
-      const std::string assetDir = ResolveAssetsDir();
-      std::filesystem::create_directories(std::filesystem::path(assetDir) / "Audio", cec);
-      const std::string rel = "Audio/" + std::filesystem::path(picked).filename().string();
-      const std::string dst = (std::filesystem::path(assetDir) / rel).string();
-      std::filesystem::copy_file(picked, dst, cec);
-      if (cec) {
-        Announce(LogLevel::Error, std::string("Could not copy audio clip: ") + picked);
-      } else {
-        as.clipPath = rel;
-        changed = true;
-      }
-    }
-  }
-  PropertyLabel("Volume");
-  if (ImGui::DragFloat("##Volume", &as.volume, 0.01f, 0.0f, 4.0f)) {
-    changed = true;
-  }
-  PropertyLabel("Spatial");
-  if (ImGui::Checkbox("##Spatial", &as.spatial)) {
-    changed = true;
-  }
-  if (as.spatial) {
-    PropertyLabel("Min Distance");
-    if (ImGui::DragFloat("##Min Distance", &as.minDistance, 0.1f, 0.01f, 1000.0f)) {
-      changed = true;
-    }
-    PropertyLabel("Max Distance");
-    if (ImGui::DragFloat("##Max Distance", &as.maxDistance, 0.1f, 0.01f, 10000.0f)) {
-      changed = true;
-    }
-    int model = as.rolloffModel < 0 ? 0 : (as.rolloffModel > 2 ? 2 : as.rolloffModel);
-    PropertyLabel("Rolloff");
-    if (ImGui::Combo("##Rolloff", &model, "Linear\0Inverse\0Exponential\0")) {
-      as.rolloffModel = model;
-      changed = true;
-    }
-    PropertyLabel("Rolloff Factor");
-    if (ImGui::DragFloat("##Rolloff Factor", &as.rolloff, 0.05f, 0.01f, 16.0f)) {
-      changed = true;
-    }
-  }
-  PropertyLabel("Loop");
-  if (ImGui::Checkbox("##Loop", &as.loop)) {
-    changed = true;
-  }
-  PropertyLabel("Playing");
-  if (ImGui::Checkbox("##Playing", &as.playing)) {
-    changed = true;
-  }
-  const size_t busCount = audio.Mixer().BusCount();
-  if (busCount > 0) {
-    std::string names;
-    for (size_t i = 0; i < busCount; ++i) {
-      const AudioBusDesc* b = audio.Mixer().GetBus(static_cast<uint32_t>(i));
-      if (b == nullptr) {
-        continue;
-      }
-      if (!names.empty()) {
-        names.push_back('\0');
-      }
-      names += b->name;
-    }
-    int bus = as.bus < 0 ? 0 : (static_cast<size_t>(as.bus) < busCount ? as.bus : 0);
-    PropertyLabel("Bus");
-    if (ImGui::Combo("##Bus", &bus, names.c_str())) {
-      as.bus = bus;
-      changed = true;
-    }
-  }
-  if (changed) {
-    edits.PushAudioSource(e->id, as);
-  }
-  ImGui::PopID();
-}
 void EditorApp::DrawGenericComponent(Entity* e, const ComponentTypeDesc& desc) {
   ImGui::PushID(desc.name);
   PropertySection(desc.name);
@@ -1132,6 +1030,91 @@ void EditorApp::DrawGenericComponent(Entity* e, const ComponentTypeDesc& desc) {
     edits.PushComponent(e->id, desc.id, draft.Data());
   }
   ImGui::PopID();
+}
+void EditorApp::DrawComponentExtras(Entity* e, ComponentTypeId id) {
+  if (e == nullptr) {
+    return;
+  }
+  if (id == ComponentRegistry::kLight) {
+    bool soloed = soloLightId.IsValid() && soloLightId == e->id;
+    if (ImGui::SmallButton(soloed ? "Unsolo" : "Solo")) {
+      soloLightId = soloed ? EntityId::Invalid() : e->id;
+    }
+    return;
+  }
+  if (id == ComponentRegistry::kLod) {
+    if (e->lod.farGuid.empty() && !e->meshGuid.empty()) {
+      const MeshRecord* autoBase = assets.GetByGuid(e->meshGuid);
+      if (autoBase != nullptr) {
+        int autoFound = 0;
+        for (int t = 1; t <= 2; ++t) {
+          std::string sp = Kizuri::LodSiblingPath(autoBase->meshPath, t);
+          if (!sp.empty() && assets.GetByMeshPath(sp) != nullptr) {
+            ++autoFound;
+          }
+        }
+        if (autoFound > 0) {
+          ImGui::Text("Auto LOD tiers: %d/2", autoFound);
+        } else {
+          ImGui::TextDisabled("Auto LOD tiers: none");
+        }
+      }
+      if (ImGui::Button("Generate LOD")) {
+        const MeshRecord* base = assets.GetByGuid(e->meshGuid);
+        if (base == nullptr || !base->loaded) {
+          Announce(LogLevel::Warning, "Base mesh not loaded");
+        } else {
+          Kizuri::MeshAssetData lodMesh;
+          if (!Kizuri::GenerateLodMesh(base->data, 0.4f, 0.01f, lodMesh)) {
+            Announce(LogLevel::Error, "LOD generation failed");
+          } else {
+            std::filesystem::path bp(base->meshPath);
+            std::string lodName = bp.stem().string() + "_lod1.kzmesh";
+            std::string lodPath = (bp.parent_path() / lodName).string();
+            if (!Kizuri::EncodeMeshFile(lodMesh, lodPath)) {
+              Announce(LogLevel::Error, "LOD save failed");
+            } else {
+              assets.Scan();
+              LodData after = e->lod;
+              after.farGuid = lodMesh.guid;
+              std::unique_ptr<Command> cmd(new SetLodCmd(e->id, e->lod, after));
+              if (undo.Execute(std::move(cmd), scene)) {
+                log.Add(LogLevel::Info, "LOD generated");
+              }
+            }
+          }
+        }
+      }
+    }
+    return;
+  }
+  if (id == ComponentRegistry::kLightmap) {
+    if (ImGui::Button("Bake Lightmap")) {
+      BakeLightmap(e->id);
+    }
+    PropertyLabel("LM Format");
+    if (ImGui::Combo("##LM Format", &viewLmFormat, "BC1\0BC3\0BC7\0")) {
+    }
+    PropertyLabel("LM Denoise");
+    if (ImGui::SliderFloat("##LM Denoise", &viewLmDenoise, 0.0f, 3.0f)) {
+    }
+    return;
+  }
+  if (id == ComponentRegistry::kProbe) {
+    auto pit = envProbeCubes.find(e->id);
+    if (pit == envProbeCubes.end() || pit->second == 0) {
+      ImGui::TextDisabled("Capture: (not baked)");
+    } else {
+      ImGui::Text("Capture: baked");
+    }
+    if (ImGui::Button("Bake Probe")) {
+      BakeProbeEntity(e->id);
+    }
+    return;
+  }
+  if (id == ComponentRegistry::kRigidbody && e->rigidbody.colliderType == 3) {
+    ImGui::TextDisabled("Uses entity mesh triangles (static only)");
+  }
 }
 void EditorApp::DrawAudioMixer() {
   if (!ImGui::Begin("Audio Mixer", &showAudioMixer)) {
@@ -3082,7 +3065,7 @@ void EditorApp::DrawHierarchy() {
   ImGui::End();
 }
 static bool HasCustomInspector(ComponentTypeId id) {
-  return id == ComponentRegistry::kMesh || id == ComponentRegistry::kLight || id == ComponentRegistry::kMaterial || id == ComponentRegistry::kDecal || id == ComponentRegistry::kLod || id == ComponentRegistry::kLightmap || id == ComponentRegistry::kProbe || id == ComponentRegistry::kRigidbody || id == ComponentRegistry::kAudioSource;
+  return id == ComponentRegistry::kMesh || id == ComponentRegistry::kMaterial;
 }
 void EditorApp::DrawInspector() {
   ImGui::Begin("Inspector", &showInspector);
@@ -3168,142 +3151,6 @@ void EditorApp::DrawInspector() {
     DrawMeshSection(e);
     ImGui::PopID();
   }
-  if (e->hasLight) {
-    ImGui::PushID("Light");
-    PropertySection("Light");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Remove##light")) {
-      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Light")));
-      undo.Execute(std::move(cmd), scene);
-    }
-    ImGui::SameLine();
-    bool soloed = soloLightId.IsValid() && soloLightId == e->id;
-    if (ImGui::SmallButton(soloed ? "Unsolo##light" : "Solo##light")) {
-      if (soloed) {
-        soloLightId = EntityId::Invalid();
-      } else {
-        soloLightId = e->id;
-      }
-    }
-    LightData light = e->light;
-    int lightMode = light.type;
-    if (lightMode < 0 || lightMode > 3) {
-      lightMode = 0;
-    }
-    bool lightChanged = false;
-    PropertyLabel("Type");
-    if (ImGui::Combo("##Type", &lightMode, "Point\0Spot\0Directional\0Rect\0")) {
-      light.type = lightMode;
-      lightChanged = true;
-    }
-    PropertyLabel("Link Mask");
-    if (ImGui::SliderInt("##Link Mask", &light.linkMask, 0, 255)) {
-      lightChanged = true;
-    }
-    PropertyLabel("Layer");
-    if (ImGui::SliderInt("##Layer", &light.layer, 0, 31)) {
-      lightChanged = true;
-    }
-    PropertyLabel("Color");
-    if (ImGui::ColorEdit3("##Color", light.color)) {
-      lightChanged = true;
-    }
-    PropertyLabel("Intensity");
-    if (ImGui::DragFloat("##Intensity", &light.intensity, 0.05f, 0.0f, 20.0f)) {
-      lightChanged = true;
-    }
-    if (light.type == static_cast<int>(LightType::Point) || light.type == static_cast<int>(LightType::Spot) || light.type == static_cast<int>(LightType::Rect)) {
-      PropertyLabel("Radius");
-      if (ImGui::DragFloat("##Radius", &light.radius, 0.1f, 0.5f, 100.0f)) {
-        lightChanged = true;
-      }
-    }
-    if (light.type == static_cast<int>(LightType::Rect)) {
-      PropertyLabel("Area W");
-      if (ImGui::DragFloat("##Area W", &light.areaW, 0.05f, 0.1f, 50.0f)) {
-        lightChanged = true;
-      }
-      PropertyLabel("Area H");
-      if (ImGui::DragFloat("##Area H", &light.areaH, 0.05f, 0.1f, 50.0f)) {
-        lightChanged = true;
-      }
-    }
-    if (light.type == static_cast<int>(LightType::Spot)) {
-      PropertyLabel("Angle");
-      if (ImGui::DragFloat("##Angle", &light.spotAngle, 0.5f, 1.0f, 170.0f)) {
-        lightChanged = true;
-      }
-      PropertyLabel("Falloff");
-      if (ImGui::DragFloat("##Falloff", &light.falloff, 0.01f, 0.01f, 0.5f)) {
-        lightChanged = true;
-      }
-      {
-        std::vector<std::string> ctg = assets.AllTexGuids();
-        std::string citems = "Default";
-        int ccur = 0;
-        for (size_t cti = 0; cti < ctg.size(); ++cti) {
-          const TextureRecord* ctr = assets.GetTexByGuid(ctg[cti]);
-          std::string cfn = (ctr != nullptr) ? std::filesystem::path(ctr->sourcePath).filename().string() : ctg[cti];
-          if (cfn.empty()) {
-            cfn = ctg[cti];
-          }
-          citems += std::string("\0") + cfn;
-          if (ctg[cti] == light.cookieGuid) {
-            ccur = static_cast<int>(cti) + 1;
-          }
-        }
-        PropertyLabel("Cookie");
-        if (ImGui::Combo("##Cookie", &ccur, citems.c_str())) {
-          light.cookieGuid.clear();
-          if (ccur >= 1 && static_cast<size_t>(ccur - 1) < ctg.size()) {
-            light.cookieGuid = ctg[static_cast<size_t>(ccur - 1)];
-          }
-          lightChanged = true;
-        }
-      }
-    }
-    bool showShadow = light.castShadow;
-    PropertyLabel("Cast Shadow");
-    if (ImGui::Checkbox("##Cast Shadow", &showShadow)) {
-      light.castShadow = showShadow;
-      lightChanged = true;
-    }
-    if (light.castShadow) {
-      PropertyLabel("Light Size");
-      if (ImGui::DragFloat("##Light Size", &light.lightSize, 0.01f, 0.0f, 2.0f)) {
-        lightChanged = true;
-      }
-      int resMode = 1;
-      if (light.shadowSize == 512) {
-        resMode = 0;
-      } else if (light.shadowSize == 2048) {
-        resMode = 2;
-      }
-      PropertyLabel("Shadow Size");
-      if (ImGui::Combo("##Shadow Size", &resMode, "512\0""1024\0""2048\0")) {
-        light.shadowSize = resMode == 0 ? 512 : (resMode == 2 ? 2048 : 1024);
-        lightChanged = true;
-      }
-      PropertyLabel("Softness");
-      if (ImGui::DragFloat("##Softness", &light.softness, 0.01f, 0.0f, 2.0f)) {
-        lightChanged = true;
-      }
-      if (light.type == static_cast<int>(LightType::Directional)) {
-        PropertyLabel("Cascades");
-        if (ImGui::SliderInt("##Cascades", &light.cascades, 2, 4)) {
-          lightChanged = true;
-        }
-        PropertyLabel("Lambda");
-        if (ImGui::DragFloat("##Lambda", &light.lambda, 0.01f, 0.0f, 1.0f)) {
-          lightChanged = true;
-        }
-      }
-    }
-    if (lightChanged) {
-      edits.PushLight(e->id, light);
-    }
-    ImGui::PopID();
-  }
   if (e->hasMaterial) {
     ImGui::PushID("Material");
     PropertySection("Material");
@@ -3319,246 +3166,6 @@ void EditorApp::DrawInspector() {
     DrawMaterialSection(e);
     ImGui::PopID();
   }
-  if (e->hasDecal) {
-    ImGui::PushID("Decal");
-    PropertySection("Decal");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Remove##decal")) {
-      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Decal")));
-      undo.Execute(std::move(cmd), scene);
-    }
-    DecalData dec = e->decal;
-    bool decChanged = false;
-    PropertyLabel("Decal Size");
-    if (ImGui::DragFloat3("##Decal Size", dec.size, 0.05f, 0.05f, 50.0f)) {
-      decChanged = true;
-    }
-    PropertyLabel("Life");
-    if (ImGui::DragFloat("##Life", &dec.life, 0.1f, 0.0f, 300.0f)) {
-      decChanged = true;
-    }
-    int dmask = dec.matMask < 0 ? 0 : (dec.matMask > 15 ? 15 : dec.matMask);
-    PropertyLabel("Channels");
-    if (ImGui::Combo("##Channels", &dmask, "Off\0Albedo\0Albedo+Normal/Rough\0Full\0Full+Emissive\0")) {
-      dec.matMask = dmask == 0 ? 0 : (dmask == 1 ? 1 : (dmask == 2 ? 3 : (dmask == 3 ? 7 : 15)));
-      decChanged = true;
-    }
-    if (dec.matMask >= 2) {
-      PropertyLabel("Decal Rough");
-      if (ImGui::SliderFloat("##Decal Rough", &dec.matRough, 0.0f, 1.0f)) {
-        decChanged = true;
-      }
-      PropertyLabel("Decal Metal");
-      if (ImGui::SliderFloat("##Decal Metal", &dec.matMetal, 0.0f, 1.0f)) {
-        decChanged = true;
-      }
-    }
-    if (decChanged) {
-      edits.PushDecal(e->id, dec);
-    }
-    DrawDecalSection(e);
-    ImGui::PopID();
-  }
-  if (e->hasLod) {
-    ImGui::PushID("Lod");
-    PropertySection("LOD");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Remove##lod")) {
-      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("LOD")));
-      undo.Execute(std::move(cmd), scene);
-    }
-    LodData lod = e->lod;
-    bool lodChanged = false;
-    PropertyLabel("Near Dist");
-    if (ImGui::DragFloat("##Near Dist", &lod.nearDist, 0.5f, 1.0f, 500.0f)) {
-      lodChanged = true;
-    }
-    PropertyLabel("Far Dist");
-    if (ImGui::DragFloat("##Far Dist", &lod.farDist, 0.5f, 2.0f, 1000.0f)) {
-      lodChanged = true;
-    }
-    if (lodChanged) {
-      edits.PushLod(e->id, lod);
-    }
-    if (lod.farGuid.empty()) {
-      ImGui::TextDisabled("Far mesh: (none)");
-    } else {
-      const MeshRecord* fr = assets.GetByGuid(lod.farGuid);
-      if (fr == nullptr) {
-        ImGui::TextDisabled("Far mesh: (missing)");
-      } else {
-        std::filesystem::path fp(fr->meshPath);
-        ImGui::Text("Far mesh: %s", fp.filename().string().c_str());
-      }
-    }
-    if (ImGui::BeginDragDropTarget()) {
-      const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("KZ_ASSET");
-      if (payload != nullptr && payload->Data != nullptr && payload->DataSize > 0) {
-        std::string guid(static_cast<const char*>(payload->Data));
-        if (assets.GetByGuid(guid) == nullptr) {
-          Announce(LogLevel::Warning, "Dropped asset not found");
-        } else if (guid != lod.farGuid) {
-          LodData after = e->lod;
-          after.farGuid = guid;
-          std::unique_ptr<Command> cmd(new SetLodCmd(e->id, e->lod, after));
-          if (undo.Execute(std::move(cmd), scene)) {
-            log.Add(LogLevel::Info, "LOD far mesh assigned");
-          }
-        }
-      }
-      ImGui::EndDragDropTarget();
-    }
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Clear##lodfar")) {
-      if (!e->lod.farGuid.empty()) {
-        LodData after = e->lod;
-        after.farGuid.clear();
-        std::unique_ptr<Command> cmd(new SetLodCmd(e->id, e->lod, after));
-        undo.Execute(std::move(cmd), scene);
-      }
-    }
-    if (e->lod.farGuid.empty() && !e->meshGuid.empty()) {
-      const MeshRecord* autoBase = assets.GetByGuid(e->meshGuid);
-      if (autoBase != nullptr) {
-        int autoFound = 0;
-        for (int t = 1; t <= 2; ++t) {
-          std::string sp = Kizuri::LodSiblingPath(autoBase->meshPath, t);
-          if (!sp.empty() && assets.GetByMeshPath(sp) != nullptr) {
-            ++autoFound;
-          }
-        }
-        if (autoFound > 0) {
-          ImGui::Text("Auto LOD tiers: %d/2", autoFound);
-        } else {
-          ImGui::TextDisabled("Auto LOD tiers: none");
-        }
-      }
-      if (ImGui::Button("Generate LOD")) {
-        const MeshRecord* base = assets.GetByGuid(e->meshGuid);
-        if (base == nullptr || !base->loaded) {
-          Announce(LogLevel::Warning, "Base mesh not loaded");
-        } else {
-          Kizuri::MeshAssetData lodMesh;
-          if (!Kizuri::GenerateLodMesh(base->data, 0.4f, 0.01f, lodMesh)) {
-            Announce(LogLevel::Error, "LOD generation failed");
-          } else {
-            std::filesystem::path bp(base->meshPath);
-            std::string lodName = bp.stem().string() + "_lod1.kzmesh";
-            std::string lodPath = (bp.parent_path() / lodName).string();
-            if (!Kizuri::EncodeMeshFile(lodMesh, lodPath)) {
-              Announce(LogLevel::Error, "LOD save failed");
-            } else {
-              assets.Scan();
-              LodData after = e->lod;
-              after.farGuid = lodMesh.guid;
-              std::unique_ptr<Command> cmd(new SetLodCmd(e->id, e->lod, after));
-              if (undo.Execute(std::move(cmd), scene)) {
-                log.Add(LogLevel::Info, "LOD generated");
-              }
-            }
-          }
-        }
-      }
-    }
-    ImGui::PopID();
-  }
-  if (e->hasLightmap) {
-    ImGui::PushID("Lightmap");
-    PropertySection("Lightmap");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Remove##lightmap")) {
-      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Lightmap")));
-      undo.Execute(std::move(cmd), scene);
-    }
-    LightmapData lm = e->lightmap;
-    bool lmChanged = false;
-    PropertyLabel("Lightmap Intensity");
-    if (ImGui::DragFloat("##Lightmap Intensity", &lm.intensity, 0.05f, 0.0f, 4.0f)) {
-      lmChanged = true;
-    }
-    if (lmChanged) {
-      edits.PushLightmap(e->id, lm);
-    }
-    if (lm.texGuid.empty()) {
-      ImGui::TextDisabled("Texture: (none)");
-    } else {
-      const TextureRecord* tr = assets.GetTexByGuid(lm.texGuid);
-      if (tr == nullptr) {
-        ImGui::TextDisabled("Texture: (missing)");
-      } else {
-        std::filesystem::path tp(tr->texPath);
-        ImGui::Text("Texture: %s", tp.filename().string().c_str());
-      }
-    }
-    if (ImGui::BeginDragDropTarget()) {
-      const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("KZ_TEX");
-      if (payload != nullptr && payload->Data != nullptr && payload->DataSize > 0) {
-        std::string guid(static_cast<const char*>(payload->Data));
-        if (assets.GetTexByGuid(guid) == nullptr) {
-          Announce(LogLevel::Warning, "Dropped texture not found");
-        } else if (guid != lm.texGuid) {
-          LightmapData after = e->lightmap;
-          after.texGuid = guid;
-          std::unique_ptr<Command> cmd(new SetLightmapCmd(e->id, e->lightmap, after));
-          if (undo.Execute(std::move(cmd), scene)) {
-            log.Add(LogLevel::Info, "Lightmap texture assigned");
-          }
-        }
-      }
-      ImGui::EndDragDropTarget();
-    }
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Clear##lightmaptex")) {
-      if (!e->lightmap.texGuid.empty()) {
-        LightmapData after = e->lightmap;
-        after.texGuid.clear();
-        std::unique_ptr<Command> cmd(new SetLightmapCmd(e->id, e->lightmap, after));
-        undo.Execute(std::move(cmd), scene);
-      }
-    }
-    if (ImGui::Button("Bake Lightmap")) {
-      BakeLightmap(e->id);
-    }
-    PropertyLabel("LM Format");
-    if (ImGui::Combo("##LM Format", &viewLmFormat, "BC1\0BC3\0BC7\0")) {
-    }
-    PropertyLabel("LM Denoise");
-    if (ImGui::SliderFloat("##LM Denoise", &viewLmDenoise, 0.0f, 3.0f)) {
-    }
-    ImGui::PopID();
-  }
-  if (e->hasProbe) {
-    ImGui::PushID("Probe");
-    PropertySection("Reflection Probe");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Remove##probe")) {
-      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Reflection Probe")));
-      undo.Execute(std::move(cmd), scene);
-    }
-    ProbeData pr = e->probe;
-    bool prChanged = false;
-    PropertyLabel("Probe Size");
-    if (ImGui::DragFloat3("##Probe Size", pr.size, 0.1f, 0.5f, 100.0f)) {
-      prChanged = true;
-    }
-    PropertyLabel("Probe Intensity");
-    if (ImGui::DragFloat("##Probe Intensity", &pr.intensity, 0.05f, 0.0f, 4.0f)) {
-      prChanged = true;
-    }
-    if (prChanged) {
-      edits.PushProbe(e->id, pr);
-    }
-    auto pit = envProbeCubes.find(e->id);
-    if (pit == envProbeCubes.end() || pit->second == 0) {
-      ImGui::TextDisabled("Capture: (not baked)");
-    } else {
-      ImGui::Text("Capture: baked");
-    }
-    if (ImGui::Button("Bake Probe")) {
-      BakeProbeEntity(e->id);
-    }
-    ImGui::PopID();
-  }
   const ComponentRegistry& registry = ComponentRegistry::Instance();
   for (size_t ci = 0; ci < registry.Count(); ++ci) {
     const ComponentTypeDesc* desc = registry.Get(static_cast<ComponentTypeId>(ci));
@@ -3566,68 +3173,12 @@ void EditorApp::DrawInspector() {
       continue;
     }
     DrawGenericComponent(e, *desc);
+    if (EntityHasComponent(e, desc->id)) {
+      ImGui::PushID(desc->name);
+      DrawComponentExtras(e, desc->id);
+      ImGui::PopID();
+    }
   }
-  if (e->hasRigidbody) {
-    ImGui::PushID("Rigidbody");
-    PropertySection("Rigidbody");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Remove##rigidbody")) {
-      std::unique_ptr<Command> cmd(new RemoveComponentCmd(e->id, FindComponentType("Rigidbody")));
-      undo.Execute(std::move(cmd), scene);
-    }
-    RigidbodyData rb = e->rigidbody;
-    bool rbChanged = false;
-    int motion = rb.motionType < 0 ? 0 : (rb.motionType > 2 ? 2 : rb.motionType);
-    PropertyLabel("Motion");
-    if (ImGui::Combo("##Motion", &motion, "Static\0Kinematic\0Dynamic\0")) {
-      rb.motionType = motion;
-      rbChanged = true;
-    }
-    PropertyLabel("Mass");
-    if (rb.motionType == 2 && ImGui::DragFloat("##Mass", &rb.mass, 0.1f, 0.01f, 1000.0f)) {
-      rbChanged = true;
-    }
-    int collider = rb.colliderType < 0 ? 0 : (rb.colliderType > 3 ? 3 : rb.colliderType);
-    PropertyLabel("Collider");
-    if (ImGui::Combo("##Collider", &collider, "Box\0Sphere\0Capsule\0Mesh\0")) {
-      rb.colliderType = collider;
-      rbChanged = true;
-    }
-    PropertyLabel("Half Extents");
-    if (rb.colliderType == 0 && ImGui::DragFloat3("##Half Extents", rb.extents, 0.05f, 0.01f, 100.0f)) {
-      rbChanged = true;
-    }
-    PropertyLabel("Radius");
-    if (rb.colliderType == 1 && ImGui::DragFloat("##Radius", &rb.extents[0], 0.05f, 0.01f, 100.0f)) {
-      rbChanged = true;
-    }
-    if (rb.colliderType == 2) {
-      PropertyLabel("Radius");
-      if (ImGui::DragFloat("##Radius", &rb.extents[0], 0.05f, 0.01f, 100.0f)) {
-        rbChanged = true;
-      }
-      PropertyLabel("Half Height");
-      if (ImGui::DragFloat("##Half Height", &rb.extents[1], 0.05f, 0.01f, 100.0f)) {
-        rbChanged = true;
-      }
-    }
-    if (rb.colliderType == 3) {
-      ImGui::TextDisabled("Uses entity mesh triangles (static only)");
-    }
-    PropertyLabel("Friction");
-    if (ImGui::DragFloat("##Friction", &rb.friction, 0.01f, 0.0f, 2.0f)) {
-      rbChanged = true;
-    }
-    PropertyLabel("Restitution");
-    if (ImGui::DragFloat("##Restitution", &rb.restitution, 0.01f, 0.0f, 1.0f)) {
-      rbChanged = true;
-    }
-    if (rbChanged) {
-      edits.PushRigidbody(e->id, rb);
-    }
-    ImGui::PopID();
-  }
-  DrawAudioSourceSection(e);
   bool hasMissingComponent = false;
   for (size_t ci = 0; ci < registry.Count(); ++ci) {
     const ComponentTypeDesc* desc = registry.Get(static_cast<ComponentTypeId>(ci));
@@ -4533,50 +4084,6 @@ void EditorApp::DrawPartMaterials(Entity* e) {
       }
     }
     ImGui::PopID();
-  }
-}
-void EditorApp::DrawDecalSection(Entity* e) {
-  if (e == nullptr || !e->hasDecal) {
-    return;
-  }
-  ImGui::Text("Texture:");
-  ImGui::SameLine();
-  if (e->decal.texGuid.empty()) {
-    ImGui::TextDisabled("(none)");
-  } else {
-    const TextureRecord* tr = assets.GetTexByGuid(e->decal.texGuid);
-    if (tr == nullptr) {
-      ImGui::TextDisabled("(missing)");
-    } else {
-      std::filesystem::path tp(tr->texPath);
-      ImGui::Text("%s", tp.filename().string().c_str());
-    }
-  }
-  if (ImGui::BeginDragDropTarget()) {
-    const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("KZ_TEX");
-    if (payload != nullptr && payload->Data != nullptr && payload->DataSize > 0) {
-      std::string guid(static_cast<const char*>(payload->Data));
-      if (assets.GetTexByGuid(guid) == nullptr) {
-        Announce(LogLevel::Warning, "Dropped texture not found");
-      } else if (guid != e->decal.texGuid) {
-        DecalData after = e->decal;
-        after.texGuid = guid;
-        std::unique_ptr<Command> cmd(new SetDecalCmd(e->id, e->decal, after));
-        if (undo.Execute(std::move(cmd), scene)) {
-          log.Add(LogLevel::Info, "Decal texture assigned");
-        }
-      }
-    }
-    ImGui::EndDragDropTarget();
-  }
-  ImGui::SameLine();
-  if (ImGui::SmallButton("Clear##decaltex")) {
-    if (!e->decal.texGuid.empty()) {
-      DecalData after = e->decal;
-      after.texGuid.clear();
-      std::unique_ptr<Command> cmd(new SetDecalCmd(e->id, e->decal, after));
-      undo.Execute(std::move(cmd), scene);
-    }
   }
 }
 static std::string* SlotPtr(MaterialData& m, int slot) {

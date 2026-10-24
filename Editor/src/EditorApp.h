@@ -304,8 +304,8 @@ struct EditorApp {
   void Announce(LogLevel level, const std::string& text);
   void DrawAssetBrowser();
   void DrawAudioMixer();
-  void DrawAudioSourceSection(Entity* e);
   void DrawGenericComponent(Entity* e, const ComponentTypeDesc& desc);
+  void DrawComponentExtras(Entity* e, ComponentTypeId id);
   void PropertyLabel(const char* label);
   void PropertySection(const char* title);
   void DrawSettings();
@@ -324,7 +324,6 @@ struct EditorApp {
   bool DrawMaterialScalars(MaterialData& mat);
   bool DrawMaterialNodes(MaterialData& mat);
   void DrawPartMaterials(Entity* e);
-  void DrawDecalSection(Entity* e);
   void DrawLightGizmo();
   void DrawDebugOverlays();
   std::string ResolveAssetsDir();
