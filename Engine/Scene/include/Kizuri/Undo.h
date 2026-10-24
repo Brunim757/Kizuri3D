@@ -352,6 +352,9 @@ private:
 class UndoStack {
 public:
   UndoStack();
+  void BeginCoalescing();
+  bool EndCoalescing();
+  bool IsCoalescing() const;
   bool Execute(std::unique_ptr<Command> cmd, Scene& scene);
   bool Commit(std::unique_ptr<Command> cmd);
   bool Undo(Scene& scene);
@@ -366,5 +369,7 @@ public:
 private:
   std::vector<std::unique_ptr<Command>> undo;
   std::vector<std::unique_ptr<Command>> redo;
+  std::vector<std::unique_ptr<Command>> coalesced;
+  bool coalescing;
 };
 }

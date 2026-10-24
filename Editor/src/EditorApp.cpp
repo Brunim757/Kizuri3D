@@ -675,7 +675,13 @@ int EditorApp::Run() {
       dt = 0.1f;
     }
     if (!playActive) {
+      if (undoItemActive) {
+        undo.BeginCoalescing();
+      }
       edits.ApplyAll(scene, undo);
+      if (!undoItemActive) {
+        undo.EndCoalescing();
+      }
       if (autosave.Update(dt, scene, CurrentRecoveryPath())) {
         log.Add(LogLevel::Info, "Autosaved");
       }
@@ -707,6 +713,7 @@ int EditorApp::Run() {
     ImGuizmo::BeginFrame();
     Frame();
     RenderScene();
+    undoItemActive = ImGui::IsAnyItemActive();
     ImGui::Render();
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
     rhi->Present(true);
@@ -832,6 +839,7 @@ void EditorApp::StartPlay() {
     return;
   }
   edits.ApplyAll(scene, undo);
+  undo.EndCoalescing();
   std::vector<EntitySnapshot> roots;
   const std::vector<EntityId> all = scene.All();
   for (size_t i = 0; i < all.size(); ++i) {

@@ -76,6 +76,7 @@ struct EditorApp {
   bool showNotifHistory;
   EditQueue edits;
   UndoStack undo;
+  bool undoItemActive = false;
   bool gizmoDragging;
   Transform gizmoStart;
   EntityId gizmoTarget;

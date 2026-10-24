@@ -6892,6 +6892,70 @@ bool TestUndoMultiPartial() {
   }
   return true;
 }
+bool TestUndoCoalesce() {
+  Kizuri::Scene scene;
+  Kizuri::UndoStack undo;
+  Kizuri::EntityId a = scene.CreateEntity("Drag");
+  Kizuri::Transform t0 = scene.Get(a)->transform;
+  Kizuri::Transform t1 = t0;
+  t1.position[0] = 2.0f;
+  Kizuri::Transform t2 = t1;
+  t2.position[0] = 5.0f;
+  undo.BeginCoalescing();
+  if (!undo.IsCoalescing()) {
+    return false;
+  }
+  std::unique_ptr<Kizuri::Command> c1(new Kizuri::EditTransformCmd(a, t0, t1));
+  std::unique_ptr<Kizuri::Command> c2(new Kizuri::EditTransformCmd(a, t1, t2));
+  if (!undo.Execute(std::move(c1), scene) || !undo.Execute(std::move(c2), scene)) {
+    return false;
+  }
+  if (!undo.CanUndo() || undo.UndoDepth() != 1 || !undo.EndCoalescing()) {
+    return false;
+  }
+  if (undo.IsCoalescing() || scene.Get(a)->transform.position[0] != 5.0f) {
+    return false;
+  }
+  if (!undo.Undo(scene) || scene.Get(a)->transform.position[0] != 0.0f) {
+    return false;
+  }
+  if (undo.UndoDepth() != 0 || undo.RedoDepth() != 1 || !undo.Redo(scene)) {
+    return false;
+  }
+  if (scene.Get(a)->transform.position[0] != 5.0f) {
+    return false;
+  }
+  if (!undo.Undo(scene) || scene.Get(a)->transform.position[0] != 0.0f) {
+    return false;
+  }
+  undo.BeginCoalescing();
+  if (undo.EndCoalescing() || !undo.CanRedo()) {
+    return false;
+  }
+  if (!undo.Redo(scene) || scene.Get(a)->transform.position[0] != 5.0f) {
+    return false;
+  }
+  undo.BeginCoalescing();
+  Kizuri::Transform t3 = t2;
+  t3.position[0] = 8.0f;
+  std::unique_ptr<Kizuri::Command> c3(new Kizuri::EditTransformCmd(a, t2, t3));
+  if (!undo.Execute(std::move(c3), scene)) {
+    return false;
+  }
+  if (!undo.CanUndo() || !undo.IsCoalescing()) {
+    return false;
+  }
+  if (!undo.Undo(scene) || scene.Get(a)->transform.position[0] != 5.0f) {
+    return false;
+  }
+  if (undo.IsCoalescing() || undo.UndoDepth() != 1 || undo.RedoDepth() != 1) {
+    return false;
+  }
+  if (!undo.Redo(scene) || scene.Get(a)->transform.position[0] != 8.0f) {
+    return false;
+  }
+  return true;
+}
 bool TestAutosavePaths() {
   std::string rec = Kizuri::RecoveryPathFor("C:/proj/scene.kzscene", "T");
   if (rec != "C:/proj/scene.kzscene.autosave.kzscene") {
@@ -11118,6 +11182,7 @@ int main() {
   failures += Check("Undo-Stack", TestUndoStack());
   failures += Check("Undo-MultiMove", TestUndoMultiMove());
   failures += Check("Undo-MultiPartial", TestUndoMultiPartial());
+  failures += Check("Undo-Coalesce", TestUndoCoalesce());
   failures += Check("Autosave-Paths", TestAutosavePaths());
   failures += Check("Autosave-Update", TestAutosaveUpdate());
   failures += Check("Autosave-Offer", TestAutosaveOffer());

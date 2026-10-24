@@ -928,11 +928,82 @@ bool MultiEditTransformCmd::Revert(Scene& scene) {
 const char* MultiEditTransformCmd::Name() const {
   return "Edit Transforms";
 }
-UndoStack::UndoStack() {
+namespace {
+class CoalescedCommand : public Command {
+public:
+  explicit CoalescedCommand(std::vector<std::unique_ptr<Command>>&& items)
+    : commands(std::move(items)) {
+  }
+  bool Apply(Scene& scene) override {
+    for (size_t i = 0; i < commands.size(); ++i) {
+      if (commands[i] == nullptr || !commands[i]->Apply(scene)) {
+        for (size_t j = i; j > 0; --j) {
+          commands[j - 1]->Revert(scene);
+        }
+        return false;
+      }
+    }
+    return true;
+  }
+  bool Revert(Scene& scene) override {
+    for (size_t i = commands.size(); i > 0; --i) {
+      if (commands[i - 1] == nullptr || !commands[i - 1]->Revert(scene)) {
+        for (size_t j = i; j < commands.size(); ++j) {
+          commands[j]->Apply(scene);
+        }
+        return false;
+      }
+    }
+    return true;
+  }
+  const char* Name() const override {
+    return "Edits";
+  }
+private:
+  std::vector<std::unique_ptr<Command>> commands;
+};
+}
+UndoStack::UndoStack()
+  : coalescing(false) {
+}
+void UndoStack::BeginCoalescing() {
+  if (coalescing) {
+    return;
+  }
+  coalescing = true;
+  coalesced.clear();
+}
+bool UndoStack::EndCoalescing() {
+  if (!coalescing) {
+    return false;
+  }
+  coalescing = false;
+  if (coalesced.empty()) {
+    return false;
+  }
+  if (coalesced.size() == 1) {
+    undo.push_back(std::move(coalesced[0]));
+  } else {
+    std::unique_ptr<Command> cmd(new CoalescedCommand(std::move(coalesced)));
+    undo.push_back(std::move(cmd));
+  }
+  coalesced.clear();
+  redo.clear();
+  return true;
+}
+bool UndoStack::IsCoalescing() const {
+  return coalescing;
 }
 bool UndoStack::Execute(std::unique_ptr<Command> cmd, Scene& scene) {
   if (cmd == nullptr || !cmd->Apply(scene)) {
     return false;
+  }
+  if (coalescing) {
+    if (coalesced.empty()) {
+      redo.clear();
+    }
+    coalesced.push_back(std::move(cmd));
+    return true;
   }
   undo.push_back(std::move(cmd));
   redo.clear();
@@ -942,11 +1013,21 @@ bool UndoStack::Commit(std::unique_ptr<Command> cmd) {
   if (cmd == nullptr) {
     return false;
   }
+  if (coalescing) {
+    if (coalesced.empty()) {
+      redo.clear();
+    }
+    coalesced.push_back(std::move(cmd));
+    return true;
+  }
   undo.push_back(std::move(cmd));
   redo.clear();
   return true;
 }
 bool UndoStack::Undo(Scene& scene) {
+  if (coalescing) {
+    EndCoalescing();
+  }
   if (undo.empty()) {
     return false;
   }
@@ -957,6 +1038,9 @@ bool UndoStack::Undo(Scene& scene) {
   return true;
 }
 bool UndoStack::Redo(Scene& scene) {
+  if (coalescing) {
+    EndCoalescing();
+  }
   if (redo.empty()) {
     return false;
   }
@@ -967,23 +1051,28 @@ bool UndoStack::Redo(Scene& scene) {
   return true;
 }
 bool UndoStack::CanUndo() const {
-  return !undo.empty();
+  return !undo.empty() || !coalesced.empty();
 }
 bool UndoStack::CanRedo() const {
   return !redo.empty();
 }
 const char* UndoStack::UndoName() const {
+  if (!coalesced.empty()) {
+    return "Edits";
+  }
   return undo.empty() ? "" : undo.back()->Name();
 }
 const char* UndoStack::RedoName() const {
   return redo.empty() ? "" : redo.back()->Name();
 }
 void UndoStack::Clear() {
+  coalescing = false;
+  coalesced.clear();
   undo.clear();
   redo.clear();
 }
 size_t UndoStack::UndoDepth() const {
-  return undo.size();
+  return undo.size() + (coalesced.empty() ? 0 : 1);
 }
 size_t UndoStack::RedoDepth() const {
   return redo.size();
