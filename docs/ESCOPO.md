@@ -2,7 +2,7 @@
 
 > Engine de mundo aberto estilizado. Windows. Cidade densa e natureza estilizada. Nada além.
 
-Versão 0.3
+Versão 0.4
 
 ## 1. Identidade
 
@@ -48,6 +48,7 @@ Estas decisões não mudam sem RFC. A regra está na seção 11.
 | D-020 | UI de jogo separada do editor: markup declarativo, estilo em folha e binding por view-model | FIXO |
 | D-021 | Limite rígido de linhas por arquivo, verificado no CI | FIXO |
 | D-022 | Valor do limite: 600 linhas em `.cpp`, 400 em `.h`, revisado após a R2 | PROVISÓRIO |
+| D-023 | Código proprietário; repositório público apenas para o CI gratuito | FIXO |
 
 ## 3. Não-objetivos
 
@@ -243,3 +244,4 @@ O objetivo não é congelar a engine. É impedir que uma decisão fechada seja r
 - **0.1** — fundação do escopo.
 - **0.2** — UI de jogo como sistema próprio e release R6; limite de arquivo; referência à arquitetura.
 - **0.3** — limite por arquivo separado em `.cpp` e `.h`, com valor provisório e allowlist; revisão após a R2.
+- **0.4** — código proprietário; repositório público apenas para o CI gratuito.

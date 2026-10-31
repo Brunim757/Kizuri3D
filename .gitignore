@@ -2,3 +2,5 @@ build/
 out/
 .vs/
 *.user
+logs/
+__pycache__/
