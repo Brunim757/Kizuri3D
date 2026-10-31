@@ -40,7 +40,8 @@ TEST_CASE("frame timer ignores negative frames and resets") {
   CHECK(step.steps == 0);
   CHECK(timer.TickCount() == 0);
 
-  timer.Advance(1.0 / 60.0);
+  const caligo::FrameStep advance = timer.Advance(1.0 / 60.0);
+  CHECK(advance.steps == 1);
   CHECK(timer.TickCount() == 1);
   timer.Reset();
   CHECK(timer.TickCount() == 0);
