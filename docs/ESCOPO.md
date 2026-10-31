@@ -2,7 +2,7 @@
 
 > Engine de mundo aberto estilizado. Windows. Cidade densa e natureza estilizada. Nada além.
 
-Versão 0.1
+Versão 0.2
 
 ## 1. Identidade
 
@@ -45,6 +45,8 @@ Estas decisões não mudam sem RFC. A regra está na seção 11.
 | D-017 | Asset fonte em formato aberto, cozido em binário próprio | FIXO |
 | D-018 | Meta de 1080p60 numa GTX 1060 6 GB | FIXO |
 | D-019 | Piso de hardware: FL11_0, 2 GB de VRAM, 8 GB de RAM | PROVISÓRIO |
+| D-020 | UI de jogo separada do editor: markup declarativo, estilo em folha e binding por view-model | FIXO |
+| D-021 | Nenhum arquivo passa de 600 linhas; verificado no CI | FIXO |
 
 ## 3. Não-objetivos
 
@@ -99,16 +101,7 @@ Cortados do protótipo: libwebp, Draco, BasisU. Não servem ao escopo e só aume
 
 ## 6. Arquitetura
 
-Módulos, com dependência apenas para baixo:
-
-```
-core
-  platform
-    render · assets · scene · physics · audio · animation
-      script
-        game
-          editor
-```
+Módulos, com dependência apenas para baixo. O grafo completo, os contratos e as regras de fronteira estão em `docs/ARQUITETURA.md`.
 
 - **core:** memória, containers, log, math, jobs, tempo.
 - **platform:** janela, input, arquivo, threads.
@@ -176,6 +169,17 @@ core
 - Play-in-editor com hot reload de C# e assets.
 - Cook e build por linha de comando.
 
+### UI de jogo
+
+- Markup declarativo, estilo em folha e binding para view-models em C#.
+- Layout por âncora, pilha, grade e scroll, em unidade independente de densidade.
+- HUD, menus, diálogos, notificações, marcadores de mundo e minimapa.
+- Localização por chave, acessibilidade e escala de UI.
+- Editor visual com pré-visualização ao vivo.
+- Orçamento: menos de 1 ms de CPU e de GPU por frame.
+
+Detalhes em `docs/sistemas/UI.md`.
+
 ### Conteúdo
 
 - glTF entra, o motor cozinha.
@@ -199,7 +203,8 @@ core
 | Estabilidade temporal | Imagem sem tremor em 300 frames | R2 |
 | Streaming sem hitch | Travessia de 1 km com frame p99 abaixo de 16 ms | R3 |
 | Multidão e trânsito | 200 NPCs e 50 carros a 60 fps | R5 |
-| Pipeline de conteúdo | Quarteirão autoral em menos de 8 horas | R6 |
+| UI de produção | HUD e menus abaixo de 1 ms por frame | R6 |
+| Pipeline de conteúdo | Quarteirão autoral em menos de 8 horas | R7 |
 
 Se uma prova falhar, o sistema muda de abordagem. A engine não recomeça.
 
@@ -217,9 +222,11 @@ Se uma prova falhar, o sistema muda de abordagem. A engine não recomeça.
 
 **R5 — Cidade.** Prédios modulares, veículos, trânsito, multidão e navegação. *Marco: um quarteirão vivo.*
 
-**R6 — Conteúdo e ferramentas.** Pipeline completo, prefabs, profiler, cook e áudio de produção. *Marco: conteúdo em horas.*
+**R6 — UI de jogo.** Markup, layout, estilo, binding, input, animação, minimapa e editor visual. *Marco: HUD e menus de produção.*
 
-**R7 — Fatia vertical.** Um distrito, 200 NPCs, 50 carros, 60 fps, polimento e endurecimento. *Marco: o primeiro jogo.*
+**R7 — Conteúdo e ferramentas.** Pipeline completo, prefabs, profiler, cook e áudio de produção. *Marco: conteúdo em horas.*
+
+**R8 — Fatia vertical.** Um distrito, 200 NPCs, 50 carros, 60 fps, polimento e endurecimento. *Marco: o primeiro jogo.*
 
 ## 11. Regra de mudança
 
@@ -233,3 +240,4 @@ O objetivo não é congelar a engine. É impedir que uma decisão fechada seja r
 ## 12. Histórico
 
 - **0.1** — fundação do escopo.
+- **0.2** — UI de jogo como sistema próprio e release R6; limite de arquivo; referência à arquitetura.
